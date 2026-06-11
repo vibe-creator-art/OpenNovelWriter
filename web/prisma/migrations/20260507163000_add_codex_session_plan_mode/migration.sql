@@ -1,0 +1,1 @@
+ALTER TABLE "CodexSession" ADD COLUMN "planMode" BOOLEAN NOT NULL DEFAULT false;

@@ -1,0 +1,1655 @@
+{
+    "imageEditor": {
+        "upload": "Upload image",
+        "uploading": "Uploading...",
+        "edit": "Edit image",
+        "editTitle": "Image",
+        "cropTitle": "Crop",
+        "crop": "Crop",
+        "replace": "Replace",
+        "remove": "Remove",
+        "copy": "Copy",
+        "copied": "Copied",
+        "copyFailed": "Copy failed",
+        "download": "Download",
+        "confirm": "Confirm",
+        "cancel": "Cancel",
+        "zoom": "Zoom"
+    },
+    "common": {
+        "loading": "Loading...",
+        "save": "Save",
+        "cancel": "Cancel",
+        "delete": "Delete",
+        "confirm": "Confirm",
+        "create": "Create",
+        "generate": "Generate",
+        "edit": "Edit",
+        "show": "Show",
+        "hide": "Hide",
+        "saving": "Saving...",
+        "uploadFailed": "Upload failed",
+        "operationFailed": "Operation failed",
+        "saved": "Saved",
+        "words": "words",
+        "word": "word",
+        "pages": "pages"
+    },
+    "auth": {
+        "login": {
+            "title": "Welcome Back",
+            "description": "Sign in to your OpenNovelWriter account",
+            "username": "Username",
+            "usernamePlaceholder": "Enter your username",
+            "password": "Password",
+            "passwordPlaceholder": "Enter your password",
+            "submit": "Sign In",
+            "submitting": "Signing in...",
+            "failed": "Login failed",
+            "noAccount": "Don't have an account?",
+            "register": "Register now"
+        },
+        "register": {
+            "title": "Create Account",
+            "description": "Register a new OpenNovelWriter account",
+            "closed": "Registration is closed",
+            "username": "Username",
+            "usernamePlaceholder": "Enter your username",
+            "email": "Email",
+            "emailPlaceholder": "Enter your email",
+            "password": "Password",
+            "passwordPlaceholder": "At least 6 characters",
+            "confirmPassword": "Confirm Password",
+            "confirmPasswordPlaceholder": "Re-enter your password",
+            "submit": "Register",
+            "submitting": "Registering...",
+            "failed": "Registration failed",
+            "passwordMismatch": "Passwords do not match",
+            "passwordTooShort": "Password must be at least 6 characters",
+            "hasAccount": "Already have an account?",
+            "login": "Sign in now"
+        },
+        "logout": "Log out"
+    },
+    "bookshelf": {
+        "title": "My Bookshelf",
+        "welcome": "Welcome, {username}",
+        "importNovel": "Import Novel",
+        "importing": "Importing...",
+        "importOptions": {
+            "fromNovelCrafter": "Import from NC"
+        },
+        "importErrors": {
+            "invalidProject": "The selected folder is not a valid NovelCrafter export.",
+            "missingImportContent": "The selected project does not contain any importable terms or snippets."
+        },
+        "createNovel": "Create Novel",
+        "empty": "Your bookshelf is empty. Start writing your first novel!",
+        "deleteConfirm": {
+            "title": "Confirm Delete",
+            "description": "Are you sure you want to delete \"{title}\"? This action cannot be undone and all chapters will be lost."
+        },
+        "chapters": "{count} chapters"
+    },
+    "novelCard": {
+        "edit": "Edit",
+        "delete": "Delete"
+    },
+    "novel": {
+        "form": {
+            "createTitle": "Create New Novel",
+            "editTitle": "Edit Novel",
+            "createDescription": "Fill in the basic information to start your creative journey",
+            "editDescription": "Update novel information",
+            "name": "Novel Title",
+            "namePlaceholder": "Enter novel title",
+            "nameRequired": "Please enter a novel title",
+            "synopsis": "Synopsis",
+            "synopsisPlaceholder": "Enter synopsis (optional)",
+            "category": "Category",
+            "selectCategory": "Select category",
+            "customCategory": "or custom",
+            "coverImage": "Cover Image",
+            "uploadCover": "Upload cover (1:1.6)",
+            "uploading": "Uploading..."
+        },
+        "categories": {
+            "fantasy": "Fantasy",
+            "urban": "Urban",
+            "scifi": "Sci-Fi",
+            "wuxia": "Martial Arts",
+            "romance": "Romance",
+            "mystery": "Mystery",
+            "history": "History",
+            "game": "Game"
+        }
+    },
+    "novelSettings": {
+        "title": "Novel Settings",
+        "tabs": {
+            "metadata": "Metadata",
+            "writing": "Writing"
+        },
+        "metadata": {
+            "title": "METADATA",
+            "description": "This is the metadata of your novel, used for organizing your novel collection.",
+            "novelTitle": "Novel Title",
+            "novelTitlePlaceholder": "Enter novel title",
+            "author": "Author / Pen name",
+            "authorPlaceholder": "Enter author name",
+            "series": "Series (optional)",
+            "seriesPlaceholder": "Series name",
+            "seriesIndex": "Series index",
+            "seriesIndexPlaceholder": "e.g. Book 1",
+            "descriptionLabel": "Description",
+            "descriptionPlaceholder": "Brief description of your novel"
+        },
+        "cover": {
+            "title": "COVER",
+            "description": "This is the cover of your novel. It will be displayed on the novel collection page.",
+            "upload": "Upload your cover",
+            "uploading": "Uploading...",
+            "dragDrop": "or drag and drop on the area"
+        },
+        "writing": {
+            "labelsTitle": "LABELS/MARKERS",
+            "labelsDescription": "Use these to organize your scenes by status, subplot, etc. You can also prefix them with a group (e.g. \"Status: Draft\").",
+            "labelsComingSoon": "Labels feature coming soon...",
+            "labelsEmpty": "No labels yet.",
+            "labelsNamePlaceholder": "Label name",
+            "labelsNewDefault": "New Label",
+            "addLabel": "Add Label",
+            "sortLabels": "Sort Labels",
+            "dragToSort": "Drag to reorder",
+            "clearColor": "Default (black)",
+            "setColor": "Set color",
+            "proseTitle": "PROSE",
+            "language": "Language",
+            "languageDescription": "This is the language of your novel. It will be used for spell checking and hyphenation.",
+            "languagePlaceholder": "Select language"
+        },
+        "saveChanges": "Save Changes",
+        "saving": "Saving..."
+    },
+    "settings": {
+        "title": "Settings",
+        "tabs": {
+            "codexConnections": "Codex Connections",
+            "aiConnections": "AI Connections",
+            "general": "General"
+        },
+        "codex": {
+            "connectionsTitle": "Codex Connections",
+            "connectionsDescription": "Store isolated Codex homes per account so each connection persists its own auth.json and config.toml.",
+            "connectionsListTitle": "Saved connections",
+            "newConnection": "New connection",
+            "draftTitle": "New connection draft",
+            "draftDescription": "Fill the config first, then save it as an isolated Codex connection.",
+            "loading": "Loading connections...",
+            "loadingDetail": "Loading connection details...",
+            "noConnections": "No Codex connections yet.",
+            "connectionName": "Connection name",
+            "connectionNamePlaceholder": "e.g. Primary OpenAI Official",
+            "note": "Note",
+            "notePlaceholder": "e.g. Personal account / Team account",
+            "providerTypes": {
+                "openaiOfficial": "OpenAI Official",
+                "custom": "Custom config"
+            },
+            "providerTypeHints": {
+                "openaiOfficial": "Authorize Codex with a ChatGPT account and write auth.json automatically.",
+                "custom": "Manage auth.json and config.toml manually for experiments or special setups."
+            },
+            "authStatus": "Authorization status",
+            "authorizedAs": "Authorized as {email} · {plan}",
+            "unknownPlan": "Unknown plan",
+            "active": "Active",
+            "enable": "Enable",
+            "disable": "Disable",
+            "officialUrl": "Official URL",
+            "officialUrlHint": "Official connections finish ChatGPT authorization in the browser. No API key is needed here.",
+            "officialAuthDeploymentHint": "Use Device Code authorization for server deployments; use ChatGPT authorization for local development.",
+            "authorize": "Authorize with ChatGPT",
+            "authorizeDeviceCode": "Authorize with Device Code",
+            "authorizing": "Authorizing...",
+            "deviceCodeTitle": "Enter this code on the authorization page",
+            "copyDeviceCode": "Copy code",
+            "copiedDeviceCode": "Copied",
+            "openDeviceCodeUrl": "Open authorization page",
+            "refreshStatus": "Refresh status",
+            "customApiKey": "API Key",
+            "customApiKeyPlaceholder": "sk-...",
+            "showCustomApiKey": "Show API key",
+            "hideCustomApiKey": "Hide API key",
+            "customBaseUrl": "API Base URL",
+            "customBaseUrlPlaceholder": "https://api.openai.com/v1",
+            "customModel": "Model",
+            "customModelPlaceholder": "Select a model",
+            "fetchModels": "Fetch models",
+            "fetchingModels": "Fetching...",
+            "noCustomModels": "No models yet. Fetch the list first.",
+            "remainingQuota": "Remaining quota",
+            "quotaWindow": "{window}: {remaining}%",
+            "creditsUnlimited": "Credits: unlimited",
+            "creditsBalance": "Credits: {balance}",
+            "authJson": "auth.json (JSON)",
+            "authJsonHint": "Codex account authorization is persisted in this isolated file.",
+            "configToml": "config.toml (TOML)",
+            "configTomlHint": "Codex runtime config is saved together with this connection.",
+            "resetConfig": "Reset to defaults",
+            "create": "Add connection",
+            "save": "Save connection",
+            "saving": "Saving...",
+            "deleteConnection": "Delete connection",
+            "confirmDelete": "Delete this Codex connection? This also removes its isolated config directory.",
+            "lastUpdated": "Last updated: {value}",
+            "status": {
+                "authenticated": "Authorized",
+                "authorizing": "Authorizing",
+                "unauthenticated": "Not authorized",
+                "error": "Error"
+            },
+            "defaults": {
+                "openaiOfficialName": "OpenAI Official",
+                "customName": "Custom Codex"
+            },
+            "errors": {
+                "loadFailed": "Failed to load Codex connections.",
+                "saveFailed": "Failed to save the Codex connection.",
+                "deleteFailed": "Failed to delete the Codex connection.",
+                "authStartFailed": "Failed to start ChatGPT authorization.",
+                "authStatusFailed": "Failed to fetch authorization status.",
+                "fetchModelsFailed": "Failed to fetch models.",
+                "missingCustomApiKey": "Please enter an API key first."
+            }
+        },
+        "ai": {
+            "connectionsTitle": "AI Connections",
+            "connectionsDescription": "Add providers and fetch models. Credentials are encrypted and stored on the server.",
+            "connectionType": "Format",
+            "providerTypes": {
+                "openai": "OpenAI-Chat",
+                "openaiImage": "OpenAI-Image",
+                "gemini": "Gemini"
+            },
+            "connectionName": "Connection name",
+            "connectionNamePlaceholder": "e.g. My OpenAI-Chat",
+            "apiKey": "API Key",
+            "apiKeyPlaceholder": "sk-...",
+            "apiKeyHint": "Your API Key will be encrypted and stored on the server",
+            "baseUrl": "Base URL",
+            "baseUrlPlaceholder": "https://api.openai.com/v1",
+            "baseUrlHint": "Modify this if using OpenAI-compatible services (Azure, local models, etc.)",
+            "connect": "Connect & Fetch Models",
+            "connecting": "Connecting...",
+            "connectionsListTitle": "Saved connections",
+            "noConnections": "No connections yet.",
+            "refreshModels": "Refresh models",
+            "deleteConnection": "Delete connection",
+            "modelCount": "{count} models",
+            "baseUrlLabel": "Base URL: {value}",
+            "lastFetched": "Last fetched: {value}",
+            "expandModels": "Show models",
+            "collapseModels": "Hide models",
+            "noModels": "No models found.",
+            "modelSetsTitle": "Model Sets",
+            "modelSetsDescription": "Drag model groups into sets to organize them for later use (writing, summary, etc.).",
+            "setNamePlaceholder": "New set name",
+            "addSet": "Add set",
+            "untitledSet": "Set {index}",
+            "deleteSet": "Delete set",
+            "availableGroupsTitle": "Model name groups",
+            "availableGroupsHint": "Drag a model group into a set to include it.",
+            "noModelGroups": "No model groups yet.",
+            "emptySet": "Drop model groups here",
+            "collapsedMembersHint": "{count} groups assigned (expand to view)",
+            "expandSet": "Expand set",
+            "collapseSet": "Collapse set",
+            "setOrderHint": "Ordered top to bottom.",
+            "setSummary": "{count} groups",
+            "removeMember": "Remove",
+            "modelGroupsTitle": "Model Allocation",
+            "modelGroupsDescription": "Drag models into groups and configure call behavior.",
+            "groupNamePlaceholder": "New group name",
+            "addGroup": "Add group",
+            "untitledGroup": "Group {index}",
+            "deleteGroup": "Delete group",
+            "providersTitle": "Active providers",
+            "providersHint": "Drag a model into a group to assign it.",
+            "providerFilterPlaceholder": "Filter by model name",
+            "noActiveProviders": "No active providers with models.",
+            "noMatchedProviders": "No matching connections or models.",
+            "assignments": "Group models",
+            "emptyGroup": "Drop models here",
+            "collapsedAssignmentsHint": "{count} models assigned (expand to view)",
+            "expandGroup": "Expand group",
+            "collapseGroup": "Collapse group",
+            "groupSummary": "{count} models",
+            "removeAssignment": "Remove",
+            "callOrderHint": "Called from top to bottom.",
+            "strategy": "Strategy",
+            "strategyPriority": "Use first available",
+            "strategyRoundRobin": "Round-robin",
+            "modelTypes": "Model Types",
+            "modelTypesDetectedCount": "{count} enabled",
+            "modelTypesNoneDetected": "None enabled",
+            "modelTypesManualOverride": "Manual override",
+            "modelTypesAutoDetectHint": "The detected result is used by default until you change it manually. Manual type changes can affect capability checks, so leave the default if you are unsure.",
+            "reset": "Reset",
+            "modelTypeVision": "Vision",
+            "modelTypeReasoning": "Reasoning",
+            "modelTypeTool": "Tool",
+            "modelTypeReranker": "Reranker",
+            "modelTypeEmbedding": "Embedding",
+            "stream": "Stream",
+            "temperature": "Temperature",
+            "maxTokens": "Max output tokens",
+            "maxFailures": "Failures before ignore",
+            "resetDays": "Reset ignore after (days)",
+            "pricing": "Pricing tiers",
+            "pricingUnitHint": "USD per 1M tokens",
+            "pricingContextLabel": "Context cap (tokens)",
+            "pricingInputLabel": "Input $/1M",
+            "pricingOutputLabel": "Output $/1M",
+            "pricingContextPlaceholder": "Context ≤ tokens (blank = over)",
+            "pricingInputPlaceholder": "Input $/1M",
+            "pricingOutputPlaceholder": "Output $/1M",
+            "addTier": "Add tier",
+            "testing": "Testing...",
+            "testSuccess": "Connection ok",
+            "testFailed": "Connection failed",
+            "testConnection": "Test connection",
+            "reactivate": "Reactivate",
+            "disable": "Disable",
+            "enable": "Enable",
+            "ignoredUntil": "Ignored until {value}",
+            "manualDisabled": "Manually disabled",
+            "failureCount": "{count} failures",
+            "dragPreview": "Model",
+            "errors": {
+                "missingApiKey": "Please enter an API key.",
+                "missingBaseUrl": "Please enter a base URL.",
+                "fetchModelsFailed": "Failed to fetch models.",
+                "testFailed": "Connection test failed.",
+                "missingGroupName": "Please enter a group name.",
+                "groupNameExists": "This group name already exists.",
+                "missingSetName": "Please enter a set name.",
+                "setNameExists": "This set name already exists."
+            },
+            "defaults": {
+                "openaiName": "OpenAI-Chat"
+            }
+        },
+        "general": {
+            "language": "Interface Language",
+            "languageHint": "Choose display language",
+            "comingSoon": "More settings coming soon"
+        }
+    },
+    "editor": {
+        "nav": {
+            "menu": "Menu",
+            "write": "Write",
+            "prompts": "Prompts",
+            "skills": "Skills",
+            "agents": "Agent",
+            "review": "Review"
+        },
+        "markdownToolbar": {
+            "bold": "Bold",
+            "italic": "Italic",
+            "strike": "Strikethrough",
+            "code": "Inline code",
+            "heading1": "Heading 1",
+            "heading2": "Heading 2",
+            "heading3": "Heading 3",
+            "bullet": "Bullet list",
+            "ordered": "Numbered list",
+            "quote": "Quote"
+        },
+        "sidebar": {
+            "outline": "Directory",
+            "codex": "Codex",
+            "term": "Codex",
+            "snippets": "Snippets",
+            "chats": "Chats",
+            "chatNew": "New chat",
+            "chatEmptyTitle": "No chats yet",
+            "chatEmptyDescription": "Start a new chat here. The title will use the first user message automatically.",
+            "chatUntitled": "New chat",
+            "chatNoMessages": "No messages yet",
+            "snippetsPlaceholder": "Snippets coming soon",
+            "search": "Search chapters...",
+            "searchCompact": "Search...",
+            "collapse": "Collapse",
+            "expand": "Expand",
+            "chapterOutline": "Outline",
+            "info": "Info",
+            "prompts": "Prompts",
+            "export": "Export",
+            "settingsPlaceholder": "Settings coming soon",
+            "noChapters": "No chapters yet",
+            "startWriting": "Start writing your story"
+        },
+        "outlines": {
+            "action": "Outline",
+            "search": "Search outlines...",
+            "empty": "No outlines yet. Use the Actions menu on an act or chapter to create one.",
+            "contentPlaceholder": "Write your outline...",
+            "panel": {
+                "title": "Outline",
+                "close": "Close",
+                "copy": "Copy",
+                "copied": "Copied",
+                "history": "History"
+            },
+            "history": {
+                "title": "Revision History",
+                "restore": "Restore version",
+                "close": "Close",
+                "empty": "No history yet",
+                "editedByYou": "edited by you"
+            },
+            "deleteDialog": {
+                "title": "Delete outline?",
+                "description": "This action cannot be undone."
+            }
+        },
+        "snippets": {
+            "search": "Search snippets...",
+            "new": "New",
+            "pinned": "Pinned",
+            "unpinned": "Unpinned",
+            "all": "All",
+            "empty": "No snippets yet",
+            "editorTitle": "Snippet",
+            "titlePlaceholder": "Name your snippet...",
+            "contentPlaceholder": "Write your idea...",
+            "untitled": "Untitled",
+            "emptyPreview": "No content",
+            "pin": "Pin",
+            "unpin": "Unpin",
+            "panel": {
+                "title": "Snippet",
+                "close": "Close",
+                "copy": "Copy",
+                "copied": "Copied",
+                "history": "History",
+                "preview": "Preview",
+                "previewExpand": "Expand preview",
+                "previewCollapse": "Collapse preview"
+            },
+            "history": {
+                "title": "Revision History",
+                "restore": "Restore version",
+                "close": "Close",
+                "empty": "No history yet",
+                "editedByYou": "edited by you"
+            },
+            "loadError": "Failed to load snippets",
+            "createError": "Failed to create snippet",
+            "deleteDialog": {
+                "title": "Delete snippet?",
+                "description": "This action cannot be undone."
+            }
+        },
+        "terms": {
+            "search": "Search all entries...",
+            "filter": "Filter",
+            "settings": "Settings",
+            "menu": "Menu",
+            "add": "New entry",
+            "createTitle": "New entry",
+            "createErrors": {
+                "duplicateTitle": "An entry with this name already exists."
+            },
+            "menuItems": {
+                "presetCategories": "Preset Categories",
+                "customCategories": "Custom Categories",
+                "customDescriptionTemplate": "Custom Description Template",
+                "archivedEntries": "Archived Entries",
+                "displaySettings": "Display Settings",
+                "comingSoon": "More options coming soon"
+            },
+            "displaySettings": {
+                "collapseAll": "Collapse all",
+                "expandAll": "Expand all",
+                "sortBy": "Sort by",
+                "sort": {
+                    "name": "Name",
+                    "priority": "Priority"
+                }
+            },
+            "filters": {
+                "hasRelations": "Has relations",
+                "hasNotes": "Has notes",
+                "hasDescription": "Has description",
+                "hasThumbnail": "Has thumbnail",
+                "hasTags": "Has tags",
+                "alwaysInclude": "Always include",
+                "neverInclude": "Never include",
+                "filterByTag": "Filter by Tag",
+                "filterByType": "Filter by Type",
+                "emptyTags": "No tags yet",
+                "clear": "Clear Filters"
+            },
+            "archived": {
+                "title": "Archived Entries",
+                "empty": "No archived entries",
+                "conflict": "An active entry with the same name exists. Restore is temporarily unavailable.",
+                "restore": "Restore selected",
+                "delete": "Delete permanently"
+            },
+            "customCategories": {
+                "title": "Custom Categories",
+                "namePlaceholder": "Category name...",
+                "empty": "No custom categories yet",
+                "delete": "Delete",
+                "cannotDeleteNonEmpty": "Can't delete non-empty category",
+                "alreadyExists": "Category name already exists",
+                "reservedNameHint": "This name is reserved by a built-in or preset category. If it is a preset, enable it from Preset Categories."
+            },
+            "presetCategories": {
+                "title": "Preset Categories",
+                "cannotDisableNonEmpty": "This category has entries and cannot be disabled",
+                "items": {
+                    "skills": "Skills",
+                    "talents": "Talents",
+                    "realms": "Realms"
+                }
+            },
+            "customTemplates": {
+                "title": "Custom Description Template",
+                "placeholder": "Coming soon"
+            },
+            "iconPicker": {
+                "title": "Choose Icon",
+                "searchPlaceholder": "Search icons...",
+                "upload": "Upload image",
+                "uploadHelp": "Image will be cropped to a square icon."
+            },
+            "fields": {
+                "title": "Title",
+                "category": "Category",
+                "subtitle": "Subtitle"
+            },
+            "titlePlaceholder": "Entry name...",
+            "subtitlePlaceholder": "Optional",
+            "panel": {
+                "title": "Term entry details",
+                "close": "Close",
+                "delete": "Delete entry",
+                "deleteConfirm": "Delete \"{title}\"? This action cannot be undone.",
+                "mentionsCount": "{count} mentions",
+                "comingSoon": "Coming soon",
+                "tabs": {
+                    "details": "Details",
+                    "experiences": "Experiences",
+                    "research": "Research",
+                    "relations": "Relations",
+                    "mentions": "Mentions",
+                    "tracking": "Tracking",
+                    "gallery": "Gallery"
+                },
+                "experiences": {
+                    "help": "One experience per line, in story order from top to bottom.",
+                    "empty": "No experiences yet. Add the first one below to track how this entry changes over the story.",
+                    "addPlaceholder": "Add an experience, press Enter to save",
+                    "add": "Add experience",
+                    "edit": "Edit",
+                    "delete": "Delete",
+                    "dragHandle": "Drag to reorder"
+                },
+                "gallery": {
+                    "upload": "Upload image",
+                    "uploadFailed": "Upload failed, please try again.",
+                    "empty": "No images yet — upload one, or open an image in chat / Codex and import it.",
+                    "setAvatar": "Set as avatar",
+                    "remove": "Remove"
+                },
+                "research": {
+                    "tabs": {
+                        "notes": "Notes",
+                        "external": "External"
+                    },
+                    "notes": {
+                        "label": "Notes",
+                        "help": "These notes are only visible to you and are not used in the generation of new prose.",
+                        "placeholder": "Write your notes here..."
+                    },
+                    "external": {
+                        "title": "External References",
+                        "help": "Add links to external sites like Google Docs, Notion or other places where you keep your information!",
+                        "empty": "No external links yet",
+                        "placeholder": "Enter a URL...",
+                        "add": "Add",
+                        "delete": "Delete",
+                        "invalidUrl": "Please enter a valid URL.",
+                        "duplicate": "This link is already added."
+                    }
+                },
+                "relations": {
+                    "title": "Relations/Connections",
+                    "help": "Add connections to other entries to build a network of information.",
+                    "add": "Add Entry",
+                    "empty": "No relations yet",
+                    "labelPlaceholder": "Relationship",
+                    "actions": {
+                        "bidirectional": "Bidirectional",
+                        "reverse": "Reverse direction",
+                        "delete": "Delete relation"
+                    },
+                    "picker": {
+                        "title": "Add relation",
+                        "searchLabel": "Search",
+                        "searchPlaceholder": "Search entries...",
+                        "empty": "No entries available"
+                    }
+                },
+                "mentions": {
+                    "noManuscript": "Mentions are available when your manuscript is loaded.",
+                    "sources": {
+                        "manuscript": "Manuscript",
+                        "summaries": "Summaries",
+                        "terms": "Terms",
+                        "snippets": "Snippets",
+                        "outlines": "Outlines"
+                    },
+                    "emptyManuscript": "No manuscript mentions yet",
+                    "emptySummaries": "No summary mentions yet",
+                    "emptyTerms": "No term mentions yet",
+                    "emptySnippets": "No snippet mentions yet",
+                    "emptyOutlines": "No outline mentions yet",
+                    "open": "Open",
+                    "loadMore": "Load more",
+                    "showing": "Showing {shown} of {total}",
+                    "chapterLabel": "Chapter {number}",
+                    "sceneLabel": "Scene {number}"
+                },
+                "tracking": {
+                    "always": "Always include",
+                    "detected": "Include when detected",
+                    "never": "Never include"
+                },
+                "footer": {
+                    "history": "History",
+                    "copy": "Copy",
+                    "copied": "Copied"
+                },
+                "history": {
+                    "title": "Revision History",
+                    "restore": "Restore version",
+                    "close": "Close",
+                    "empty": "No history yet",
+                    "editedByYou": "edited by you"
+                },
+                "avatar": {
+                    "upload": "Upload image"
+                },
+                "actions": {
+                    "label": "Entry actions",
+                    "color": "Color",
+                    "archive": "Archive entry"
+                },
+                "colors": {
+                    "black": "Black",
+                    "gray": "Gray",
+                    "brown": "Brown",
+                    "orange": "Orange",
+                    "yellow": "Yellow",
+                    "green": "Green",
+                    "blue": "Blue",
+                    "purple": "Purple",
+                    "pink": "Pink",
+                    "red": "Red"
+                },
+                "tags": {
+                    "placeholder": "+ Add labels",
+                    "add": "Add",
+                    "empty": "No labels yet"
+                },
+                "fields": {
+                    "aliases": "Aliases/Nicknames",
+                    "aliasesHelp": "Separate with commas. Names you use here will be detected in your prose.",
+                    "aliasesPlaceholder": "Comma-separated",
+                    "description": "Description",
+                    "descriptionPlaceholder": "Write the details here...",
+                    "descriptionPreview": "Preview",
+                    "descriptionPreviewExpand": "Expand preview",
+                    "descriptionPreviewCollapse": "Collapse preview"
+                }
+            },
+            "entryCount": "{count} entries",
+            "emptyCategory": "No entries",
+            "emptyAll": "No term entries yet",
+            "categories": {
+                "characters": "Characters",
+                "locations": "Locations",
+                "items": "Objects/Items",
+                "lore": "Lore"
+            },
+            "gallery": {
+                "importButton": "Import",
+                "imported": "Imported",
+                "importFailed": "Import failed",
+                "searchPlaceholder": "Search terms...",
+                "filterAll": "All",
+                "filterOthers": "Others",
+                "empty": "No matching terms"
+            }
+        },
+        "view": {
+            "everything": "Everything",
+            "viewEntireAct": "View Entire Act",
+            "chapters": "chapters",
+            "chapter": "chapter"
+        },
+        "header": {
+            "format": "Format",
+            "focus": "Fullscreen",
+            "exitFocus": "Exit Focus Mode (ESC)",
+            "showInfoPanel": "Show Info Panel",
+            "hideInfoPanel": "Hide Info Panel"
+        },
+        "formatMenu": {
+            "typography": "TYPOGRAPHY",
+            "aiOutput": "AI OUTPUT",
+            "fontFamily": "Font family",
+            "textSize": "Text size",
+            "lineHeight": "Line height",
+            "paragraphSpacing": "Paragraph spacing",
+            "textIndent": "Text indent",
+            "planningStyle": "Planning style",
+            "reasoningStyle": "Reasoning style",
+            "aiOutputHint": "Control how Planning and Reasoning are presented in generated continuation output.",
+            "cursor": "CURSOR",
+            "jumpPosition": "Jump position",
+            "rememberCursor": "Remember where I left off",
+            "typewriterMode": "Typewriter mode",
+            "enableTypewriterMode": "Enable typewriter mode",
+            "enableSmoothFollow": "Enable smooth follow",
+            "reset": "Reset",
+            "tabs": {
+                "typography": "TYPOGRAPHY",
+                "aiOutput": "AI OUTPUT"
+            },
+            "outputStyleOptions": {
+                "none": "None",
+                "card": "Card"
+            },
+            "planningStyleDescription": {
+                "none": "Keep the presentation minimal.",
+                "card": "Use a highlighted card for planning."
+            },
+            "reasoningStyleDescription": {
+                "none": "Keep the presentation minimal.",
+                "card": "Use a highlighted card for reasoning."
+            },
+            "fontFamilyGroups": {
+                "serif": "Serif",
+                "sans": "Sans Serif",
+                "mono": "Monospace"
+            },
+            "fontFamilyOptions": {
+                "sans": "Geist Sans",
+                "systemSans": "System UI (Sans)",
+                "arial": "Arial",
+                "helvetica": "Helvetica",
+                "serif": "System Serif",
+                "times": "Times New Roman",
+                "georgia": "Georgia",
+                "palatino": "Palatino",
+                "mono": "Geist Mono",
+                "menlo": "Menlo",
+                "consolas": "Consolas",
+                "courier": "Courier New"
+            },
+            "textSizeOptions": {
+                "sm": "Small",
+                "md": "Medium",
+                "lg": "Large",
+                "xl": "Extra large"
+            },
+            "lineHeightOptions": {
+                "tight": "Tight",
+                "normal": "Normal",
+                "relaxed": "Relaxed",
+                "loose": "Loose"
+            },
+            "paragraphSpacingOptions": {
+                "none": "None",
+                "sm": "Small",
+                "md": "Medium",
+                "lg": "Large"
+            },
+            "textIndentOptions": {
+                "none": "None",
+                "sm": "Small",
+                "md": "Standard"
+            },
+            "jumpPositionOptions": {
+                "start": "Start of scene",
+                "end": "End of scene"
+            }
+        },
+        "infoPanel": {
+            "title": "Info Panel",
+            "hide": "Hide Info Panel",
+            "chapterSummary": "CHAPTER SUMMARY",
+            "addChapterSummary": "Click to add chapter summary...",
+            "actions": "ACTIONS",
+            "statistics": "STATISTICS",
+            "wordsLabel": "Words",
+            "previewEmptyHint": "Click \"Preview\" to show the rendered prompt.",
+            "tabs": {
+                "preview": "Preview",
+                "codex": "Codex",
+                "chat": "Chat",
+                "materials": "Materials"
+            },
+            "materials": {
+                "importLabel": "Import",
+                "empty": "No materials yet. Click \"Import\" to add TXT files.",
+                "untitled": "Untitled",
+                "noNovel": "Open a novel first.",
+                "loadError": "Failed to load materials.",
+                "importError": "Import failed, please try again.",
+                "docLoadError": "Failed to load document.",
+                "rename": "Rename",
+                "delete": "Delete",
+                "cancel": "Cancel",
+                "deleteConfirmTitle": "Delete this material?",
+                "deleteConfirmDescription": "This cannot be undone: {name}",
+                "back": "Back to list",
+                "searchPlaceholder": "Search content…",
+                "clearSearch": "Clear search",
+                "noMatch": "No match",
+                "prevMatch": "Previous",
+                "nextMatch": "Next"
+            },
+            "placeholder": "More panel actions coming soon.",
+            "chatStartTitle": "Start a new chat",
+            "chatStartDescription": "Choose a chat prompt and input values, then send your first message. The conversation title is generated from that first message.",
+            "chatCreate": "New chat",
+            "chatRename": "Rename",
+            "chatClone": "Clone",
+            "chatDelete": "Delete",
+            "chatDeleteConfirmTitle": "Delete this chat?",
+            "chatDeleteConfirmDescription": "This cannot be undone: {title}",
+            "chatPromptLabel": "Prompt",
+            "chatPromptEmpty": "No chat prompts available",
+            "chatPromptInvalid": "Chat prompts must end with a user message containing exactly one chat.userInput placeholder.",
+            "chatPromptLocked": "This chat has locked its prompt. Switching prompts mid-chat breaks cache reuse and reduces reply consistency. Start a new chat instead.",
+            "chatTweak": "Tweak",
+            "chatTweakDone": "Done",
+            "chatModelNoResponse": "The model call completed, but returned no chat reply.",
+            "chatGenerating": "Generating reply...",
+            "attachmentAdd": "Add images",
+            "attachmentErrorType": "Only JPG, PNG, and WebP images are supported",
+            "attachmentErrorSize": "Image is too large (max 5MB)",
+            "attachmentErrorCount": "Up to 6 images per message",
+            "attachmentErrorVision": "The current model does not support image input",
+            "attachmentErrorUpload": "Image upload failed, please retry",
+            "attachmentVisionStripped": "This conversation contains images, but the current model does not support image input — only text will be sent.",
+            "chatComposerPlaceholder": "Type a message. Enter sends, Shift + Enter inserts a newline.",
+            "chatSend": "Send",
+            "chatCopyMessage": "Copy message",
+            "chatRetryMessage": "Retry",
+            "chatBranchMessage": "New branch",
+            "chatSaveToSnippet": "Save to snippet",
+            "chatMultiSelect": "Multi-select",
+            "chatSelectMessage": "Select message",
+            "chatSelectedMessages": "Selected {count} messages",
+            "chatSnippetTitle": "AI reply snippet"
+        },
+        "codex": {
+            "newSession": "New Codex",
+            "untitled": "Codex session",
+            "deleteSession": "Delete",
+            "deleteConfirmTitle": "Delete this Codex session?",
+            "deleteConfirmDescription": "This cannot be undone: {title}",
+            "emptyTitle": "No Codex sessions yet",
+            "emptyDescription": "General sessions can be created freely. Scene operation and continuation sessions will be attached by their workflows later.",
+            "generalEmpty": "No general sessions yet.",
+            "boundCategoryEmpty": "This category is created by its workflow.",
+            "textReplacementPlaceholder": "Text replacement sessions are coming soon.",
+            "noMessages": "No messages yet",
+            "startTitle": "Let Codex help write your novel",
+            "startDescription": "",
+            "composerPlaceholder": "Let Codex help write your novel. @ to mention files or plugins",
+            "running": "Codex is running...",
+            "attach": "Add context",
+            "plan": "Plan",
+            "createPlan": "Create a plan",
+            "usePlanMode": "Use plan mode",
+            "dismissPlanHint": "Dismiss",
+            "disablePlan": "Disable Plan",
+            "turnOffQueueing": "Turn off queueing",
+            "turnOnQueueing": "Turn on queueing",
+            "reviewLevels": {
+                "user_review": "User review",
+                "auto_review": "Auto-review",
+                "no_review": "No review"
+            },
+            "approval": {
+                "submit": "Submit",
+                "dismiss": "Dismiss",
+                "yes": "Yes",
+                "acceptForSession": "Yes, and don't ask again this session",
+                "acceptWithPolicy": "Yes, and don't ask again for commands that start with {policy}",
+                "steer": "No, and tell Codex what to do differently",
+                "decline": "No",
+                "titleCommandNamed": "Allow command: {command}?",
+                "titleCommand": "Allow command execution?",
+                "titleFile": "Allow file changes?",
+                "titlePermissions": "Allow additional permissions?",
+                "titleElicitationNamed": "Allow {server} request?",
+                "titleElicitation": "Allow MCP request?",
+                "titleToolNamed": "Allow {tool}?",
+                "titleTool": "Allow tool call?",
+                "titleFallback": "Allow this action?"
+            },
+            "intelligence": "Intelligence",
+            "model": "Model",
+            "speed": "Speed",
+            "remainingQuota": "Remaining quota",
+            "quotaWindow": "{window}: {remaining}%",
+            "creditsUnlimited": "Credits: unlimited",
+            "creditsBalance": "Credits: {balance}",
+            "reasoningEfforts": {
+                "low": "Low",
+                "medium": "Medium",
+                "high": "High",
+                "xhigh": "Extra High"
+            },
+            "serviceTiers": {
+                "standard": "Standard",
+                "fast": "Fast"
+            },
+            "serviceTierDescriptions": {
+                "standard": "Default speed, normal usage",
+                "fast": "1.5x speed, increased usage"
+            },
+            "high": "High",
+            "send": "Send",
+            "categories": {
+                "general": "General",
+                "scene_operation": "Scene operation",
+                "scene_continuation": "Scene continuation"
+            }
+        },
+        "act": {
+            "label": "Act",
+            "defaultTitle": "Act {number}",
+            "newAct": "New Act",
+            "insertActBefore": "Insert Act Before",
+            "insertActAfter": "Insert Act After",
+            "deleteAct": "Delete Act",
+            "addSummary": "Add summary...",
+            "chapter": "chapter",
+            "chapters": "chapters"
+        },
+        "chapter": {
+            "label": "Chapter",
+            "defaultTitle": "Chapter {number}",
+            "newChapter": "New Chapter",
+            "insertBefore": "Insert Before",
+            "insertAfter": "Insert After",
+            "copyBeats": "Copy Beats",
+            "copyProse": "Copy Prose",
+            "untitledChapter": "Untitled Chapter",
+            "noChaptersYet": "No chapters yet. Click \"+ New Chapter\" to add one.",
+            "createFirstChapter": "Create First Chapter",
+            "startWriting": "Start writing your story"
+        },
+        "scene": {
+            "label": "Scene",
+            "newScene": "New Scene",
+            "copyScene": "Copy Scene",
+            "sceneActions": "Scene Actions",
+            "useDefaultPrompt": "Use default prompt",
+            "deleteScene": "Delete Scene",
+            "addSummary": "Add summary...",
+            "loadingScenes": "Loading scenes...",
+            "startWriting": "Start writing...",
+            "continueWriting": "Continue your story...",
+            "continueStory": "Continue story",
+            "creating": "Creating...",
+            "operationRunning": "Running: {name}",
+            "operationNeedsInput": "Your input is needed: {name}"
+        },
+        "codexSkillTweak": {
+            "tweak": "Tweak",
+            "chatInputLabel": "Conversation input",
+            "chatInputPlaceholder": "Paste or type the content for the model to work on — @ mentioned terms are auto-injected…",
+            "chatInputHint": "This is assembled with the skill's bound prompt (overview + mentioned terms included automatically) and shipped with the message for Codex; the main composer text is your instruction to Codex.",
+            "done": "Done",
+            "send": "Send to Codex"
+        },
+        "sceneContinuation": {
+            "codexInstructionLabel": "Ask for Codex (optional)",
+            "codexInstructionPlaceholder": "Extra guidance for Codex to act on…",
+            "sendToCodex": "Send to Codex",
+            "sendHint": "The inputs above are assembled into the prompt for Codex to act on; locked after sending",
+            "sentHint": "Handed to Codex — keep adjusting in the session on the right",
+            "sendingHint": "Handing to Codex…",
+            "openSession": "Open session",
+            "expandConfig": "Expand",
+            "collapseConfig": "Collapse"
+        },
+        "sceneOperation": {
+            "modelGroups": "Model groups",
+            "skillsSection": "Skills (Codex)",
+            "runModelGroups": "Model groups for this run",
+            "noAssignments": "No provider",
+            "result": "Generated result",
+            "planning": "Planning",
+            "reasoning": "Reasoning",
+            "content": "Content",
+            "modelOutput": "Model output",
+            "modelResponse": "Model response",
+            "reasoningSummary": "Reasoning summary",
+            "runStarting": "Starting...",
+            "runStepRunning": "Running",
+            "runStepCompleted": "Completed",
+            "runStepFailed": "Failed",
+            "running": "Generating",
+            "resultWaiting": "The model is responding...",
+            "resultEmpty": "No output yet",
+            "terminate": "Terminate",
+            "retry": "Retry",
+            "write": "Write",
+            "writeAndClose": "Write and close",
+            "emptySceneHint": "The current scene is empty, so generation may not be useful.",
+            "disabledReasons": {
+                "missingPrompt": "Prompt not found",
+                "noModelBinding": "No model is bound",
+                "missingModelGroup": "Bound model group not found",
+                "noValidModel": "No valid model"
+            }
+        },
+        "actions": {
+            "label": "Actions",
+            "labelBtn": "Label",
+            "term": "Term"
+        },
+        "labels": {
+            "empty": "No labels yet",
+            "manage": "Manage labels"
+        },
+        "deleteDialog": {
+            "title": "Confirm Delete",
+            "description": "Are you sure you want to delete chapter \"{title}\"? This action cannot be undone."
+        }
+    },
+    "prompts": {
+        "status": {
+            "loading": "Loading prompts...",
+            "saving": "Saving...",
+            "saved": "Saved",
+            "saveFailed": "Save failed"
+        },
+        "library": {
+            "searchPlaceholder": "Search library...",
+            "filter": "Filter",
+            "entries": "{count} entries",
+            "empty": "No prompts",
+            "untitled": "Untitled",
+            "metrics": {
+                "inputs": "Inputs: {count}",
+                "calls": "Calls: {count}"
+            }
+        },
+        "categories": {
+            "default": "Default Prompts",
+            "sceneContinuation": "Scene Continuation",
+            "sceneAction": "Scene Actions",
+            "textReplacement": "Text Replacement",
+            "aiChat": "AI Chat",
+            "components": "Prompt Components"
+        },
+        "tabs": {
+            "general": "General",
+            "instructions": "Instructions",
+            "advanced": "Advanced",
+            "description": "Description",
+            "usages": "Usages"
+        },
+        "roles": {
+            "user": "User",
+            "ai": "AI"
+        },
+        "badges": {
+            "system": "System",
+            "nsfw": "NSFW"
+        },
+        "actions": {
+            "new": "New",
+            "newInCategory": "New prompt",
+            "importFromClipboard": "Import from clipboard",
+            "importFromJson": "Import from JSON file",
+            "addMessage": "Add message",
+            "reorder": "Reorder",
+            "clone": "Clone",
+            "clonePrompt": "Clone prompt",
+            "copy": "Copy",
+            "copied": "Copied",
+            "copyIncludeCall": "Copy include tag",
+            "copyToClipboard": "Copy to clipboard",
+            "exportToJson": "Export JSON file",
+            "history": "History",
+            "delete": "Delete",
+            "deletePrompt": "Delete prompt",
+            "more": "More",
+            "newPromptName": "New Prompt"
+        },
+        "defaults": {
+            "title": "Default Prompts",
+            "hint": "Each category can only use prompts with direct LLM calls enabled.",
+            "type": "Category",
+            "prompt": "Prompt",
+            "reset": "Reset",
+            "none": "None"
+        },
+        "presets": {
+            "title": "Official Presets",
+            "description": "Built-in prompt presets are read-only. Clone one into your prompt library to edit it.",
+            "loading": "Loading presets...",
+            "empty": "No presets yet",
+            "clone": "Clone",
+            "cloning": "Cloning...",
+            "revision": "v{revision}",
+            "promptCount": "{count} prompts",
+            "overwriteDialog": {
+                "title": "Overwrite existing prompts?",
+                "description": "Some prompt names in this preset already exist. Continuing will overwrite those prompts in place.",
+                "confirm": "Overwrite and clone"
+            },
+            "publish": {
+                "createMenu": "Publish as preset",
+                "overwriteMenu": "Overwrite preset",
+                "createTitle": "Publish Prompt Preset",
+                "createDescription": "Save the current prompt and its included components as a built-in JSON preset.",
+                "overwriteTitle": "Overwrite Prompt Preset",
+                "overwriteDescription": "Replace an existing preset with the current prompt and increment its version by 0.1.",
+                "presetId": "Preset ID",
+                "name": "Preset name",
+                "descriptionLabel": "Description",
+                "descriptionPlaceholder": "Describe what this preset is for...",
+                "overwritePreset": "Preset to overwrite",
+                "selectPreset": "Select preset",
+                "saving": "Saving...",
+                "createSubmit": "Publish preset",
+                "overwriteSubmit": "Overwrite and upgrade"
+            },
+            "errors": {
+                "cloneFailed": "Failed to clone preset",
+                "publishFailed": "Failed to publish preset",
+                "selectPreset": "Select a preset to overwrite"
+            }
+        },
+        "history": {
+            "title": "Revision History",
+            "restore": "Restore version",
+            "close": "Close",
+            "empty": "No history yet",
+            "editedByYou": "edited by you"
+        },
+        "usages": {
+            "intro": "The following prompts include this component in their instructions:",
+            "empty": "No prompts are including this component yet.",
+            "calls": "{count} calls"
+        },
+        "editor": {
+            "emptyState": "Select a prompt to edit",
+            "name": "Name",
+            "systemMessage": "System Message",
+            "message": "Message",
+            "messages": "Messages",
+            "multiMessageIntro": "Each prompt needs to have at least one system message. Some prompt types also need additional user or assistant messages. In those cases, you can add as many additional messages as you need.",
+            "componentIntro": "Enter the instructions below that you want to reuse in other prompts. These instructions will be inserted into the prompt when you call it by its name.",
+            "description": "Description",
+            "descriptionPlaceholder": "Describe this prompt...",
+            "instructionsPlaceholder": "Write your prompt here...",
+            "findPlaceholder": "Find",
+            "findPrevious": "previous",
+            "findNext": "next",
+            "findMatchCase": "match case",
+            "findRegex": "regex",
+            "findWholeWord": "by word",
+            "findCount": "{current}/{total}",
+            "generalPlaceholder": "General settings coming soon",
+            "advancedPlaceholder": "Advanced settings coming soon",
+            "usagesPlaceholder": "Usages coming soon",
+            "templateReference": {
+                "title": "Template Reference",
+                "intro": "The prompt editor now uses standard Nunjucks syntax. These variables and tags are available directly in templates.",
+                "novelLanguage": "The language of the current novel, such as 中文 or English.",
+                "novelOutline": "Outputs the story-so-far novel summaries before the current execution point, including act and scene summaries.",
+                "novelOutlineStorySoFar": "Explicitly reads the story-so-far novel summaries before the current execution point; equivalent to `novel.outline`.",
+                "novelOutlineFull": "Reads all non-empty act summaries and scene summaries across the whole novel.",
+                "instructionText": "The current instruction text.",
+                "instructionTermsText": "Reads the names of terms linked to the current instruction.",
+                "instructionTermsValue": "Reads the detailed term blocks linked to the current instruction.",
+                "chatUserInput": "The current user input for this turn.",
+                "chatUserInputTermsText": "Reads the names of terms linked to the current user input, including always-included terms and excluding never-include terms.",
+                "chatUserInputTermsValue": "Reads the detailed term blocks linked to the current user input, including always-included terms and excluding never-include terms.",
+                "chatHistory": "The merged text of the current conversation history.",
+                "chatHistoryTermsText": "Reads the names of terms linked to the current conversation history, including always-included terms and excluding never-include terms.",
+                "chatHistoryTermsValue": "Reads the detailed term blocks linked to the current conversation history, including always-included terms and excluding never-include terms.",
+                "sceneText": "The current scene body text.",
+                "scenePreviousText": "The text that comes before the current scene.",
+                "sceneFollowText": "The text that comes after the current scene.",
+                "sceneHasPreviousText": "Whether the current scene has previous text, useful for conditionals.",
+                "inputText": "Reads the text value of an input.",
+                "inputValue": "Reads the value of an input (usually the raw option value or identifier).",
+                "inputTermText": "Reads the names of terms linked to an input (content selection only).",
+                "inputTermValue": "Reads the detailed term blocks linked to an input (content selection only).",
+                "inputTermTagText": "Reads the names of terms matched by term tags linked to an input (content selection only).",
+                "inputTermTagValue": "Reads the detailed term blocks for term tags linked to an input (content selection only).",
+                "inputSnippetText": "Reads the titles of snippets linked to an input (content selection only).",
+                "inputSnippetValue": "Reads the snippet bodies linked to an input (content selection only).",
+                "inputFullNovelText": "Reads the labels of selected full-novel entries linked to an input (content selection only).",
+                "inputFullNovelValue": "Reads the selected full-novel content linked to an input, following that input's full-text/summary mode (content selection only).",
+                "inputActText": "Reads the labels of selected acts linked to an input (content selection only).",
+                "inputActValue": "Reads the selected act content linked to an input, following that input's full-text/summary mode (content selection only).",
+                "inputChapterText": "Reads the labels of selected chapters linked to an input (content selection only).",
+                "inputChapterValue": "Reads the selected chapter content linked to an input, following that input's full-text/summary mode (content selection only).",
+                "inputSceneText": "Reads the labels of selected scenes linked to an input (content selection only).",
+                "inputSceneValue": "Reads the selected scene content linked to an input, following that input's full-text/summary mode (content selection only).",
+                "unionTerms": "Merges two term collections; the result also exposes `.count`, `.text`, and `.value`.",
+                "chatUnionTerms": "Example: merge terms detected from the current user input, chat history, and extra inputs, then read `.count`, `.text`, or `.value` from the combined set.",
+                "includeComponent": "Includes the content of a prompt component.",
+                "expand": "Expand",
+                "collapse": "Collapse"
+            }
+        },
+        "general": {
+            "modelGroups": {
+                "title": "Model groups",
+                "hint": "Attach model groups to extend this prompt with additional models.",
+                "loading": "Loading model groups...",
+                "empty": "No model groups attached",
+                "attach": "Attach",
+                "attachSet": "Attach set",
+                "detach": "Detach",
+                "primary": "Current",
+                "candidate": "Candidate",
+                "missing": "Missing",
+                "setPrimary": "Set current",
+                "setsTitle": "Model sets",
+                "setsHint": "Attaching a model set automatically fills in its runnable model groups; embedding and reranker groups are ignored.",
+                "setsEmpty": "No model sets attached",
+                "modelCount": "{count} models",
+                "setMemberCount": "{count} groups",
+                "syncRemovedSets": "Removed {count} invalid model-set tags",
+                "syncRemovedGroups": "Removed {count} invalid model groups",
+                "syncAddedGroups": "Added {count} model groups"
+            },
+            "settings": {
+                "title": "Prompt settings",
+                "type": "Type",
+                "moderation": "Moderation",
+                "sfw": "SFW (Safe For Work)",
+                "nsfw": "NSFW (Not Safe For Work)",
+                "usage": "Usage",
+                "llmCall": "Direct LLM call",
+                "llmCallHint": "Allow this prompt to run as a single LLM call.",
+                "agentCall": "Codex call",
+                "agentCallHint": "Allow this prompt to be referenced and called by a Codex skill (as its associated prompt).",
+                "generateThenAgent": "Hand off to Codex after generation",
+                "agentThenGenerate": "Codex call generates"
+            }
+        },
+        "advanced": {
+            "inputs": {
+                "title": "Inputs",
+                "add": "Add input",
+                "delete": "Delete input",
+                "empty": "No inputs defined",
+                "selectPrompt": "Select an input to edit",
+                "detailsTitle": "Input details",
+                "name": "Name",
+                "description": "Description",
+                "descriptionPlaceholder": "Help text shown to users...",
+                "required": "Must be filled out",
+                "collapsed": "Start collapsed",
+                "allowMultiple": "Allow selecting multiple options",
+                "unusedBadge": "Unused",
+                "unusedNotice": "This input is not used by the prompt.",
+                "newInputName": "New input",
+                "untitled": "Untitled input",
+                "duplicateNameNotice": "That name already exists. Kept the previous name.",
+                "requiredBadge": "Required",
+                "includedTitle": "Included inputs",
+                "includedBadge": "Included",
+                "includedFrom": "from {name}",
+                "includedNotice": "This input is provided by an included prompt component and cannot be edited here.",
+                "includedNoticeWithSource": "This input is provided by an included prompt component (“{name}”) and cannot be edited here.",
+                "jumpToSourceButton": "Go to source component",
+                "expand": "Expand",
+                "collapse": "Collapse"
+            },
+            "allowedContent": {
+                "title": "Allowed content",
+                "help": "Your input may contain more than one type of content.",
+                "customTitle": "Custom content",
+                "customHint": "Allows entering additional information not linked to a specific type of content.",
+                "contentSelectionTitle": "Content selection",
+                "contentSelectionHint": "Select from a list of options based on your current novel/series.",
+                "checkboxTitle": "Checkbox",
+                "checkboxHint": "Shows a little checkbox next to the input.",
+                "comingSoon": "Coming soon",
+                "text": "Text",
+                "textHint": "Allow free-form text input.",
+                "textPlaceholderLabel": "Placeholder",
+                "textPlaceholderHint": "Enter an example of the text that your prompt needs.",
+                "textPlaceholderPlaceholder": "Enter an example...",
+                "dropdown": "Dropdown",
+                "dropdownHint": "Allow selecting from a predefined list."
+            },
+            "contentSelection": {
+                "title": "Content options",
+                "hint": "Choose which kinds of content users can select.",
+                "contextButton": "Context",
+                "fullNovel": "Full novel",
+                "act": "Act",
+                "chapter": "Chapter",
+                "scene": "Scene",
+                "snippet": "Snippet",
+                "term": "Codex",
+                "label": "Label",
+                "outline": "Outline",
+                "actOutline": "Act outline",
+                "chapterOutline": "Chapter outline",
+                "termTag": "Codex tag",
+                "fullText": "Full text",
+                "summary": "Summary",
+                "summaryOutline": "Summary",
+                "termOtherTypes": "Others",
+                "displayNameLabel": "Display name",
+                "displayNameHint": "Optional. Leave blank to use the input name.",
+                "actPlural": "Acts",
+                "chapterPlural": "Chapters",
+                "scenePlural": "Scenes",
+                "chapterCountOne": "1 chapter",
+                "chapterCountOther": "{count} chapters",
+                "actLabel": "Act {number}",
+                "chapterLabel": "Chapter {number}",
+                "sceneLabel": "Scene {number}",
+                "noScenes": "No scenes",
+                "termPicker": {
+                    "searchPlaceholder": "Search codex...",
+                    "filterAll": "All",
+                    "empty": "No codex entries"
+                },
+                "labelPicker": {
+                    "searchPlaceholder": "Search labels...",
+                    "loading": "Loading labels...",
+                    "empty": "No labels",
+                    "noNovel": "No novel selected",
+                    "loadError": "Failed to load labels"
+                },
+                "outlinePicker": {
+                    "searchPlaceholder": "Search outlines...",
+                    "loading": "Loading outlines...",
+                    "empty": "No outlines",
+                    "noNovel": "No novel selected",
+                    "loadError": "Failed to load outlines"
+                },
+                "termTagPicker": {
+                    "searchPlaceholder": "Search codex tags...",
+                    "empty": "No codex tags"
+                },
+                "snippetPicker": {
+                    "title": "Select snippets",
+                    "hint": "Pick one or more snippets from this novel.",
+                    "searchPlaceholder": "Search snippets...",
+                    "loading": "Loading snippets...",
+                    "empty": "No snippets",
+                    "close": "Close",
+                    "untitledSnippet": "Untitled snippet",
+                    "pinned": "Pinned",
+                    "noNovel": "No novel selected",
+                    "loadError": "Failed to load snippets"
+                }
+            },
+            "checkbox": {
+                "defaultContentHint": "Set the default checked state for this checkbox.",
+                "defaultChecked": "Checked by default"
+            },
+            "dropdown": {
+                "title": "Dropdown options",
+                "add": "Add option",
+                "sort": "Sort A–Z",
+                "displayModeMenu": "Menu",
+                "displayModeChips": "Chips",
+                "empty": "No options",
+                "optionCount": "{count} options",
+                "reorder": "Reorder option",
+                "optionLabel": "Label",
+                "optionLabelPlaceholder": "Option label...",
+                "editAdvanced": "Edit option",
+                "colorLabel": "Color",
+                "colorHint": "Optional. This is only used for UI display.",
+                "clearColor": "Clear color",
+                "setColor": "Set color: {color}",
+                "deleteOption": "Delete option",
+                "newOptionLabel": "New option",
+                "advancedTitle": "Advanced dropdown option",
+                "advancedHint": "Description is shown to users. Content is inserted into the prompt when this option is selected.",
+                "optionNotFound": "Option not found",
+                "optionDescription": "Description",
+                "optionDescriptionPlaceholder": "Short help text for this option...",
+                "optionContent": "Content",
+                "copyContent": "Copy",
+                "optionContentPlaceholder": "Write something...",
+                "untitledOption": "Untitled option"
+            },
+            "defaultContent": {
+                "title": "Default content",
+                "hint": "This content will be used as the default value. You can use this to provide an example or a template.",
+                "empty": "No default content available",
+                "and": "AND",
+                "or": "OR",
+                "dropdownPlaceholder": "Select \"{name}\"...",
+                "textPlaceholder": "Write something..."
+            },
+            "preview": {
+                "title": "Preview",
+                "empty": "No inputs referenced in Instructions",
+                "missingTitle": "Missing input definitions",
+                "addMissing": "Add missing",
+                "noneSelected": "None selected",
+                "selectedCount": "{count} selected",
+                "selectAll": "Select all",
+                "clearSelection": "Clear selection",
+                "textPlaceholder": "Write something...",
+                "contextScene": "Scene context",
+                "contextScenePlaceholder": "Select a scene...",
+                "renderedTitle": "Rendered messages",
+                "renderedHint": "Rendered with standard Nunjucks syntax, for example novel language, instruction text, scene text, and included components.",
+                "totalWordCountLabel": "{count} {unit} total",
+                "missingRequiredBadge": "Missing required: {names} · Unable to send to LLM",
+                "warningsTitle": "Warnings",
+                "warningMissingInput": "Missing input: {name}",
+                "warningInvalidInclude": "Missing included component: {name}",
+                "warningIncludeCycle": "Include cycle: {name}",
+                "warningIncludeDepth": "Include depth exceeded: {name}",
+                "warningInvalidInputSyntax": "Invalid Nunjucks input reference: {expr}",
+                "warningInvalidIncludeSyntax": "Invalid Nunjucks include syntax: {expr}",
+                "warningUnsupportedTemplateSyntax": "Unsupported template syntax: {expr}",
+                "warningUnclosedTemplateExpr": "Unclosed template expression starting at position {pos}",
+                "warningUnsupportedVariableExpr": "Unsupported variable expression: {expr}"
+            }
+        },
+        "clipboard": {
+            "common": {
+                "cancel": "Cancel",
+                "back": "Back",
+                "copy": "Copy",
+                "copying": "Copying...",
+                "import": "Import",
+                "importing": "Importing..."
+            },
+            "export": {
+                "title": "Select clipboard format",
+                "description": "This prompt includes other prompt components. How do you want to copy to the clipboard?",
+                "dependenciesTitle": "Dependencies",
+                "noDependencies": "No dependencies",
+                "missingDependenciesTitle": "Missing dependencies",
+                "options": {
+                    "flatten": {
+                        "title": "Copy without dependencies (inline components)",
+                        "description": "Replaces Nunjucks include references with component content so the prompt becomes self-contained.",
+                        "unavailable": "Cannot inline dependencies (missing/cycle/depth). Choose another format."
+                    },
+                    "bundle": {
+                        "title": "Copy full bundle (prompt + dependencies)",
+                        "defaultBadge": "Default",
+                        "description": "Copies the prompt together with all referenced components so it can be imported all at once."
+                    },
+                    "asIs": {
+                        "title": "Copy prompt as-is",
+                        "description": "Copies the prompt without changes. Any referenced components must exist when importing."
+                    }
+                }
+            },
+            "import": {
+                "title": "Import prompt bundle",
+                "description": "Paste a prompt bundle or choose a JSON file to import it into your library.",
+                "placeholder": "Paste a prompt bundle here...",
+                "paste": "Paste",
+                "chooseFile": "Choose JSON file",
+                "parse": "Continue",
+                "promptCount": "{count} prompts in bundle",
+                "dependenciesTitle": "Dependencies",
+                "noDependencies": "No dependencies detected",
+                "missingDependenciesTitle": "Missing dependencies",
+                "conflictsTitle": "Existing prompts that will be overwritten",
+                "modeTitle": "Import options",
+                "overwriteDialog": {
+                    "title": "Overwrite existing prompts?",
+                    "description": "These prompts already exist in your library. Continuing will overwrite them in place.",
+                    "confirm": "Overwrite and import"
+                },
+                "modes": {
+                    "entryOnly": {
+                        "title": "Import entry prompt only",
+                        "description": "Only imports the main prompt."
+                    },
+                    "all": {
+                        "title": "Import entire bundle",
+                        "description": "Imports the entry prompt and all included prompts in this bundle."
+                    }
+                }
+            },
+            "errors": {
+                "invalidPrompt": "Invalid prompt",
+                "flattenUnavailable": "Cannot inline dependencies for this prompt",
+                "nameAlreadyExists": "Some prompt names already exist: {names}. Rename them and try again.",
+                "duplicateNamesInBundle": "This bundle contains duplicate prompt names: {names}.",
+                "copyFailed": "Failed to copy to clipboard",
+                "downloadFailed": "Failed to export JSON file",
+                "missingEntry": "Entry prompt not found in bundle",
+                "readFileFailed": "Failed to read JSON file",
+                "importFailed": "Failed to import prompt bundle"
+            }
+        },
+        "errors": {
+            "createFailed": "Failed to create prompt",
+            "nameCannotBeEmpty": "Name cannot be empty",
+            "nameAlreadyExists": "A prompt with this name already exists",
+            "cloneFailed": "Failed to clone prompt",
+            "deleteFailed": "Failed to delete prompt",
+            "defaultSelectionFailed": "Failed to update default prompt"
+        }
+    },
+    "skills": {
+        "library": {
+            "loading": "Loading skills...",
+            "searchPlaceholder": "Search skills...",
+            "empty": "No skills",
+            "entries": "{count} items"
+        },
+        "categories": {
+            "sceneContinuation": "Scene Continuation",
+            "sceneAction": "Scene Action",
+            "textReplacement": "Text Replacement",
+            "aiChat": "AI Chat"
+        },
+        "actions": {
+            "new": "New",
+            "newInCategory": "New skill",
+            "newSkillName": "New skill",
+            "enableSkill": "Enable skill",
+            "disableSkill": "Disable skill",
+            "deleteSkill": "Delete skill",
+            "more": "More"
+        },
+        "editor": {
+            "emptyState": "Select a skill to edit",
+            "name": "Name",
+            "namePlaceholder": "Enter skill name",
+            "description": "Description",
+            "descriptionPlaceholder": "Enter skill description",
+            "associatedPrompt": "Associated prompt",
+            "associatedPromptNone": "None",
+            "associatedPromptHint": "When Codex runs this skill it assembles this prompt into a draft and calls the model group (to use a model better suited for fiction).",
+            "sectionTitle": "编辑Skills",
+            "placeholder": "Edit SKILL.md here...",
+            "frontmatterHint": "This editor writes directly to `SKILL.md` and validates its frontmatter when saving.",
+            "requiredFields": "Required fields: name / category",
+            "structureHint": "`scripts/`, `references/`, and `assets/` are created automatically when a skill is added. They are read-only in the UI for now."
+        },
+        "status": {
+            "saving": "Saving...",
+            "saved": "Saved",
+            "saveFailed": "Save failed"
+        },
+        "errors": {
+            "loadFailed": "Failed to load skills",
+            "createFailed": "Failed to create skill",
+            "deleteFailed": "Failed to delete skill",
+            "saveFailed": "Failed to save skill",
+            "nameCannotBeEmpty": "Name cannot be empty",
+            "nameAlreadyExists": "A skill with this name already exists"
+        }
+    },
+    "agents": {
+        "library": {
+            "loading": "Loading agents...",
+            "searchPlaceholder": "Search agents...",
+            "empty": "No agents"
+        },
+        "actions": {
+            "new": "New",
+            "newAgentName": "New Agent",
+            "enableAgent": "Enable",
+            "enabled": "Enabled",
+            "deleteAgent": "Delete agent",
+            "more": "More"
+        },
+        "editor": {
+            "emptyState": "Select an agent to edit",
+            "name": "Name",
+            "namePlaceholder": "Enter agent name",
+            "sectionTitle": "Edit AGENTS.md",
+            "placeholder": "Edit AGENTS.md here..."
+        },
+        "status": {
+            "saving": "Saving...",
+            "saved": "Saved",
+            "saveFailed": "Save failed"
+        },
+        "errors": {
+            "loadFailed": "Failed to load agents",
+            "createFailed": "Failed to create agent",
+            "deleteFailed": "Failed to delete agent",
+            "saveFailed": "Failed to save agent",
+            "enableFailed": "Failed to enable agent",
+            "nameCannotBeEmpty": "Name cannot be empty",
+            "nameAlreadyExists": "Agent name already exists"
+        }
+    }
+}

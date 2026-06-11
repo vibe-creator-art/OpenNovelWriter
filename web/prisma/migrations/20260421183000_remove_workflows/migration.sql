@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS "WorkflowDefault";
+DROP TABLE IF EXISTS "Workflow";

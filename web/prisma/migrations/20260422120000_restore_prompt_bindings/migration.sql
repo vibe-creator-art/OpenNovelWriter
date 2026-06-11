@@ -1,0 +1,3 @@
+ALTER TABLE "Prompt" ADD COLUMN "inputsJson" TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE "Prompt" ADD COLUMN "modelGroupIdsJson" TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE "Prompt" ADD COLUMN "modelSetIdsJson" TEXT NOT NULL DEFAULT '[]';

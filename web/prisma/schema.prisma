@@ -1,0 +1,457 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  email     String   @unique
+  password  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  novels    Novel[]
+  prompts   Prompt[]
+  promptDefaults PromptDefault[]
+  aiConnections AiConnection[]
+  codexConnections CodexConnection[]
+  aiModelGroups AiModelGroup[]
+  aiModelAssignments AiModelAssignment[]
+  aiModelSets AiModelSet[]
+  aiModelSetMembers AiModelSetMember[]
+  editorChatConversations EditorChatConversation[]
+  codexSessions CodexSession[]
+}
+
+model Novel {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  category    String?
+  coverImage  String?
+  coverCrop   String?
+  authorName  String?
+  series      String?
+  seriesIndex Int?
+  language    String?   @default("en")
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  chapters    Chapter[]
+  acts        Act[]
+  labels      Label[]
+  snippets    Snippet[]
+  outlines    Outline[]
+  materials   Material[]
+  termState   NovelTermState?
+  editorChatConversations EditorChatConversation[]
+  codexSessions CodexSession[]
+  sceneEdits  SceneEdit[]
+  continuationDrafts SceneContinuationDraft[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// A single AI-proposed manuscript edit (one search/replace hunk). It is applied
+// to the scene immediately but stays reviewable until the author accepts or rejects it.
+model SceneEdit {
+  id         String   @id @default(cuid())
+  novelId    String
+  novel      Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  sceneId    String
+  chapterId  String
+  actNumber  Int      @default(1)
+  sessionId  String?
+  beforeHtml String   @default("")
+  afterHtml  String   @default("")
+  beforeText String   @default("")
+  afterText  String   @default("")
+  anchorHash String   @default("")
+  // HTML of the block that follows this region in the post-edit content; empty means the
+  // region sits at the end of the scene. Used to re-insert a pure deletion on reject.
+  afterAnchorHtml String @default("")
+  status     String   @default("pending") // pending | accepted | rejected
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([novelId, status])
+  @@index([sceneId, status])
+}
+
+// Editable draft text held by an inline scene-continuation panel (the `<onw-scene-continuation>`
+// node in scene.content, keyed by its panelId). The panel grows downward to show this text;
+// the author edits it and chooses to write it into the prose, retry, or discard — nothing is
+// written to the manuscript until they do. Shared source of truth so a linked Codex session can
+// read/rewrite it via MCP. Deleting the panel deletes this row and the linked session, and vice versa.
+model SceneContinuationDraft {
+  panelId        String   @id
+  novelId        String
+  novel          Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  sceneId        String
+  chapterId      String
+  codexSessionId String?
+  skillId        String?
+  content        String   @default("")
+  planning       String   @default("")
+  updatedBy      String   @default("user") // user | model | codex
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([novelId])
+  @@index([sceneId])
+  @@index([codexSessionId])
+}
+
+model Act {
+  id        String   @id @default(cuid())
+  number    Int
+  title     String?
+  summary   String?
+  labelIdsJson String @default("[]")
+  novelId   String
+  novel     Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([novelId, number])
+  @@index([novelId])
+}
+
+model Chapter {
+  id        String   @id @default(cuid())
+  title     String
+  actNumber Int      @default(1)
+  order     Int
+  wordCount Int      @default(0)
+  novelId   String
+  novel     Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  scenes    Scene[]
+  outline   Outline?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([novelId, order])
+}
+
+model Scene {
+  id        String   @id @default(cuid())
+  order     Int      @default(0)
+  content   String   @default("")
+  summary   String?
+  wordCount Int      @default(0)
+  labelIdsJson String @default("[]")
+  termIdsJson String @default("[]")
+  chapterId String
+  chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([chapterId, order])
+}
+
+model Label {
+  id        String   @id @default(cuid())
+  name      String
+  color     String?
+  sortOrder Int      @default(0)
+  novelId   String
+  novel     Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([novelId, name])
+  @@index([novelId])
+  @@index([novelId, sortOrder])
+}
+
+model AiConnection {
+  id              String   @id @default(cuid())
+  name            String
+  providerType    String
+  baseUrl         String?
+  encryptedApiKey String
+  isActive        Boolean  @default(true)
+  modelsJson      String   @default("[]")
+  lastFetchedAt   DateTime?
+  ownerId         String
+  owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  assignments     AiModelAssignment[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([ownerId, isActive])
+  @@unique([ownerId, name])
+}
+
+model CodexConnection {
+  id             String   @id @default(cuid())
+  name           String
+  providerType   String
+  isActive       Boolean  @default(false)
+  note           String?
+  authStatus     String   @default("unauthenticated")
+  authType       String?
+  accountEmail   String?
+  accountPlan    String?
+  lastAuthError  String?
+  ownerId        String
+  owner          User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([ownerId, authStatus])
+  @@unique([ownerId, name])
+}
+
+model AiModelGroup {
+  id               String   @id @default(cuid())
+  name             String
+  sortOrder        Int      @default(0)
+  settingsJson     String   @default("{}")
+  modelTypesJson   String?
+  failurePolicyJson String  @default("{}")
+  pricingTiersJson String   @default("[]")
+  ownerId          String
+  owner            User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  assignments      AiModelAssignment[]
+  setMembers       AiModelSetMember[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([ownerId, sortOrder])
+}
+
+model AiModelAssignment {
+  id             String   @id @default(cuid())
+  groupId        String
+  group          AiModelGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  connectionId   String
+  connection     AiConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  modelId        String
+  sortOrder      Int      @default(0)
+  failureCount   Int      @default(0)
+  ignoredUntil   DateTime?
+  manuallyDisabled Boolean @default(false)
+  ownerId        String
+  owner          User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([groupId, sortOrder])
+  @@index([connectionId])
+}
+
+model AiModelSet {
+  id           String   @id @default(cuid())
+  name         String
+  sortOrder    Int      @default(0)
+  settingsJson String   @default("{}")
+  ownerId      String
+  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members      AiModelSetMember[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([ownerId, sortOrder])
+}
+
+model AiModelSetMember {
+  id        String   @id @default(cuid())
+  setId     String
+  set       AiModelSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  groupId   String
+  group     AiModelGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sortOrder Int      @default(0)
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([setId, groupId])
+  @@index([ownerId])
+  @@index([setId, sortOrder])
+  @@index([groupId])
+}
+
+model Prompt {
+  id        String   @id @default(cuid())
+  name      String
+  category  String
+  messagesJson String @default("[]")
+  inputsJson String @default("[]")
+  modelGroupIdsJson String @default("[]")
+  modelSetIdsJson String @default("[]")
+  allowLlmCall Boolean @default(false)
+  allowAgentCall Boolean @default(false)
+  agentCallMode String @default("generate_then_agent")
+  description String?
+  historyJson String  @default("[]")
+  isNsfw    Boolean  @default(false)
+  sortOrder Int      @default(0)
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  defaults  PromptDefault[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([ownerId, category])
+}
+
+model PromptDefault {
+  id        String   @id @default(cuid())
+  category  String
+  promptId  String
+  prompt    Prompt   @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ownerId, category])
+  @@index([ownerId])
+  @@index([promptId])
+}
+
+model Snippet {
+  id        String   @id @default(cuid())
+  title     String   @default("")
+  content   String   @default("")
+  historyJson String @default("[]")
+  pinned    Boolean  @default(false)
+  wordCount Int      @default(0)
+  novelId   String
+  novel     Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([novelId])
+  @@index([novelId, pinned, updatedAt])
+}
+
+model Outline {
+  id         String      @id @default(cuid())
+  type       String
+  actNumber  Int?
+  chapterId  String?     @unique
+  chapter    Chapter?    @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  content    String      @default("")
+  historyJson String     @default("[]")
+  wordCount  Int         @default(0)
+  novelId    String
+  novel      Novel       @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([novelId, type, actNumber])
+  @@index([novelId])
+  @@index([novelId, type])
+  @@index([chapterId])
+}
+
+// A read-only reference document (imported plain-text file) attached to a novel.
+// readPosition is the saved scroll ratio (0..1) so reopening lands where the
+// reader left off, across devices.
+model Material {
+  id           String   @id @default(cuid())
+  name         String   @default("")
+  content      String   @default("")
+  readPosition Float    @default(0)
+  order        Int      @default(0)
+  novelId      String
+  novel        Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([novelId])
+  @@index([novelId, order])
+}
+
+model NovelTermState {
+  id        String   @id @default(cuid())
+  novelId   String   @unique
+  novel     Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  stateJson String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([novelId])
+}
+
+model EditorChatConversation {
+  id                  String   @id @default(cuid())
+  title               String?
+  titleManuallyEdited Boolean  @default(false)
+  promptId            String?
+  selectedGroupId     String?
+  draftContent        String   @default("")
+  promptSnapshotJson  String?
+  inputStateJson      String?
+  novelId             String
+  novel               Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  ownerId             String
+  owner               User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  messages            EditorChatMessage[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([novelId, updatedAt])
+  @@index([ownerId])
+}
+
+model EditorChatMessage {
+  id                  String   @id @default(cuid())
+  role                String
+  content             String   @default("")
+  sentContent         String?
+  fullRenderedContent String?
+  promptTokens        Int?
+  completionTokens    Int?
+  totalTokens         Int?
+  termIdsJson         String   @default("[]")
+  attachmentsJson     String   @default("[]")
+  conversationId      String
+  conversation        EditorChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt           DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model CodexSession {
+  id                  String   @id @default(cuid())
+  category            String
+  title               String?
+  titleManuallyEdited Boolean  @default(false)
+  reviewLevel         String   @default("user_review")
+  modelId             String   @default("gpt-5.4")
+  reasoningEffort     String   @default("high")
+  serviceTier         String   @default("standard")
+  planMode            Boolean  @default(false)
+  codexThreadId       String?
+  codexConnectionId   String?
+  draftContent        String   @default("")
+  status              String   @default("idle")
+  lastError           String?
+  messagesJson        String   @default("[]")
+  novelId             String
+  novel               Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  ownerId             String
+  owner               User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([novelId, category, updatedAt])
+  @@index([ownerId])
+  @@index([codexThreadId])
+}

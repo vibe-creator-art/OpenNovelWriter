@@ -1,0 +1,1656 @@
+{
+    "imageEditor": {
+        "upload": "上传图片",
+        "uploading": "上传中...",
+        "edit": "编辑图片",
+        "editTitle": "图片",
+        "cropTitle": "裁剪",
+        "crop": "裁剪",
+        "replace": "替换",
+        "remove": "取消",
+        "copy": "复制",
+        "copied": "已复制",
+        "copyFailed": "复制失败",
+        "download": "下载",
+        "confirm": "确定",
+        "cancel": "取消",
+        "zoom": "缩放"
+    },
+    "common": {
+        "loading": "加载中...",
+        "save": "保存",
+        "cancel": "取消",
+        "delete": "删除",
+        "confirm": "确认",
+        "create": "创建",
+        "generate": "生成",
+        "edit": "编辑",
+        "show": "显示",
+        "hide": "隐藏",
+        "saving": "保存中...",
+        "uploadFailed": "上传失败",
+        "operationFailed": "操作失败",
+        "saved": "已保存",
+        "words": "字",
+        "word": "字",
+        "pages": "页"
+    },
+    "auth": {
+        "login": {
+            "title": "欢迎回来",
+            "description": "登录您的 OpenNovelWriter 账户",
+            "username": "用户名",
+            "usernamePlaceholder": "请输入用户名",
+            "password": "密码",
+            "passwordPlaceholder": "请输入密码",
+            "submit": "登录",
+            "submitting": "登录中...",
+            "failed": "登录失败",
+            "noAccount": "还没有账户？",
+            "register": "立即注册"
+        },
+        "register": {
+            "title": "创建账户",
+            "description": "注册一个新的 OpenNovelWriter 账户",
+            "closed": "已关闭注册",
+            "username": "用户名",
+            "usernamePlaceholder": "请输入用户名",
+            "email": "邮箱",
+            "emailPlaceholder": "请输入邮箱",
+            "password": "密码",
+            "passwordPlaceholder": "至少6位",
+            "confirmPassword": "确认密码",
+            "confirmPasswordPlaceholder": "请再次输入密码",
+            "submit": "注册",
+            "submitting": "注册中...",
+            "failed": "注册失败",
+            "passwordMismatch": "两次输入的密码不一致",
+            "passwordTooShort": "密码长度至少6位",
+            "hasAccount": "已有账户？",
+            "login": "立即登录"
+        },
+        "logout": "退出"
+    },
+    "bookshelf": {
+        "title": "我的书架",
+        "welcome": "欢迎，{username}",
+        "importNovel": "导入小说",
+        "importing": "导入中...",
+        "importOptions": {
+            "fromNovelCrafter": "Import from NC"
+        },
+        "importErrors": {
+            "invalidProject": "所选目录不是有效的 NovelCrafter 导出项目。",
+            "missingImportContent": "所选项目里没有可导入的词条或卡片内容。"
+        },
+        "createNovel": "创建新小说",
+        "empty": "书架空空如也，开始创作您的第一部小说吧！",
+        "deleteConfirm": {
+            "title": "确认删除",
+            "description": "确定要删除《{title}》吗？此操作无法撤销，所有章节内容都将丢失。"
+        },
+        "chapters": "{count} 章节"
+    },
+    "novelCard": {
+        "edit": "编辑",
+        "delete": "删除"
+    },
+    "novel": {
+        "form": {
+            "createTitle": "创建新小说",
+            "editTitle": "编辑小说",
+            "createDescription": "填写小说基本信息，开始您的创作之旅",
+            "editDescription": "修改小说信息",
+            "name": "小说名称",
+            "namePlaceholder": "请输入小说名称",
+            "nameRequired": "请输入小说名称",
+            "synopsis": "简介",
+            "synopsisPlaceholder": "请输入小说简介（可选）",
+            "category": "分类",
+            "selectCategory": "选择分类",
+            "customCategory": "或自定义",
+            "coverImage": "封面图片",
+            "uploadCover": "点击上传封面 (1:1.6)",
+            "uploading": "上传中..."
+        },
+        "categories": {
+            "fantasy": "玄幻",
+            "urban": "都市",
+            "scifi": "科幻",
+            "wuxia": "武侠",
+            "romance": "言情",
+            "mystery": "悬疑",
+            "history": "历史",
+            "game": "游戏"
+        }
+    },
+    "novelSettings": {
+        "title": "小说设置",
+        "tabs": {
+            "metadata": "元数据",
+            "writing": "写作"
+        },
+        "metadata": {
+            "title": "元数据",
+            "description": "这是小说的元数据，用于整理您的小说收藏。",
+            "novelTitle": "小说标题",
+            "novelTitlePlaceholder": "请输入小说标题",
+            "author": "作者/笔名",
+            "authorPlaceholder": "请输入作者名",
+            "series": "系列（可选）",
+            "seriesPlaceholder": "系列名称",
+            "seriesIndex": "系列序号",
+            "seriesIndexPlaceholder": "如：第1册",
+            "descriptionLabel": "简介",
+            "descriptionPlaceholder": "简要描述您的小说"
+        },
+        "cover": {
+            "title": "封面",
+            "description": "这是小说的封面，将显示在小说收藏页面。",
+            "upload": "上传封面",
+            "uploading": "上传中...",
+            "dragDrop": "或拖放到此区域"
+        },
+        "writing": {
+            "labelsTitle": "标签/标记",
+            "labelsDescription": "使用标签按状态、子情节等整理您的场景。您也可以添加分组前缀（如「状态：草稿」）。",
+            "labelsComingSoon": "标签功能即将推出...",
+            "labelsEmpty": "暂无标签。",
+            "labelsNamePlaceholder": "标签名称",
+            "labelsNewDefault": "新标签",
+            "addLabel": "添加标签",
+            "sortLabels": "排序标签",
+            "dragToSort": "拖动排序",
+            "clearColor": "默认（黑色）",
+            "setColor": "设置颜色",
+            "proseTitle": "正文",
+            "language": "语言",
+            "languageDescription": "这是小说的语言，将用于拼写检查和断字。",
+            "languagePlaceholder": "选择语言"
+        },
+        "saveChanges": "保存更改",
+        "saving": "保存中..."
+    },
+    "settings": {
+        "title": "设置",
+        "tabs": {
+            "codexConnections": "Codex 连接",
+            "aiConnections": "AI 连接",
+            "general": "通用"
+        },
+        "codex": {
+            "connectionsTitle": "Codex 连接",
+            "connectionsDescription": "为每个账号保存独立的 Codex 配置目录，隔离持久化 auth.json 与 config.toml。",
+            "connectionsListTitle": "已保存连接",
+            "newConnection": "新建连接",
+            "draftTitle": "新连接草稿",
+            "draftDescription": "先填写配置，再保存为独立的 Codex 连接。",
+            "loading": "正在加载连接...",
+            "loadingDetail": "正在读取连接详情...",
+            "noConnections": "暂无 Codex 连接。",
+            "connectionName": "连接名称",
+            "connectionNamePlaceholder": "例如：主 OpenAI Official",
+            "note": "备注",
+            "notePlaceholder": "例如：个人账号 / 团队账号",
+            "providerTypes": {
+                "openaiOfficial": "OpenAI Official",
+                "custom": "自定义配置"
+            },
+            "providerTypeHints": {
+                "openaiOfficial": "通过 ChatGPT 账号授权 Codex，自动写入 auth.json。",
+                "custom": "手动维护 auth.json 和 config.toml，适合实验或特殊接入。"
+            },
+            "authStatus": "授权状态",
+            "authorizedAs": "已授权：{email} · {plan}",
+            "unknownPlan": "未知套餐",
+            "active": "启用中",
+            "enable": "启用连接",
+            "disable": "停用连接",
+            "officialUrl": "官网链接",
+            "officialUrlHint": "官方连接通过浏览器完成 ChatGPT 授权，无需额外填写 API Key。",
+            "officialAuthDeploymentHint": "服务器部署请使用 Device Code 授权；本地开发可使用 ChatGPT 授权。",
+            "authorize": "ChatGPT 授权",
+            "authorizeDeviceCode": "Device Code 授权",
+            "authorizing": "授权中...",
+            "deviceCodeTitle": "在授权页面输入此代码",
+            "copyDeviceCode": "复制代码",
+            "copiedDeviceCode": "已复制",
+            "openDeviceCodeUrl": "打开授权页面",
+            "refreshStatus": "刷新状态",
+            "customApiKey": "API Key",
+            "customApiKeyPlaceholder": "sk-...",
+            "showCustomApiKey": "显示 API Key",
+            "hideCustomApiKey": "隐藏 API Key",
+            "customBaseUrl": "API 请求地址",
+            "customBaseUrlPlaceholder": "https://api.openai.com/v1",
+            "customModel": "模型名称",
+            "customModelPlaceholder": "选择模型",
+            "fetchModels": "获取模型列表",
+            "fetchingModels": "获取中...",
+            "noCustomModels": "暂无模型，请先获取模型列表",
+            "remainingQuota": "剩余额度",
+            "quotaWindow": "{window}: {remaining}%",
+            "creditsUnlimited": "额度：无限制",
+            "creditsBalance": "额度：{balance}",
+            "authJson": "auth.json (JSON)",
+            "authJsonHint": "Codex 账号授权信息会保存在这个隔离文件中。",
+            "configToml": "config.toml (TOML)",
+            "configTomlHint": "Codex 运行配置会跟随这个连接一起保存。",
+            "resetConfig": "恢复默认配置",
+            "create": "添加连接",
+            "save": "保存连接",
+            "saving": "保存中...",
+            "deleteConnection": "删除连接",
+            "confirmDelete": "确认删除这个 Codex 连接吗？这会同时删除对应的隔离配置目录。",
+            "lastUpdated": "最近更新：{value}",
+            "status": {
+                "authenticated": "已授权",
+                "authorizing": "授权中",
+                "unauthenticated": "未授权",
+                "error": "异常"
+            },
+            "defaults": {
+                "openaiOfficialName": "OpenAI Official",
+                "customName": "Custom Codex"
+            },
+            "errors": {
+                "loadFailed": "读取 Codex 连接失败。",
+                "saveFailed": "保存 Codex 连接失败。",
+                "deleteFailed": "删除 Codex 连接失败。",
+                "authStartFailed": "启动 ChatGPT 授权失败。",
+                "authStatusFailed": "读取授权状态失败。",
+                "fetchModelsFailed": "获取模型列表失败。",
+                "missingCustomApiKey": "请先填写 API Key。"
+            }
+        },
+        "ai": {
+            "connectionsTitle": "AI 连接",
+            "connectionsDescription": "添加连接并获取模型，凭据将以加密形式保存在服务端本地。",
+            "connectionType": "格式",
+            "providerTypes": {
+                "openai": "OpenAI-Chat",
+                "openaiImage": "OpenAI-Image",
+                "gemini": "Gemini"
+            },
+            "connectionName": "连接名称",
+            "connectionNamePlaceholder": "例如：我的 OpenAI-Chat",
+            "apiKey": "API Key",
+            "apiKeyPlaceholder": "sk-...",
+            "apiKeyHint": "您的 API Key 将在服务端本地加密保存",
+            "baseUrl": "Base URL",
+            "baseUrlPlaceholder": "https://api.openai.com/v1",
+            "baseUrlHint": "如使用兼容 OpenAI 的服务（如 Azure、本地模型），可修改此地址",
+            "connect": "连接并获取模型",
+            "connecting": "连接中...",
+            "connectionsListTitle": "已保存连接",
+            "noConnections": "暂无连接",
+            "refreshModels": "刷新模型",
+            "deleteConnection": "删除连接",
+            "modelCount": "{count} 个模型",
+            "baseUrlLabel": "Base URL：{value}",
+            "lastFetched": "最近获取：{value}",
+            "expandModels": "展开模型",
+            "collapseModels": "收起模型",
+            "noModels": "暂无可用模型",
+            "modelSetsTitle": "模型分组",
+            "modelSetsDescription": "拖动模型名分组到不同用途集合中，方便后续使用（写作、摘要等）。",
+            "setNamePlaceholder": "新建分组名称",
+            "addSet": "添加分组",
+            "untitledSet": "分组 {index}",
+            "deleteSet": "删除分组",
+            "availableGroupsTitle": "模型名分组",
+            "availableGroupsHint": "拖动模型名分组到右侧分组中。",
+            "noModelGroups": "暂无模型名分组",
+            "emptySet": "拖动模型名分组到此处",
+            "collapsedMembersHint": "已分配 {count} 个模型组（展开查看）",
+            "expandSet": "展开分组",
+            "collapseSet": "收起分组",
+            "setOrderHint": "从上到下排序。",
+            "setSummary": "{count} 个模型组",
+            "removeMember": "移除",
+            "modelGroupsTitle": "模型分配",
+            "modelGroupsDescription": "拖动模型到分组并配置调用策略。",
+            "groupNamePlaceholder": "新建分组名称",
+            "addGroup": "添加分组",
+            "untitledGroup": "分组 {index}",
+            "deleteGroup": "删除分组",
+            "providersTitle": "已连接的模型",
+            "providersHint": "拖动模型到分组进行分配。",
+            "providerFilterPlaceholder": "按模型名过滤",
+            "noActiveProviders": "暂无已连接模型",
+            "noMatchedProviders": "没有匹配的连接或模型",
+            "assignments": "分组模型",
+            "emptyGroup": "拖动模型到此处",
+            "collapsedAssignmentsHint": "已分配 {count} 个模型（展开查看）",
+            "expandGroup": "展开分组",
+            "collapseGroup": "收起分组",
+            "groupSummary": "{count} 个模型",
+            "removeAssignment": "移除",
+            "callOrderHint": "从上到下依次调用。",
+            "strategy": "调用策略",
+            "strategyPriority": "优先可用",
+            "strategyRoundRobin": "轮询",
+            "modelTypes": "Model Type",
+            "modelTypesDetectedCount": "{count} 项",
+            "modelTypesNoneDetected": "未启用",
+            "modelTypesManualOverride": "已手动覆盖",
+            "modelTypesAutoDetectHint": "未手动选择时会使用默认识别结果。注意，手动选择类型可能会影响模型的功能判断，不确定时请保持默认。",
+            "reset": "重置",
+            "modelTypeVision": "Vision",
+            "modelTypeReasoning": "Reasoning",
+            "modelTypeTool": "Tool",
+            "modelTypeReranker": "Reranker",
+            "modelTypeEmbedding": "Embedding",
+            "stream": "流式输出",
+            "temperature": "Temperature",
+            "maxTokens": "最大输出 Token",
+            "maxFailures": "失败次数上限",
+            "resetDays": "忽略后重置天数",
+            "pricing": "定价",
+            "pricingUnitHint": "单位：美元 / 1M tokens",
+            "pricingContextLabel": "上下文上限（tokens）",
+            "pricingInputLabel": "输入 $/1M",
+            "pricingOutputLabel": "输出 $/1M",
+            "pricingContextPlaceholder": "上下文 ≤ tokens（留空为超出）",
+            "pricingInputPlaceholder": "输入 $/1M",
+            "pricingOutputPlaceholder": "输出 $/1M",
+            "addTier": "添加梯度",
+            "testing": "测试中...",
+            "testSuccess": "连接成功",
+            "testFailed": "连接失败",
+            "testConnection": "测试连接",
+            "reactivate": "重新启用",
+            "disable": "停用",
+            "enable": "启用",
+            "ignoredUntil": "忽略至 {value}",
+            "manualDisabled": "已手动停用",
+            "failureCount": "{count} 次失败",
+            "dragPreview": "模型",
+            "errors": {
+                "missingApiKey": "请填写 API Key。",
+                "missingBaseUrl": "请填写 Base URL。",
+                "fetchModelsFailed": "获取模型失败。",
+                "testFailed": "连接测试失败。",
+                "missingGroupName": "请填写分组名称。",
+                "groupNameExists": "分组名称已存在，请换一个。",
+                "missingSetName": "请填写集合名称。",
+                "setNameExists": "集合名称已存在，请换一个。"
+            },
+            "defaults": {
+                "openaiName": "OpenAI-Chat"
+            }
+        },
+        "general": {
+            "language": "界面语言",
+            "languageHint": "选择界面显示语言",
+            "comingSoon": "更多通用设置即将推出"
+        }
+    },
+    "editor": {
+        "nav": {
+            "menu": "大纲",
+            "write": "写作",
+            "prompts": "提示词",
+            "skills": "Skills",
+            "agents": "Agent",
+            "review": "审阅"
+        },
+        "markdownToolbar": {
+            "bold": "粗体",
+            "italic": "斜体",
+            "strike": "删除线",
+            "code": "行内代码",
+            "heading1": "标题 1",
+            "heading2": "标题 2",
+            "heading3": "标题 3",
+            "bullet": "无序列表",
+            "ordered": "有序列表",
+            "quote": "引用"
+        },
+        "sidebar": {
+            "outline": "目录",
+            "codex": "Codex",
+            "term": "词条",
+            "snippets": "片段",
+            "chats": "聊天",
+            "chatNew": "新建对话",
+            "chatEmptyTitle": "还没有聊天记录",
+            "chatEmptyDescription": "从这里开始一个新对话，标题会自动使用第一条用户消息生成。",
+            "chatUntitled": "新对话",
+            "chatNoMessages": "还没有消息",
+            "snippetsPlaceholder": "片段功能即将推出",
+            "search": "搜索章节...",
+            "searchCompact": "搜索...",
+            "collapse": "收起",
+            "expand": "展开",
+            "chapterOutline": "细纲",
+            "info": "信息",
+            "prompts": "提示词",
+            "export": "导出",
+            "settingsPlaceholder": "设定页即将到来",
+            "noChapters": "暂无章节",
+            "startWriting": "开始创作您的故事"
+        },
+        "outlines": {
+            "action": "细纲",
+            "search": "搜索细纲...",
+            "empty": "暂无细纲，可在卷/章右侧「操作」中创建。",
+            "contentPlaceholder": "在此输入细纲...",
+            "panel": {
+                "title": "细纲",
+                "close": "关闭",
+                "copy": "复制",
+                "copied": "已复制",
+                "history": "历史"
+            },
+            "history": {
+                "title": "历史版本",
+                "restore": "恢复版本",
+                "close": "关闭",
+                "empty": "暂无历史",
+                "editedByYou": "由你编辑"
+            },
+            "deleteDialog": {
+                "title": "删除细纲？",
+                "description": "该操作无法撤销。"
+            }
+        },
+        "snippets": {
+            "search": "搜索片段...",
+            "new": "新建",
+            "pinned": "已置顶",
+            "unpinned": "未置顶",
+            "all": "全部",
+            "empty": "暂无片段",
+            "editorTitle": "片段",
+            "titlePlaceholder": "为片段命名...",
+            "contentPlaceholder": "记录你的想法...",
+            "untitled": "未命名",
+            "emptyPreview": "暂无内容",
+            "pin": "置顶",
+            "unpin": "取消置顶",
+            "panel": {
+                "title": "片段",
+                "close": "关闭",
+                "copy": "复制",
+                "copied": "已复制",
+                "history": "历史",
+                "preview": "阅览",
+                "previewExpand": "展开阅览",
+                "previewCollapse": "收起阅览"
+            },
+            "history": {
+                "title": "历史版本",
+                "restore": "恢复版本",
+                "close": "关闭",
+                "empty": "暂无历史",
+                "editedByYou": "由你编辑"
+            },
+            "loadError": "加载片段失败",
+            "createError": "新建片段失败",
+            "deleteDialog": {
+                "title": "删除片段？",
+                "description": "该操作无法撤销。"
+            }
+        },
+        "terms": {
+            "search": "搜索全部词条...",
+            "filter": "筛选",
+            "settings": "设置",
+            "menu": "菜单",
+            "add": "新建词条",
+            "createTitle": "新建词条",
+            "createErrors": {
+                "duplicateTitle": "已存在同名词条。"
+            },
+            "menuItems": {
+                "presetCategories": "预设分类",
+                "customCategories": "自定义分类",
+                "customDescriptionTemplate": "自定义描述模板",
+                "archivedEntries": "归档词条",
+                "displaySettings": "显示设置",
+                "comingSoon": "更多选项即将推出"
+            },
+            "displaySettings": {
+                "collapseAll": "全部折叠",
+                "expandAll": "全部展开",
+                "sortBy": "排序方式",
+                "sort": {
+                    "name": "按名称",
+                    "priority": "按优先级"
+                }
+            },
+            "filters": {
+                "hasRelations": "有关系",
+                "hasNotes": "有笔记",
+                "hasDescription": "有描述",
+                "hasThumbnail": "有头像",
+                "hasTags": "有标签",
+                "alwaysInclude": "始终包含",
+                "neverInclude": "永不包含",
+                "filterByTag": "按标签筛选",
+                "filterByType": "按类别筛选",
+                "emptyTags": "暂无标签",
+                "clear": "清除筛选"
+            },
+            "archived": {
+                "title": "归档词条",
+                "empty": "暂无归档词条",
+                "conflict": "已存在同名词条，暂时无法恢复。",
+                "restore": "恢复所选",
+                "delete": "永久删除"
+            },
+            "customCategories": {
+                "title": "自定义分类",
+                "namePlaceholder": "分类名称...",
+                "empty": "暂无自定义分类",
+                "delete": "删除",
+                "cannotDeleteNonEmpty": "分类非空，无法删除",
+                "alreadyExists": "分类名称已存在",
+                "reservedNameHint": "该名称已被内置或预设分类占用；若为预设分类，可在“预设分类”中直接启用。"
+            },
+            "presetCategories": {
+                "title": "预设分类",
+                "cannotDisableNonEmpty": "分类非空，无法取消",
+                "items": {
+                    "skills": "技能",
+                    "talents": "天赋",
+                    "realms": "境界"
+                }
+            },
+            "customTemplates": {
+                "title": "自定义描述模板",
+                "placeholder": "即将推出"
+            },
+            "iconPicker": {
+                "title": "选择图标",
+                "searchPlaceholder": "搜索图标...",
+                "upload": "上传图片",
+                "uploadHelp": "图片会自动裁剪成方形图标。"
+            },
+            "fields": {
+                "title": "名称",
+                "category": "分类",
+                "subtitle": "备注"
+            },
+            "titlePlaceholder": "输入词条名称...",
+            "subtitlePlaceholder": "可选",
+            "panel": {
+                "title": "词条详情",
+                "close": "关闭",
+                "delete": "删除词条",
+                "deleteConfirm": "确定要删除「{title}」吗？此操作无法撤销。",
+                "mentionsCount": "{count} 次提及",
+                "comingSoon": "即将推出",
+                "tabs": {
+                    "details": "详情",
+                    "experiences": "经历",
+                    "research": "资料",
+                    "relations": "关系",
+                    "mentions": "提及",
+                    "tracking": "追踪",
+                    "gallery": "画廊"
+                },
+                "experiences": {
+                    "help": "一行一条经历，从上到下按时间顺序排列。",
+                    "empty": "还没有经历。在下方添加第一条，记录人物随故事发展的变化。",
+                    "addPlaceholder": "添加一条经历，按回车保存",
+                    "add": "添加经历",
+                    "edit": "编辑",
+                    "delete": "删除",
+                    "dragHandle": "拖拽排序"
+                },
+                "gallery": {
+                    "upload": "上传图片",
+                    "uploadFailed": "上传失败，请重试。",
+                    "empty": "还没有图片，可以直接上传，或在聊天 / Codex 中打开图片后导入。",
+                    "setAvatar": "设为头像",
+                    "remove": "删除"
+                },
+                "research": {
+                    "tabs": {
+                        "notes": "笔记",
+                        "external": "外部"
+                    },
+                    "notes": {
+                        "label": "笔记",
+                        "help": "这些笔记仅你可见，不会用于生成新的正文。",
+                        "placeholder": "在此输入笔记..."
+                    },
+                    "external": {
+                        "title": "外部引用",
+                        "help": "添加指向 Google Docs、Notion 或其他你保存信息的网站链接。",
+                        "empty": "暂无外部链接",
+                        "placeholder": "输入链接...",
+                        "add": "添加",
+                        "delete": "删除",
+                        "invalidUrl": "请输入有效链接。",
+                        "duplicate": "该链接已添加。"
+                    }
+                },
+                "relations": {
+                    "title": "关系",
+                    "help": "添加与其他词条的关系，方便快速关联信息。",
+                    "add": "添加词条",
+                    "empty": "暂无关系",
+                    "labelPlaceholder": "关系",
+                    "actions": {
+                        "bidirectional": "双向",
+                        "reverse": "反转方向",
+                        "delete": "删除关系"
+                    },
+                    "picker": {
+                        "title": "添加关系",
+                        "searchLabel": "搜索",
+                        "searchPlaceholder": "搜索词条...",
+                        "empty": "暂无可添加的词条"
+                    }
+                },
+                "mentions": {
+                    "noManuscript": "加载正文后才可查看提及。",
+                    "sources": {
+                        "manuscript": "正文",
+                        "summaries": "总结",
+                        "terms": "词条",
+                        "snippets": "片段",
+                        "outlines": "细纲"
+                    },
+                    "emptyManuscript": "正文中暂无提及",
+                    "emptySummaries": "总结中暂无提及",
+                    "emptyTerms": "词条中暂无提及",
+                    "emptySnippets": "片段中暂无提及",
+                    "emptyOutlines": "细纲中暂无提及",
+                    "open": "打开",
+                    "loadMore": "加载更多",
+                    "showing": "已显示 {shown}/{total}",
+                    "chapterLabel": "第 {number} 章",
+                    "sceneLabel": "场景 {number}"
+                },
+                "tracking": {
+                    "always": "始终包含",
+                    "detected": "检测到时包含",
+                    "never": "永不包含"
+                },
+                "footer": {
+                    "history": "历史",
+                    "copy": "复制",
+                    "copied": "已复制"
+                },
+                "history": {
+                    "title": "修订历史",
+                    "restore": "恢复版本",
+                    "close": "关闭",
+                    "empty": "暂无历史记录",
+                    "editedByYou": "由你编辑"
+                },
+                "avatar": {
+                    "upload": "上传图片"
+                },
+                "actions": {
+                    "label": "词条操作",
+                    "color": "颜色",
+                    "archive": "归档词条"
+                },
+                "colors": {
+                    "black": "黑色",
+                    "gray": "灰色",
+                    "brown": "棕色",
+                    "orange": "橙色",
+                    "yellow": "黄色",
+                    "green": "绿色",
+                    "blue": "蓝色",
+                    "purple": "紫色",
+                    "pink": "粉色",
+                    "red": "红色"
+                },
+                "tags": {
+                    "placeholder": "+ 添加标记",
+                    "add": "添加",
+                    "empty": "暂无标记"
+                },
+                "fields": {
+                    "aliases": "别名/昵称",
+                    "aliasesHelp": "用逗号分隔。你填写的名字会在正文中被识别。",
+                    "aliasesPlaceholder": "用逗号分隔",
+                    "description": "描述",
+                    "descriptionPlaceholder": "在此输入描述...",
+                    "descriptionPreview": "阅览",
+                    "descriptionPreviewExpand": "展开阅览",
+                    "descriptionPreviewCollapse": "收起阅览"
+                }
+            },
+            "entryCount": "{count} 个",
+            "emptyCategory": "暂无词条",
+            "emptyAll": "暂无词条",
+            "categories": {
+                "characters": "角色",
+                "locations": "地点",
+                "items": "物品",
+                "lore": "设定"
+            },
+            "gallery": {
+                "importButton": "导入",
+                "imported": "已导入",
+                "importFailed": "导入失败",
+                "searchPlaceholder": "搜索词条...",
+                "filterAll": "全部",
+                "filterOthers": "其他",
+                "empty": "没有匹配的词条"
+            }
+        },
+        "view": {
+            "everything": "全部",
+            "viewEntireAct": "查看整卷",
+            "chapters": "章",
+            "chapter": "章"
+        },
+        "header": {
+            "format": "格式",
+            "focus": "全屏",
+            "exitFocus": "退出专注模式 (ESC)",
+            "showInfoPanel": "显示信息面板",
+            "hideInfoPanel": "隐藏信息面板"
+        },
+        "formatMenu": {
+            "typography": "排版",
+            "aiOutput": "AI 输出",
+            "fontFamily": "字体",
+            "textSize": "字号",
+            "lineHeight": "行高",
+            "paragraphSpacing": "段间距",
+            "textIndent": "首行缩进",
+            "planningStyle": "Planning 美化",
+            "reasoningStyle": "Reasoning 美化",
+            "aiOutputHint": "控制续写结果里 Planning 和 Reasoning 的展示样式。",
+            "cursor": "光标",
+            "jumpPosition": "跳转位置",
+            "rememberCursor": "记住上次光标位置",
+            "typewriterMode": "打字机模式",
+            "enableTypewriterMode": "启用打字机模式",
+            "enableSmoothFollow": "启用平滑跟随",
+            "reset": "重置",
+            "tabs": {
+                "typography": "排版",
+                "aiOutput": "AI 输出"
+            },
+            "outputStyleOptions": {
+                "none": "无",
+                "card": "卡片"
+            },
+            "planningStyleDescription": {
+                "none": "保留简洁展示。",
+                "card": "使用高亮卡片承载 planning。"
+            },
+            "reasoningStyleDescription": {
+                "none": "保留简洁展示。",
+                "card": "使用高亮卡片承载 reasoning。"
+            },
+            "fontFamilyGroups": {
+                "serif": "衬线",
+                "sans": "无衬线",
+                "mono": "等宽"
+            },
+            "fontFamilyOptions": {
+                "sans": "Geist Sans",
+                "systemSans": "系统默认（无衬线）",
+                "arial": "Arial",
+                "helvetica": "Helvetica",
+                "serif": "系统默认（衬线）",
+                "times": "Times New Roman",
+                "georgia": "Georgia",
+                "palatino": "Palatino",
+                "mono": "Geist Mono",
+                "menlo": "Menlo",
+                "consolas": "Consolas",
+                "courier": "Courier New"
+            },
+            "textSizeOptions": {
+                "sm": "小",
+                "md": "中",
+                "lg": "大",
+                "xl": "特大"
+            },
+            "lineHeightOptions": {
+                "tight": "紧凑",
+                "normal": "标准",
+                "relaxed": "宽松",
+                "loose": "超宽松"
+            },
+            "paragraphSpacingOptions": {
+                "none": "无",
+                "sm": "小",
+                "md": "中",
+                "lg": "大"
+            },
+            "textIndentOptions": {
+                "none": "无缩进",
+                "sm": "小缩进",
+                "md": "标准缩进"
+            },
+            "jumpPositionOptions": {
+                "start": "场景开头",
+                "end": "场景结尾"
+            }
+        },
+        "infoPanel": {
+            "title": "信息面板",
+            "hide": "隐藏信息面板",
+            "chapterSummary": "章节摘要",
+            "addChapterSummary": "点击添加章节摘要...",
+            "actions": "操作",
+            "statistics": "统计",
+            "wordsLabel": "字数",
+            "previewEmptyHint": "点击「预览」显示渲染后的提示词。",
+            "tabs": {
+                "preview": "预览",
+                "codex": "Codex",
+                "chat": "聊天",
+                "materials": "资料"
+            },
+            "materials": {
+                "importLabel": "导入",
+                "empty": "还没有资料，点「导入」添加 TXT 文件。",
+                "untitled": "未命名",
+                "noNovel": "请先打开一本小说。",
+                "loadError": "加载资料列表失败。",
+                "importError": "导入失败，请重试。",
+                "docLoadError": "加载文档失败。",
+                "rename": "重命名",
+                "delete": "删除",
+                "cancel": "取消",
+                "deleteConfirmTitle": "删除这份资料？",
+                "deleteConfirmDescription": "删除后无法恢复：{name}",
+                "back": "返回列表",
+                "searchPlaceholder": "搜索内容…",
+                "clearSearch": "清除搜索",
+                "noMatch": "无匹配",
+                "prevMatch": "上一个",
+                "nextMatch": "下一个"
+            },
+            "placeholder": "更多面板功能即将推出。",
+            "chatStartTitle": "开始一段新聊天",
+            "chatStartDescription": "先选好聊天提示词和输入参数，然后输入你的第一条消息。发送后会自动在左侧生成会话标题。",
+            "chatCreate": "新建对话",
+            "chatRename": "重命名",
+            "chatClone": "克隆",
+            "chatDelete": "删除",
+            "chatDeleteConfirmTitle": "删除这段对话？",
+            "chatDeleteConfirmDescription": "删除后无法恢复：{title}",
+            "chatPromptLabel": "提示词",
+            "chatPromptEmpty": "暂无可用聊天提示词",
+            "chatPromptInvalid": "聊天提示词必须以一条 user 消息结尾，并且只包含一个 chat.userInput 占位符。",
+            "chatPromptLocked": "当前对话已锁定提示词。中途切换提示词会导致缓存失效并降低模型回复一致性，请新建对话。",
+            "chatTweak": "Tweak",
+            "chatTweakDone": "完成",
+            "chatModelNoResponse": "模型调用完成了，但没有返回聊天回复。",
+            "chatGenerating": "正在生成回复...",
+            "attachmentAdd": "添加图片",
+            "attachmentErrorType": "仅支持 JPG、PNG、WebP 格式的图片",
+            "attachmentErrorSize": "图片过大，最大 5MB",
+            "attachmentErrorCount": "一条消息最多添加 6 张图片",
+            "attachmentErrorVision": "当前模型不支持图片输入",
+            "attachmentErrorUpload": "图片上传失败，请重试",
+            "attachmentVisionStripped": "历史消息包含图片，但当前模型不支持图片输入，发送时将仅保留文字。",
+            "chatComposerPlaceholder": "输入消息，Enter 发送，Shift + Enter 换行",
+            "chatSend": "发送",
+            "chatCopyMessage": "复制消息",
+            "chatRetryMessage": "重试",
+            "chatBranchMessage": "新分支",
+            "chatSaveToSnippet": "保存到片段",
+            "chatMultiSelect": "多选",
+            "chatSelectMessage": "选择消息",
+            "chatSelectedMessages": "已选择 {count} 条消息",
+            "chatSnippetTitle": "AI 回复片段"
+        },
+        "codex": {
+            "newSession": "新建 Codex",
+            "untitled": "Codex 会话",
+            "deleteSession": "删除",
+            "deleteConfirmTitle": "删除这个 Codex 会话？",
+            "deleteConfirmDescription": "删除后无法恢复：{title}",
+            "emptyTitle": "还没有 Codex 会话",
+            "emptyDescription": "「通用」可自由新建；场景操作与场景续写的会话会由对应工作流自动挂载到这里。",
+            "generalEmpty": "暂无通用会话。",
+            "boundCategoryEmpty": "该分类的会话由对应工作流自动创建。",
+            "textReplacementPlaceholder": "文字替换会话即将上线，敬请期待。",
+            "noMessages": "还没有消息",
+            "startTitle": "让 Codex 帮你创作小说",
+            "startDescription": "",
+            "composerPlaceholder": "让 Codex 帮你创作小说。输入 @ 可提及文件或插件",
+            "running": "Codex 正在运行…",
+            "attach": "添加上下文",
+            "plan": "Plan",
+            "createPlan": "Create a plan",
+            "usePlanMode": "Use plan mode",
+            "dismissPlanHint": "关闭",
+            "disablePlan": "关闭 Plan",
+            "turnOffQueueing": "关闭排队",
+            "turnOnQueueing": "开启排队",
+            "reviewLevels": {
+                "user_review": "用户确认",
+                "auto_review": "自动审核",
+                "no_review": "无需审核"
+            },
+            "approval": {
+                "submit": "提交",
+                "dismiss": "取消",
+                "yes": "是",
+                "acceptForSession": "本次会话不再询问",
+                "acceptWithPolicy": "允许，且不再询问以 {policy} 开头的命令",
+                "steer": "否，并告诉 Codex 该怎么做",
+                "decline": "否",
+                "titleCommandNamed": "允许执行命令：{command}？",
+                "titleCommand": "允许执行命令？",
+                "titleFile": "允许修改文件？",
+                "titlePermissions": "允许额外权限？",
+                "titleElicitationNamed": "允许 {server} 的请求？",
+                "titleElicitation": "允许 MCP 请求？",
+                "titleToolNamed": "允许调用 {tool}？",
+                "titleTool": "允许调用工具？",
+                "titleFallback": "允许此操作？"
+            },
+            "intelligence": "智能",
+            "model": "模型",
+            "speed": "速度",
+            "remainingQuota": "剩余额度",
+            "quotaWindow": "{window}: {remaining}%",
+            "creditsUnlimited": "额度：无限制",
+            "creditsBalance": "额度：{balance}",
+            "reasoningEfforts": {
+                "low": "低",
+                "medium": "中",
+                "high": "高",
+                "xhigh": "超高"
+            },
+            "serviceTiers": {
+                "standard": "标准",
+                "fast": "快速"
+            },
+            "serviceTierDescriptions": {
+                "standard": "默认速度，正常用量",
+                "fast": "1.5 倍速度，更高用量"
+            },
+            "high": "High",
+            "send": "发送",
+            "categories": {
+                "general": "通用",
+                "scene_operation": "场景操作",
+                "scene_continuation": "场景续写",
+                "text_replacement": "文字替换"
+            }
+        },
+        "act": {
+            "label": "卷",
+            "defaultTitle": "卷 {number}",
+            "newAct": "新建卷",
+            "insertActBefore": "在前面插入卷",
+            "insertActAfter": "在后面插入卷",
+            "deleteAct": "删除卷",
+            "addSummary": "添加摘要...",
+            "chapter": "章",
+            "chapters": "章"
+        },
+        "chapter": {
+            "label": "章",
+            "defaultTitle": "章 {number}",
+            "newChapter": "新建章",
+            "insertBefore": "在前面插入",
+            "insertAfter": "在后面插入",
+            "copyBeats": "复制节拍",
+            "copyProse": "复制正文",
+            "untitledChapter": "无标题章节",
+            "noChaptersYet": "暂无章节，点击「+ 新建章」添加。",
+            "createFirstChapter": "创建第一章",
+            "startWriting": "开始创作您的故事"
+        },
+        "scene": {
+            "label": "场",
+            "newScene": "新建场",
+            "copyScene": "复制场",
+            "sceneActions": "场操作",
+            "useDefaultPrompt": "使用默认提示词",
+            "deleteScene": "删除场",
+            "addSummary": "添加摘要...",
+            "loadingScenes": "加载场中...",
+            "startWriting": "开始写作...",
+            "continueWriting": "继续您的故事...",
+            "continueStory": "继续故事",
+            "creating": "创建中...",
+            "operationRunning": "正在运行：{name}",
+            "operationNeedsInput": "需要你的输入：{name}"
+        },
+        "codexSkillTweak": {
+            "tweak": "Tweak",
+            "chatInputLabel": "对话内容",
+            "chatInputPlaceholder": "粘贴或输入要让模型处理的内容，@ 到的词条会自动注入…",
+            "chatInputHint": "这段内容会按技能绑定的提示词拼好（自动带上概览和提到的词条），随消息一起交给 Codex；主输入框里的文字才是给 Codex 的指令。",
+            "done": "完成",
+            "send": "发送给 Codex"
+        },
+        "sceneContinuation": {
+            "codexInstructionLabel": "给 Codex 的需求（可选）",
+            "codexInstructionPlaceholder": "补充说明，让 Codex 据此操作…",
+            "sendToCodex": "发送给 Codex",
+            "sendHint": "上方输入会拼成提示词交给 Codex 操作，发送后不可再改",
+            "sentHint": "已交给 Codex，可在右侧会话继续调整",
+            "sendingHint": "正在交给 Codex…",
+            "openSession": "打开会话",
+            "expandConfig": "展开",
+            "collapseConfig": "折叠"
+        },
+        "sceneOperation": {
+            "modelGroups": "模型组",
+            "skillsSection": "技能 (Codex)",
+            "runModelGroups": "本次运行模型组",
+            "noAssignments": "无可用接口",
+            "result": "生成结果",
+            "planning": "Planning",
+            "reasoning": "Reasoning",
+            "content": "正文",
+            "modelOutput": "模型输出",
+            "modelResponse": "模型回复",
+            "reasoningSummary": "推理摘要",
+            "runStarting": "正在启动...",
+            "runStepRunning": "运行中",
+            "runStepCompleted": "已完成",
+            "runStepFailed": "失败",
+            "running": "生成中",
+            "resultWaiting": "模型正在输出...",
+            "resultEmpty": "暂无输出",
+            "terminate": "终止",
+            "retry": "重试",
+            "write": "写入",
+            "writeAndClose": "写入并关闭",
+            "emptySceneHint": "当前场为空，生成结果可能不可用。",
+            "disabledReasons": {
+                "missingPrompt": "提示词不存在",
+                "noModelBinding": "没有绑定模型",
+                "missingModelGroup": "绑定的模型组不存在",
+                "noValidModel": "没有有效模型"
+            }
+        },
+        "actions": {
+            "label": "操作",
+            "labelBtn": "标签",
+            "term": "词条"
+        },
+        "labels": {
+            "empty": "暂无标签",
+            "manage": "管理标签"
+        },
+        "deleteDialog": {
+            "title": "确认删除",
+            "description": "确定要删除「{title}」吗？此操作无法撤销。"
+        }
+    },
+    "prompts": {
+        "status": {
+            "loading": "加载提示词中...",
+            "saving": "保存中...",
+            "saved": "已保存",
+            "saveFailed": "保存失败"
+        },
+        "library": {
+            "searchPlaceholder": "搜索提示词库...",
+            "filter": "筛选",
+            "entries": "{count} 个",
+            "empty": "暂无提示词",
+            "untitled": "未命名",
+            "metrics": {
+                "inputs": "输入：{count}",
+                "calls": "调用：{count}"
+            }
+        },
+        "categories": {
+            "default": "默认提示词",
+            "sceneContinuation": "场景续写",
+            "sceneAction": "场景操作",
+            "textReplacement": "文字替换",
+            "aiChat": "AI聊天",
+            "components": "提示词组件"
+        },
+        "tabs": {
+            "general": "通用",
+            "instructions": "提示词",
+            "advanced": "高级",
+            "description": "描述",
+            "usages": "引用"
+        },
+        "roles": {
+            "user": "User",
+            "ai": "AI"
+        },
+        "badges": {
+            "system": "系统",
+            "nsfw": "NSFW"
+        },
+        "actions": {
+            "new": "新建",
+            "newInCategory": "新建提示词",
+            "importFromClipboard": "从剪贴板导入",
+            "importFromJson": "从 JSON 文件导入",
+            "addMessage": "添加消息",
+            "reorder": "排序",
+            "clone": "克隆",
+            "clonePrompt": "克隆提示词",
+            "copy": "复制",
+            "copied": "已复制",
+            "copyIncludeCall": "复制 include 标签",
+            "copyToClipboard": "复制到剪贴板",
+            "exportToJson": "导出为 JSON 文件",
+            "history": "历史",
+            "delete": "删除",
+            "deletePrompt": "删除提示词",
+            "more": "更多",
+            "newPromptName": "新提示词"
+        },
+        "defaults": {
+            "title": "默认提示词",
+            "hint": "每个类别只能选择已勾选“LLM直接调用”的提示词。",
+            "type": "类别",
+            "prompt": "提示词",
+            "reset": "重置",
+            "none": "无"
+        },
+        "presets": {
+            "title": "官方预设",
+            "description": "内置提示词预设不可直接编辑，可以克隆到你的提示词库。",
+            "loading": "加载预设中...",
+            "empty": "暂无预设",
+            "clone": "克隆",
+            "cloning": "克隆中...",
+            "revision": "v{revision}",
+            "promptCount": "{count} 个提示词",
+            "overwriteDialog": {
+                "title": "覆盖已有提示词？",
+                "description": "该预设中的部分提示词名称已存在。继续后会原位覆盖这些提示词。",
+                "confirm": "覆盖并克隆"
+            },
+            "publish": {
+                "createMenu": "发布为预设",
+                "overwriteMenu": "覆盖预设升级",
+                "createTitle": "发布提示词预设",
+                "createDescription": "把当前提示词及其引用的组件保存为内置 JSON 预设。",
+                "overwriteTitle": "覆盖提示词预设",
+                "overwriteDescription": "用当前提示词覆盖已有预设，并将版本号增加 0.1。",
+                "presetId": "预设 ID",
+                "name": "预设名称",
+                "descriptionLabel": "描述",
+                "descriptionPlaceholder": "写点说明，方便用户理解这个预设...",
+                "overwritePreset": "要覆盖的预设",
+                "selectPreset": "选择预设",
+                "saving": "保存中...",
+                "createSubmit": "发布预设",
+                "overwriteSubmit": "覆盖并升级"
+            },
+            "errors": {
+                "cloneFailed": "克隆预设失败",
+                "publishFailed": "发布预设失败",
+                "selectPreset": "请选择要覆盖的预设"
+            }
+        },
+        "history": {
+            "title": "历史版本",
+            "restore": "恢复版本",
+            "close": "关闭",
+            "empty": "暂无历史",
+            "editedByYou": "由你编辑"
+        },
+        "usages": {
+            "intro": "以下提示词在提示词内容中引用了该组件：",
+            "empty": "目前还没有提示词引用这个组件。",
+            "calls": "{count} 次调用"
+        },
+        "editor": {
+            "emptyState": "选择一个提示词进行编辑",
+            "name": "名称",
+            "systemMessage": "系统消息",
+            "message": "消息",
+            "messages": "消息列表",
+            "multiMessageIntro": "每个提示词至少需要一条 system message。某些提示词类型还需要额外的 user/assistant 交替消息，此时你可以按需添加任意多条消息。",
+            "componentIntro": "在下方输入你希望在其他提示词中复用的内容。调用该组件时，会按其名称将内容插入到提示词中。",
+            "description": "描述",
+            "descriptionPlaceholder": "写点说明，方便以后理解/复用...",
+            "instructionsPlaceholder": "在这里编写提示词...",
+            "findPlaceholder": "查找",
+            "findPrevious": "上一个",
+            "findNext": "下一个",
+            "findMatchCase": "区分大小写",
+            "findRegex": "正则",
+            "findWholeWord": "整词",
+            "findCount": "{current}/{total}",
+            "generalPlaceholder": "通用设置即将推出",
+            "advancedPlaceholder": "高级设置即将推出",
+            "usagesPlaceholder": "引用统计即将推出",
+            "templateReference": {
+                "title": "模板变量参考",
+                "intro": "提示词编辑面板现在使用标准 Nunjucks 语法。下面这些变量和标签可直接在模板中使用。",
+                "novelLanguage": "当前小说的语言，例如中文、English。",
+                "novelOutline": "默认输出当前执行点之前的小说总结，包含卷总结和场总结。",
+                "novelOutlineStorySoFar": "显式读取当前执行点之前的小说总结，等同于 `novel.outline`。",
+                "novelOutlineFull": "读取整本小说里全部非空的卷总结和场总结。",
+                "instructionText": "当前指令文本。",
+                "instructionTermsText": "读取当前指令关联词条的名称列表。",
+                "instructionTermsValue": "读取当前指令关联词条的详细词条块。",
+                "chatUserInput": "当前这一轮用户输入文本。",
+                "chatUserInputTermsText": "读取当前这一轮用户输入关联词条的名称列表，包含始终包含词条，排除永不包含词条。",
+                "chatUserInputTermsValue": "读取当前这一轮用户输入关联词条的详细词条块，包含始终包含词条，排除永不包含词条。",
+                "chatHistory": "当前会话历史消息合并后的文本。",
+                "chatHistoryTermsText": "读取当前会话历史消息关联词条的名称列表，包含始终包含词条，排除永不包含词条。",
+                "chatHistoryTermsValue": "读取当前会话历史消息关联词条的详细词条块，包含始终包含词条，排除永不包含词条。",
+                "sceneText": "当前场景正文。",
+                "scenePreviousText": "当前场景前文。",
+                "sceneFollowText": "当前场景后文。",
+                "sceneHasPreviousText": "当前场景是否存在前文，可用于条件判断。",
+                "inputText": "读取某个输入项的文本值。",
+                "inputValue": "读取某个输入项的 value 值（通常是选项的原始值/标识符）。",
+                "inputTermText": "读取输入项关联词条的名称列表（仅内容选择输入有值）。",
+                "inputTermValue": "读取输入项关联词条的详细词条块（仅内容选择输入有值）。",
+                "inputTermTagText": "读取输入项关联词条标签对应词条的名称列表（仅内容选择输入有值）。",
+                "inputTermTagValue": "读取输入项关联词条标签对应词条的详细词条块（仅内容选择输入有值）。",
+                "inputSnippetText": "读取输入项关联片段的标题列表（仅内容选择输入有值）。",
+                "inputSnippetValue": "读取输入项关联片段的正文列表（仅内容选择输入有值）。",
+                "inputFullNovelText": "读取输入项里选中的全书条目标签列表（仅内容选择输入有值）。",
+                "inputFullNovelValue": "读取输入项里选中的全书正文；内容遵循该输入的全文/摘要配置（仅内容选择输入有值）。",
+                "inputActText": "读取输入项里选中的卷标签列表（仅内容选择输入有值）。",
+                "inputActValue": "读取输入项里选中的卷内容；内容遵循该输入的全文/摘要配置（仅内容选择输入有值）。",
+                "inputChapterText": "读取输入项里选中的章标签列表（仅内容选择输入有值）。",
+                "inputChapterValue": "读取输入项里选中的章内容；内容遵循该输入的全文/摘要配置（仅内容选择输入有值）。",
+                "inputSceneText": "读取输入项里选中的场标签列表（仅内容选择输入有值）。",
+                "inputSceneValue": "读取输入项里选中的场内容；内容遵循该输入的全文/摘要配置（仅内容选择输入有值）。",
+                "unionTerms": "合并两个词条集合；结果可继续读取 `.count`、`.text`、`.value`。",
+                "chatUnionTerms": "示例：合并当前用户输入、历史消息和额外输入里命中的词条集合，再统一读取 `.count`、`.text`、`.value`。",
+                "includeComponent": "引入一个提示词组件的内容。",
+                "expand": "展开",
+                "collapse": "收起"
+            }
+        },
+        "general": {
+            "modelGroups": {
+                "title": "模型分组",
+                "hint": "绑定模型分组后，该提示词会额外获得这些分组里的模型。",
+                "loading": "正在加载模型分组...",
+                "empty": "未绑定任何模型分组",
+                "attach": "绑定",
+                "attachSet": "绑定模型组",
+                "detach": "解绑",
+                "primary": "当前执行",
+                "candidate": "候选",
+                "missing": "缺失",
+                "setPrimary": "设为当前",
+                "setsTitle": "模型集",
+                "setsHint": "绑定模型集会自动补齐它包含的可执行模型组，embedding / reranker 会自动忽略。",
+                "setsEmpty": "未绑定任何模型集",
+                "modelCount": "{count} 个模型",
+                "setMemberCount": "{count} 个分组",
+                "syncRemovedSets": "已移除 {count} 个失效模型组标签",
+                "syncRemovedGroups": "已移除 {count} 个失效模型分组",
+                "syncAddedGroups": "已补充 {count} 个模型分组"
+            },
+            "settings": {
+                "title": "提示词设置",
+                "type": "类别",
+                "moderation": "内容分级",
+                "sfw": "SFW（安全）",
+                "nsfw": "NSFW（不宜工作场合）",
+                "usage": "用途",
+                "llmCall": "LLM直接调用",
+                "llmCallHint": "允许该提示词作为单次 LLM 调用入口。",
+                "agentCall": "Codex调用",
+                "agentCallHint": "允许该提示词被 Codex 技能引用调用（作为关联提示词）。",
+                "generateThenAgent": "生成后交给 Codex",
+                "agentThenGenerate": "Codex调用生成"
+            }
+        },
+        "advanced": {
+            "inputs": {
+                "title": "输入",
+                "add": "新增输入",
+                "delete": "删除输入",
+                "empty": "暂无输入定义",
+                "selectPrompt": "请选择一个输入进行编辑",
+                "detailsTitle": "输入详情",
+                "name": "名称",
+                "description": "描述",
+                "descriptionPlaceholder": "给用户看的说明...",
+                "required": "必填",
+                "collapsed": "折叠",
+                "allowMultiple": "允许多选",
+                "unusedBadge": "未引用",
+                "unusedNotice": "该输入未在提示词中使用。",
+                "newInputName": "新输入",
+                "untitled": "未命名输入",
+                "duplicateNameNotice": "名称已存在，已保留原名称。",
+                "requiredBadge": "必填",
+                "includedTitle": "引入的输入",
+                "includedBadge": "引入",
+                "includedFrom": "来自「{name}」",
+                "includedNotice": "该输入来自被 include 标签引入的提示词组件，无法在此处编辑。",
+                "includedNoticeWithSource": "该输入来自被 include 标签引入的提示词组件（「{name}」），无法在此处编辑。",
+                "jumpToSourceButton": "跳转到来源组件",
+                "expand": "展开",
+                "collapse": "收起"
+            },
+            "allowedContent": {
+                "title": "允许内容",
+                "help": "你的输入可以包含多种内容类型。",
+                "customTitle": "自定义内容",
+                "customHint": "允许输入不绑定到特定内容类型的额外信息。",
+                "contentSelectionTitle": "内容选择",
+                "contentSelectionHint": "基于当前小说/系列，从列表中选择。",
+                "checkboxTitle": "复选框",
+                "checkboxHint": "在输入旁显示一个小复选框。",
+                "comingSoon": "即将推出",
+                "text": "文本",
+                "textHint": "允许用户输入自由文本。",
+                "textPlaceholderLabel": "占位符",
+                "textPlaceholderHint": "输入一个示例，告诉用户需要填写什么。",
+                "textPlaceholderPlaceholder": "例如...",
+                "dropdown": "下拉",
+                "dropdownHint": "从预设选项中选择。"
+            },
+            "contentSelection": {
+                "title": "内容选项",
+                "hint": "选择用户可以选择的内容类型。",
+                "contextButton": "上下文",
+                "fullNovel": "全书",
+                "act": "卷",
+                "chapter": "章",
+                "scene": "场",
+                "snippet": "片段",
+                "term": "词条",
+                "label": "标签",
+                "outline": "细纲",
+                "actOutline": "卷纲",
+                "chapterOutline": "章纲",
+                "termTag": "词条标记",
+                "fullText": "全文",
+                "summary": "摘要",
+                "summaryOutline": "摘要",
+                "termOtherTypes": "其他",
+                "displayNameLabel": "显示名称",
+                "displayNameHint": "可选；留空则使用输入名称。",
+                "actPlural": "卷",
+                "chapterPlural": "章",
+                "scenePlural": "场",
+                "chapterCountOne": "共 1 章",
+                "chapterCountOther": "共 {count} 章",
+                "actLabel": "卷 {number}",
+                "chapterLabel": "第 {number} 章",
+                "sceneLabel": "场 {number}",
+                "noScenes": "暂无场",
+                "termPicker": {
+                    "searchPlaceholder": "搜索词条...",
+                    "filterAll": "全部",
+                    "empty": "暂无词条"
+                },
+                "labelPicker": {
+                    "searchPlaceholder": "搜索标签...",
+                    "loading": "加载标签中...",
+                    "empty": "暂无标签",
+                    "noNovel": "未选择小说",
+                    "loadError": "加载标签失败"
+                },
+                "outlinePicker": {
+                    "searchPlaceholder": "搜索细纲...",
+                    "loading": "加载细纲中...",
+                    "empty": "暂无细纲",
+                    "noNovel": "未选择小说",
+                    "loadError": "加载细纲失败"
+                },
+                "termTagPicker": {
+                    "searchPlaceholder": "搜索词条标记...",
+                    "empty": "暂无词条标记"
+                },
+                "snippetPicker": {
+                    "title": "选择片段",
+                    "hint": "从当前小说中选择一个或多个片段。",
+                    "searchPlaceholder": "搜索片段...",
+                    "loading": "加载片段中...",
+                    "empty": "暂无片段",
+                    "close": "关闭",
+                    "untitledSnippet": "未命名片段",
+                    "pinned": "已置顶",
+                    "noNovel": "未选择小说",
+                    "loadError": "加载片段失败"
+                }
+            },
+            "checkbox": {
+                "defaultContentHint": "设置该复选框的默认勾选状态。",
+                "defaultChecked": "默认勾选"
+            },
+            "dropdown": {
+                "title": "下拉选项",
+                "add": "新增选项",
+                "sort": "按 A-Z 排序",
+                "displayModeMenu": "下拉",
+                "displayModeChips": "排列",
+                "empty": "暂无选项",
+                "optionCount": "{count} 个选项",
+                "reorder": "拖拽排序",
+                "optionLabel": "选项标题",
+                "optionLabelPlaceholder": "选项标题...",
+                "editAdvanced": "编辑选项",
+                "colorLabel": "颜色",
+                "colorHint": "可选，仅用于 UI 显示。",
+                "clearColor": "清除颜色",
+                "setColor": "设置颜色：{color}",
+                "deleteOption": "删除选项",
+                "newOptionLabel": "新选项",
+                "advancedTitle": "高级下拉选项",
+                "advancedHint": "描述给人看；内容给 AI 用（选中后会插入提示词）。",
+                "optionNotFound": "未找到该选项",
+                "optionDescription": "描述",
+                "optionDescriptionPlaceholder": "给用户看的简短说明...",
+                "optionContent": "内容",
+                "copyContent": "复制",
+                "optionContentPlaceholder": "写点内容...",
+                "untitledOption": "未命名选项"
+            },
+            "defaultContent": {
+                "title": "默认内容",
+                "hint": "这将作为默认值，可用于提供示例或模板。",
+                "empty": "暂无默认内容",
+                "and": "AND",
+                "or": "OR",
+                "dropdownPlaceholder": "选择“{name}”…",
+                "textPlaceholder": "写点内容..."
+            },
+            "preview": {
+                "title": "预览",
+                "empty": "提示词中未引用任何输入",
+                "missingTitle": "缺少输入定义",
+                "addMissing": "添加缺失项",
+                "noneSelected": "未选择",
+                "selectedCount": "已选择 {count} 项",
+                "selectAll": "全选",
+                "clearSelection": "清空选择",
+                "textPlaceholder": "写点内容...",
+                "contextScene": "场景上下文",
+                "contextScenePlaceholder": "选择一个场景...",
+                "renderedTitle": "渲染结果",
+                "renderedHint": "这里会用标准 Nunjucks 语法渲染最终内容，例如小说语言、指令文本、场景文本和 include 组件。",
+                "totalWordCountLabel": "总计 {count} {unit}",
+                "missingRequiredBadge": "缺少必填：{names}，无法发送给模型",
+                "warningsTitle": "警告",
+                "warningMissingInput": "缺少输入：{name}",
+                "warningInvalidInclude": "找不到被 include 的组件：{name}",
+                "warningIncludeCycle": "include 循环引用：{name}",
+                "warningIncludeDepth": "include 深度超限：{name}",
+                "warningInvalidInputSyntax": "Nunjucks 输入引用语法错误：{expr}",
+                "warningInvalidIncludeSyntax": "Nunjucks include 语法错误：{expr}",
+                "warningUnsupportedTemplateSyntax": "不支持的模板语法：{expr}",
+                "warningUnclosedTemplateExpr": "模板语法错误：未闭合的模板表达式（位置 {pos}）",
+                "warningUnsupportedVariableExpr": "不支持的变量表达式：{expr}"
+            }
+        },
+        "clipboard": {
+            "common": {
+                "cancel": "取消",
+                "back": "返回",
+                "copy": "复制",
+                "copying": "复制中...",
+                "import": "导入",
+                "importing": "导入中..."
+            },
+            "export": {
+                "title": "选择剪贴板格式",
+                "description": "该提示词引用了提示词组件。你希望如何复制到剪贴板？",
+                "dependenciesTitle": "依赖",
+                "noDependencies": "无依赖",
+                "missingDependenciesTitle": "缺少依赖",
+                "options": {
+                    "flatten": {
+                        "title": "无依赖复制（展开组件）",
+                        "description": "将所有 Nunjucks include 引用替换为组件内容，使提示词自包含。",
+                        "unavailable": "无法展开依赖（缺失/循环/深度超限），请选择其他格式。"
+                    },
+                    "bundle": {
+                        "title": "复制完整包（提示词 + 依赖）",
+                        "defaultBadge": "默认",
+                        "description": "将提示词和其引用的所有组件一起复制，方便一次性导入。"
+                    },
+                    "asIs": {
+                        "title": "原样复制提示词",
+                        "description": "不做任何改动复制。导入时需要目标库已存在被引用的组件。"
+                    }
+                }
+            },
+            "import": {
+                "title": "导入提示词包",
+                "description": "从剪贴板粘贴或选择 JSON 文件，将提示词包导入到你的提示词库。",
+                "placeholder": "在此粘贴提示词包...",
+                "paste": "粘贴",
+                "chooseFile": "选择 JSON 文件",
+                "parse": "继续",
+                "promptCount": "{count} 个提示词",
+                "dependenciesTitle": "依赖",
+                "noDependencies": "未检测到依赖",
+                "missingDependenciesTitle": "缺少依赖",
+                "conflictsTitle": "这些已有提示词会被覆盖",
+                "modeTitle": "导入选项",
+                "overwriteDialog": {
+                    "title": "要覆盖已有提示词吗？",
+                    "description": "这些提示词已存在于你的库中。继续后会原位覆盖它们。",
+                    "confirm": "覆盖并导入"
+                },
+                "modes": {
+                    "entryOnly": {
+                        "title": "只导入主体提示词",
+                        "description": "仅导入主要提示词。"
+                    },
+                    "all": {
+                        "title": "导入整个包",
+                        "description": "导入主体提示词及该包内包含的全部提示词。"
+                    }
+                }
+            },
+            "errors": {
+                "invalidPrompt": "提示词无效",
+                "flattenUnavailable": "该提示词无法展开依赖",
+                "nameAlreadyExists": "以下提示词名称已存在：{names}。请先重命名再导入。",
+                "duplicateNamesInBundle": "该提示词包中存在重复名称：{names}。",
+                "copyFailed": "复制到剪贴板失败",
+                "downloadFailed": "导出 JSON 文件失败",
+                "missingEntry": "提示词包中找不到主体提示词",
+                "readFileFailed": "读取 JSON 文件失败",
+                "importFailed": "导入提示词包失败"
+            }
+        },
+        "errors": {
+            "createFailed": "创建提示词失败",
+            "nameCannotBeEmpty": "名称不能为空",
+            "nameAlreadyExists": "名称已存在，请换一个",
+            "cloneFailed": "克隆提示词失败",
+            "deleteFailed": "删除提示词失败",
+            "defaultSelectionFailed": "更新默认提示词失败"
+        }
+    },
+    "skills": {
+        "library": {
+            "loading": "正在加载技能…",
+            "searchPlaceholder": "搜索技能…",
+            "empty": "暂无技能",
+            "entries": "{count} 个"
+        },
+        "categories": {
+            "sceneContinuation": "场景续写",
+            "sceneAction": "场景操作",
+            "textReplacement": "文字替换",
+            "aiChat": "AI 聊天"
+        },
+        "actions": {
+            "new": "新建",
+            "newInCategory": "新建技能",
+            "newSkillName": "新技能",
+            "enableSkill": "启用技能",
+            "disableSkill": "停用技能",
+            "deleteSkill": "删除技能",
+            "more": "更多"
+        },
+        "editor": {
+            "emptyState": "选择一个技能进行编辑",
+            "name": "名称",
+            "namePlaceholder": "输入技能名称",
+            "description": "描述",
+            "descriptionPlaceholder": "输入技能描述",
+            "associatedPrompt": "关联提示词",
+            "associatedPromptNone": "无",
+            "associatedPromptHint": "Codex 执行该技能时，会把这个提示词拼成草稿并调用模型组生成（便于借助更适合写小说的模型）。",
+            "sectionTitle": "编辑技能",
+            "placeholder": "在此编辑 SKILL.md…",
+            "frontmatterHint": "在此直接编辑 `SKILL.md`，保存时会校验 frontmatter。",
+            "requiredFields": "必填字段：name / category",
+            "structureHint": "`scripts/`、`references/`、`assets/` 会在新建时自动创建，当前界面暂不支持编辑这些目录。"
+        },
+        "status": {
+            "saving": "正在保存…",
+            "saved": "已保存",
+            "saveFailed": "保存失败"
+        },
+        "errors": {
+            "loadFailed": "加载技能失败",
+            "createFailed": "创建技能失败",
+            "deleteFailed": "删除技能失败",
+            "saveFailed": "保存技能失败",
+            "nameCannotBeEmpty": "名称不能为空",
+            "nameAlreadyExists": "名称已存在，请换一个"
+        }
+    },
+    "agents": {
+        "library": {
+            "loading": "加载 Agent 中...",
+            "searchPlaceholder": "搜索 Agent...",
+            "empty": "暂无 Agent"
+        },
+        "actions": {
+            "new": "新建",
+            "newAgentName": "新 Agent",
+            "enableAgent": "启用 Agent",
+            "enabled": "已启用",
+            "deleteAgent": "删除 Agent",
+            "more": "更多"
+        },
+        "editor": {
+            "emptyState": "选择一个 Agent 进行编辑",
+            "name": "名称",
+            "namePlaceholder": "输入 Agent 名称",
+            "sectionTitle": "编辑 AGENTS.md",
+            "placeholder": "在这里编辑 AGENTS.md..."
+        },
+        "status": {
+            "saving": "保存中...",
+            "saved": "已保存",
+            "saveFailed": "保存失败"
+        },
+        "errors": {
+            "loadFailed": "加载 Agent 失败",
+            "createFailed": "创建 Agent 失败",
+            "deleteFailed": "删除 Agent 失败",
+            "saveFailed": "保存 Agent 失败",
+            "enableFailed": "启用 Agent 失败",
+            "nameCannotBeEmpty": "名称不能为空",
+            "nameAlreadyExists": "名称已存在，请换一个"
+        }
+    }
+}

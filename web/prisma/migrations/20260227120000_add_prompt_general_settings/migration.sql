@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Prompt" ADD COLUMN "modelGroupIdsJson" TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE "Prompt" ADD COLUMN "isNsfw" BOOLEAN NOT NULL DEFAULT false;
+

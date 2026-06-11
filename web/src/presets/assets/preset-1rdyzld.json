@@ -1,0 +1,163 @@
+{
+  "schema": "open-novel-writer/prompt-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "preset-1rdyzld",
+    "name": "预设-通用聊天",
+    "description": "通用聊天，可以在额外信息里插入额外的内容。注入的信息会和已注入的知识进行去重，保证不破坏缓存以及减少重复注入。为了不破坏缓存，选取聊天系统提示词后无法切换",
+    "revision": 1,
+    "exportedAt": "2026-05-20T21:39:20.255Z"
+  },
+  "bundle": {
+    "schema": "open-novel-writer/prompt-bundle",
+    "version": 1,
+    "exportedAt": "2026-05-20T21:39:20.255Z",
+    "entryName": "通用聊天",
+    "prompts": [
+      {
+        "name": "通用聊天",
+        "category": "ai_chat",
+        "description": null,
+        "messages": [
+          {
+            "id": "e1da1c14-d54a-4cf8-a6cd-ef798a5cbcc1",
+            "role": "system",
+            "content": "你是专属AI创作顾问。你的主要职责是作为作者的“首席内容官”和“头脑风暴伙伴”，随时解答作者在小说创作过程中产生的疑问，探讨剧情走向，完善脑洞设想，并提供专业的文学创作建议。你不仅是一个问答机器人，更是一个懂故事、懂逻辑、极具创造力的编辑。\n<CoreBehaviors>\n• 在交流中，作者会为你附带一些关键的小说信息（如角色档案、世界观设定、大纲片段、前情提要等）。\n\t- 绝对尊重设定：你必须将这些附加信息视为不可违背的“正典（Canon）”。所有的推演、建议和解答都必须紧密基于这些既有前提。\n\t- 动态融合：如果作者提出的“脑洞”与现有设定有冲突，请温和地指出，并尝试提供能够弥合冲突的创造性解决方案。\n• 当作者抛出一个想法或假设（例如：“如果A在这里背叛了B会怎样？”）时，不要只给出简单的肯定或否定。请结合角色动机和现有局势，推演至少 2-3 种不同的发展路径（如：最符合逻辑的走向、最具戏剧张力的走向、出人意料的反转走向），供作者选择。\n• 当作者询问逻辑问题或遭遇卡文时（例如：“这个角色为什么要这么做？”或“我不知道下一步该怎么写了”），帮助他们梳理逻辑链。检查是否存在“角色动机崩塌（OOC）”、“机械降神（Deus ex machina）”或节奏拖沓的问题，并提供具体的破局思路。\n• 采用“苏格拉底式提问法”。如果用户是在向你给出建议，在给出建议的同时，适时地向作者提出启发性的反问（例如：“他隐藏的那个秘密，有没有可能并不是为了保护自己，而是为了保护他的仇人？”），以此激发作者更深层次的灵感。\n</CoreBehaviors>\n<OutputGuidelines>\n1. 沟通风格：专业、热情、鼓励、一针见血。使用 `{{novel.language}}` 进行交流。\n2. 角色边界：你的定位是“顾问”而非“代笔”。除非作者明确要求你“帮我写一段正文”，否则你的回答应该以“讨论、分析、建议、提纲”为主，不要直接输出小说正文。\n3. 直接切题：不要在开头说“好的，我明白了”或“作为你的写作助手”，直接给出你的分析和答案。\n</OutputGuidelines>"
+          },
+          {
+            "id": "83e5637e-82bd-4e86-a738-e36f863fa432",
+            "role": "user",
+            "content": "下面是一些帮助你理解小说的信息：\n<TermKnowledge>：提供结构化的、作者专属的词条知识，以及关于背景设定、故事、角色和其他元素的信息，还有旨在帮助维持故事内部的一致性、连贯性和流畅度。这一部分的知识优先级高于你作为AI的内部知识，如果这一部分的设定和你的寻常知识冲突，以提供的知识为主。\n{%- if inputs[\"额外信息\"].snippet.count %}\n<SnippetInfo>：此部分一般包含user的注释，一般呈现为碎片化，但是却包含帮助你理解的重要信息\n{%- endif %}\n<Outline>: 小说的剧情总结，帮助你理解小说发生的故事\n\n{% include \"TermKnowledgeChat\" %}\n{% include \"SnippetInfo\" %}\n{% include \"OutlineFull\" %}\n\n现在，根据以上信息，回答用户的问题或者完成用户的指令：\n{{ chat.userInput }}"
+          }
+        ],
+        "inputs": [
+          {
+            "id": "in_94984e23-c1ed-4008-9c38-2c580c1137fd",
+            "type": "content_selection",
+            "name": "额外信息",
+            "description": null,
+            "required": false,
+            "collapsed": false,
+            "contentSelection": {
+              "allowMultiple": true,
+              "displayName": "",
+              "options": {
+                "fullNovel": {
+                  "enabled": true,
+                  "treatAs": "summary"
+                },
+                "act": {
+                  "enabled": true,
+                  "treatAs": "summary"
+                },
+                "chapter": {
+                  "enabled": true,
+                  "treatAs": "full_text"
+                },
+                "scene": {
+                  "enabled": true,
+                  "treatAs": "full_text"
+                },
+                "snippet": {
+                  "enabled": true
+                },
+                "term": {
+                  "enabled": true,
+                  "allowedTypes": {
+                    "characters": true,
+                    "locations": true,
+                    "items": true,
+                    "lore": true,
+                    "others": true
+                  }
+                },
+                "label": {
+                  "enabled": false,
+                  "actTreatAs": "summary",
+                  "sceneTreatAs": "full_text"
+                },
+                "outline": {
+                  "enabled": false,
+                  "act": {
+                    "enabled": true,
+                    "treatAs": "summary"
+                  },
+                  "chapter": {
+                    "enabled": true,
+                    "treatAs": "full_text"
+                  }
+                },
+                "termTag": {
+                  "enabled": false
+                }
+              }
+            }
+          }
+        ],
+        "isNsfw": false,
+        "modelGroupIds": [],
+        "modelSetIds": [],
+        "allowLlmCall": true,
+        "allowAgentCall": false,
+        "agentCallMode": "generate_then_agent"
+      },
+      {
+        "name": "TermKnowledgeChat",
+        "category": "component",
+        "description": null,
+        "messages": [
+          {
+            "id": "991dd446-00bd-4965-a22d-1850eddfc81c",
+            "role": "assistant",
+            "content": "{%- set terms = chat.userInput.terms | union(chat.history.terms)| union(inputs[\"额外信息\"].term)| union(inputs[\"额外信息\"].termTag) %}\n{%- if terms.count %}\n<TermKnowledge>\n\n{{ terms.value }}\n\n</TermKnowledge>\n{%- endif %}\n"
+          }
+        ],
+        "inputs": [],
+        "isNsfw": false,
+        "modelGroupIds": [],
+        "modelSetIds": [],
+        "allowLlmCall": false,
+        "allowAgentCall": false,
+        "agentCallMode": "generate_then_agent"
+      },
+      {
+        "name": "SnippetInfo",
+        "category": "component",
+        "description": null,
+        "messages": [
+          {
+            "id": "21d001d4-c7a8-4e1b-9d37-67f52fbf1905",
+            "role": "assistant",
+            "content": "{% if inputs[\"额外信息\"].snippet.count %}\n<SnippetInfo>\n\n{{ inputs[\"额外信息\"].snippet.value }}\n\n</SnippetInfo>\n{% endif %}"
+          }
+        ],
+        "inputs": [],
+        "isNsfw": false,
+        "modelGroupIds": [],
+        "modelSetIds": [],
+        "allowLlmCall": false,
+        "allowAgentCall": false,
+        "agentCallMode": "generate_then_agent"
+      },
+      {
+        "name": "OutlineFull",
+        "category": "component",
+        "description": null,
+        "messages": [
+          {
+            "id": "ce51f0e7-19de-462f-a49b-345b396fadd8",
+            "role": "assistant",
+            "content": "<Outline>\n\n{{ novel.outline.full }}\n\n</Outline>"
+          }
+        ],
+        "inputs": [],
+        "isNsfw": false,
+        "modelGroupIds": [],
+        "modelSetIds": [],
+        "allowLlmCall": false,
+        "allowAgentCall": false,
+        "agentCallMode": "generate_then_agent"
+      }
+    ]
+  }
+}
