@@ -176,6 +176,7 @@ class CodexAppServerClient {
     private nextId = 1
     private pending = new Map<number, PendingRequest>()
     private buffer = ''
+    private stderrBuffer = ''
     private notificationHandler: ((message: JsonRpcMessage) => void) | null = null
     private serverRequestHandler: ServerRequestHandler | null = null
     private exitHandler: ((error: Error) => void) | null = null
@@ -188,14 +189,34 @@ class CodexAppServerClient {
             this.buffer += chunk
             this.flushBuffer()
         })
-        this.process.stderr.on('data', () => {})
+        this.process.stderr.setEncoding('utf8')
+        this.process.stderr.on('data', (chunk: string) => {
+            // Keep the tail of stderr so a startup failure (bad config.toml, codex
+            // version mismatch, missing auth, panic) can be surfaced instead of swallowed.
+            this.stderrBuffer = (this.stderrBuffer + chunk).slice(-8000)
+        })
+        this.process.on('error', (spawnError) => {
+            if (this.closed) return
+            const error = new Error(`Failed to start Codex app-server: ${spawnError.message}`)
+            console.error('[codex app-server] spawn error:', spawnError)
+            this.rejectAll(error)
+            this.exitHandler?.(error)
+        })
         this.process.on('exit', (code, signal) => {
             if (this.closed) return
-            const error = new Error(
+            const stderrTail = this.stderrBuffer.trim()
+            if (code !== 0) {
+                console.error(
+                    `[codex app-server] exited with code ${code ?? 'unknown'}${signal ? ` (${signal})` : ''}.` +
+                        (stderrTail ? `\n${stderrTail}` : ' (no stderr output)')
+                )
+            }
+            const baseMessage =
                 code === 0
                     ? 'Codex app-server closed.'
                     : `Codex app-server exited with code ${code ?? 'unknown'}${signal ? ` (${signal})` : ''}.`
-            )
+            const detail = code !== 0 && stderrTail ? ` ${stderrTail.slice(-600)}` : ''
+            const error = new Error(`${baseMessage}${detail}`)
             this.rejectAll(error)
             this.exitHandler?.(error)
         })
