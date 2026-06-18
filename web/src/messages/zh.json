@@ -128,7 +128,8 @@
         "title": "小说设置",
         "tabs": {
             "metadata": "元数据",
-            "writing": "写作"
+            "writing": "写作",
+            "memory": "记忆召回"
         },
         "metadata": {
             "title": "元数据",
@@ -167,6 +168,12 @@
             "language": "语言",
             "languageDescription": "这是小说的语言，将用于拼写检查和断字。",
             "languagePlaceholder": "选择语言"
+        },
+        "memory": {
+            "outlineTitle": "大纲召回",
+            "outlineDescription": "控制 '{{ novel.outline }}' 在提示词中如何拼装小说大纲。",
+            "collapseChaptersLabel": "卷总结优先",
+            "collapseChaptersDescription": "当某一卷有卷总结时，只用卷总结代表该卷，跳过其下各章/场的小结；卷总结为空时仍会列出各章小结。关闭后则在卷总结之后接上该卷每一章的小结。当前所在卷不受影响，始终保留进度。"
         },
         "saveChanges": "保存更改",
         "saving": "保存中..."

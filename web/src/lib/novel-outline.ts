@@ -123,7 +123,13 @@ export function buildNovelOutlineTexts(params: {
     currentChapterId?: string | null
     currentSceneId?: string | null
     language?: string | null
+    // When an act (volume) has a non-empty summary, drop its chapter/scene summaries from that
+    // act so the volume summary stands in for them. Acts without a summary still list their
+    // chapters. Defaults to on. Only collapses where the act summary is actually rendered, so the
+    // current act in `storysofar` (whose summary is withheld) keeps its per-scene progress.
+    collapseChaptersWhenActSummary?: boolean
 }): NovelOutlineTexts {
+    const collapseChaptersWhenActSummary = params.collapseChaptersWhenActSummary ?? true
     const sortedChapters = [...(params.chapters ?? [])]
         .map((chapter) => ({
             ...chapter,
@@ -162,10 +168,17 @@ export function buildNovelOutlineTexts(params: {
         const actHeading = formatActHeading(actNumber, act?.title, params.language)
         const actChapters = sortedChapters.filter((chapter) => chapter.actNumber === actNumber)
 
+        const actSummaryInStorySoFar = shouldIncludeActStorySoFar(actNumber, currentPosition) ? actSummary : ''
+
         const fullBlocks = [buildOutlineBlock(actHeading, actSummary)]
-        const storySoFarBlocks = [buildOutlineBlock(actHeading, shouldIncludeActStorySoFar(actNumber, currentPosition) ? actSummary : null)]
+        const storySoFarBlocks = [buildOutlineBlock(actHeading, actSummaryInStorySoFar || null)]
+
+        const collapseFullChapters = collapseChaptersWhenActSummary && actSummary.length > 0
+        const collapseStorySoFarChapters = collapseChaptersWhenActSummary && actSummaryInStorySoFar.length > 0
 
         actChapters.forEach((chapter, chapterIndexWithinAct) => {
+            if (collapseFullChapters && collapseStorySoFarChapters) return
+
             const chapterIndex = sortedChapters.findIndex((item) => item.id === chapter.id)
             const chapterNumber = chapterNumbersById.get(chapter.id) ?? chapterIndexWithinAct + 1
 
@@ -174,9 +187,12 @@ export function buildNovelOutlineTexts(params: {
                 if (!sceneSummary) return
 
                 const sceneHeading = formatSceneHeading(chapterNumber, chapter.title, sceneIndex + 1, params.language)
-                fullBlocks.push(buildOutlineBlock(sceneHeading, sceneSummary))
+                if (!collapseFullChapters) {
+                    fullBlocks.push(buildOutlineBlock(sceneHeading, sceneSummary))
+                }
 
                 if (
+                    !collapseStorySoFarChapters &&
                     shouldIncludeSceneStorySoFar({
                         chapterIndex,
                         sceneIndex,

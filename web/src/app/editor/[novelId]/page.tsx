@@ -10,6 +10,7 @@ import {
     NOVEL_REFRESH_REQUESTED_EVENT,
     type NovelRefreshRequestedEventDetail,
 } from '@/lib/novel-refresh-events'
+import { dispatchNovelOutlineDataChanged } from '@/lib/novel-outline-events'
 import { createActChapterActions } from './act-chapter-actions'
 import { NovelSettingsDialog } from '@/components/editor/novel-settings-dialog'
 import { MiddlePanelMenu } from '@/components/editor/middle-panel-menu'
@@ -517,6 +518,7 @@ export default function EditorPage({ params }: EditorPageProps) {
 	                    }
 	                    return [...prev, { number: actNumber, title: updated.title }]
 	                })
+	                dispatchNovelOutlineDataChanged({ novelId })
 	            } catch (error) {
 	                console.error('Failed to save act title:', error)
 	            }
@@ -532,7 +534,10 @@ export default function EditorPage({ params }: EditorPageProps) {
         // Save to database
 	        if (novelId) {
 	            try {
-	                const updated = await actApi.upsert(novelId, { number: actNumber, summary: newSummary || undefined })
+	                // Send the explicit value (including empty) so clearing the summary actually
+                // persists; `|| undefined` would drop the key and the upsert route would keep
+                // the old summary.
+                const updated = await actApi.upsert(novelId, { number: actNumber, summary: newSummary })
 	                setActLabelIds(prev => ({ ...prev, [actNumber]: updated.labelIds }))
 	                setActsFromDb(prev => {
 	                    if (prev.some(a => a.number === actNumber)) {
@@ -540,6 +545,7 @@ export default function EditorPage({ params }: EditorPageProps) {
 	                    }
 	                    return [...prev, { number: actNumber, title: updated.title }]
 	                })
+	                dispatchNovelOutlineDataChanged({ novelId })
 	            } catch (error) {
 	                console.error('Failed to save act summary:', error)
 	            }

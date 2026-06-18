@@ -41,6 +41,7 @@ model Novel {
   series      String?
   seriesIndex Int?
   language    String?   @default("en")
+  outlineActSummaryCollapsesChapters Boolean @default(true)
   ownerId     String
   owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   chapters    Chapter[]

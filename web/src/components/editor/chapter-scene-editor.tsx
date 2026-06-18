@@ -15,6 +15,7 @@ import { Loader2, MoreVertical, PenLine, Plus, Sparkles, Tag, X } from 'lucide-r
 import type { TermEntry } from '@/components/editor/terms/types'
 import { getTermEntryColorClasses, getTermEntryColorId } from '@/components/editor/terms/term-entry-colors'
 import { findMentionedTermIds, type TermMentionMatcher } from '@/components/editor/terms/term-mentions-utils'
+import { dispatchNovelOutlineDataChanged } from '@/lib/novel-outline-events'
 import { TermMentionsHighlightTextarea } from '@/components/editor/terms/term-mentions-highlight-textarea'
 import { TermMentionPreviewPopover } from '@/components/editor/terms/term-mention-preview-popover'
 import { SceneOperationPromptMenu, type SceneOperationPromptMenuRunSpec } from '@/components/editor/scene-operation-prompt-menu'
@@ -349,10 +350,11 @@ export function ChapterSceneEditor({
     const saveSceneSummary = useCallback(async (sceneId: string, summary: string) => {
         try {
             await sceneApi.update(sceneId, { summary })
+            if (novelId) dispatchNovelOutlineDataChanged({ novelId })
         } catch (error) {
             console.error('Failed to save summary:', error)
         }
-    }, [])
+    }, [novelId])
 
     // Save scene labels
     const saveSceneLabels = useCallback(async (sceneId: string, labelIds: string[]) => {
@@ -399,7 +401,8 @@ export function ChapterSceneEditor({
             setSummaryText(nextSummary)
         }
         await sceneApi.update(sceneId, { summary: nextSummary })
-    }, [editingSummaryId, onScenesChange])
+        if (novelId) dispatchNovelOutlineDataChanged({ novelId })
+    }, [editingSummaryId, novelId, onScenesChange])
 
     const handleSceneOperationSkillRun = useCallback(
         (sceneId: string, sceneIndex: number, skill: Skill) => {

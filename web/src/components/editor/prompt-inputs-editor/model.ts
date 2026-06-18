@@ -57,6 +57,7 @@ import { type DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { countChatUserInputReferencesInText, extractStringArgCallsFromMessages } from '@/lib/prompt-template'
 import { buildNovelOutlineTexts } from '@/lib/novel-outline'
+import { NOVEL_OUTLINE_DATA_CHANGED_EVENT, type NovelOutlineDataChangedDetail } from '@/lib/novel-outline-events'
 import { renderPromptTemplateText, type PromptTemplateRenderWarning } from '@/lib/prompt-template-render'
 import { getContentSelectionTemplateItems } from '@/lib/content-selection-template'
 import { findPreviousSceneContent } from '@/lib/scene-continuation'
@@ -423,10 +424,14 @@ export function useInputsEditorModel({
         [persistedPreviewState]
     )
     const [novelLanguage, setNovelLanguage] = useState<string | null>(null)
+    const [novelOutlineCollapsesChapters, setNovelOutlineCollapsesChapters] = useState(true)
     const [novelChapters, setNovelChapters] = useState<ChapterWithScenes[]>([])
     const novelLanguageLoadTokenRef = useRef(0)
     const [novelActs, setNovelActs] = useState<Act[]>([])
     const novelActsLoadTokenRef = useRef(0)
+    // Bumped when act/scene titles or summaries change elsewhere so the fetched copies of
+    // acts/chapters below re-pull instead of serving stale outline data in the preview.
+    const [novelDataRefreshNonce, setNovelDataRefreshNonce] = useState(0)
     const [selectedInputId, setSelectedInputId] = useState<InputId | null>(() => value[0]?.id ?? null)
     const [editingOptionId, setEditingOptionId] = useState<OptionId | null>(null)
     const [previewStateByStorageKey, setPreviewStateByStorageKey] = useState<Record<string, InputsEditorPreviewState>>(
@@ -589,15 +594,17 @@ export function useInputsEditorModel({
             .then((novel) => {
                 if (novelLanguageLoadTokenRef.current !== token) return
                 setNovelLanguage(novel.language ?? null)
+                setNovelOutlineCollapsesChapters(novel.outlineActSummaryCollapsesChapters ?? true)
                 setNovelChapters(novel.chapters ?? [])
             })
             .catch((e) => {
                 console.error('Failed to load novel metadata for prompt preview:', e)
                 if (novelLanguageLoadTokenRef.current !== token) return
                 setNovelLanguage(null)
+                setNovelOutlineCollapsesChapters(true)
                 setNovelChapters([])
             })
-    }, [novelId])
+    }, [novelId, novelDataRefreshNonce])
 
     useEffect(() => {
         if (!novelId) {
@@ -617,6 +624,17 @@ export function useInputsEditorModel({
                 if (novelActsLoadTokenRef.current !== token) return
                 setNovelActs([])
             })
+    }, [novelId, novelDataRefreshNonce])
+
+    useEffect(() => {
+        if (!novelId) return
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<NovelOutlineDataChangedDetail>).detail
+            if (!detail || detail.novelId !== novelId) return
+            setNovelDataRefreshNonce((nonce) => nonce + 1)
+        }
+        window.addEventListener(NOVEL_OUTLINE_DATA_CHANGED_EVENT, handler as EventListener)
+        return () => window.removeEventListener(NOVEL_OUTLINE_DATA_CHANGED_EVENT, handler as EventListener)
     }, [novelId])
 
     const effectiveNovelLanguage = novelId ? novelLanguage : null
@@ -1531,8 +1549,9 @@ export function useInputsEditorModel({
                 currentChapterId: previewSceneId ? (sceneById.get(previewSceneId)?.chapterId ?? null) : null,
                 currentSceneId: previewSceneId,
                 language: effectiveNovelLanguage,
+                collapseChaptersWhenActSummary: novelOutlineCollapsesChapters,
             }),
-        [effectiveActsForOutline, effectiveNovelLanguage, previewSceneId, sceneById, sortedChapters]
+        [effectiveActsForOutline, effectiveNovelLanguage, novelOutlineCollapsesChapters, previewSceneId, sceneById, sortedChapters]
     )
 
     const chapterCountByActNumber = useMemo(() => {

@@ -128,7 +128,8 @@
         "title": "Novel Settings",
         "tabs": {
             "metadata": "Metadata",
-            "writing": "Writing"
+            "writing": "Writing",
+            "memory": "Memory Recall"
         },
         "metadata": {
             "title": "METADATA",
@@ -167,6 +168,12 @@
             "language": "Language",
             "languageDescription": "This is the language of your novel. It will be used for spell checking and hyphenation.",
             "languagePlaceholder": "Select language"
+        },
+        "memory": {
+            "outlineTitle": "Outline Recall",
+            "outlineDescription": "Controls how '{{ novel.outline }}' assembles your outline in prompts.",
+            "collapseChaptersLabel": "Prefer volume summaries",
+            "collapseChaptersDescription": "When a volume (act) has a summary, use it to stand in for that volume and skip the chapter/scene summaries underneath; volumes without a summary still list their chapters. When off, the volume summary is followed by every chapter summary in that volume. The current volume is never collapsed, so its progress is always kept."
         },
         "saveChanges": "Save Changes",
         "saving": "Saving..."

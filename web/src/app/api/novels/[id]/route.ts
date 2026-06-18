@@ -64,7 +64,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
         const { id } = await params
         const body = await request.json()
-        const { title, description, category, coverImage, coverCrop, authorName, series, seriesIndex, language } = body
+        const { title, description, category, coverImage, coverCrop, authorName, series, seriesIndex, language, outlineActSummaryCollapsesChapters } = body
         const shouldUpdateCoverImage = Object.prototype.hasOwnProperty.call(body, 'coverImage')
         const shouldUpdateCoverCrop = Object.prototype.hasOwnProperty.call(body, 'coverCrop')
 
@@ -97,6 +97,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                 series: series ?? existing.series,
                 seriesIndex: seriesIndex ?? existing.seriesIndex,
                 language: language ?? existing.language,
+                outlineActSummaryCollapsesChapters:
+                    outlineActSummaryCollapsesChapters ?? existing.outlineActSummaryCollapsesChapters,
             },
         })
 

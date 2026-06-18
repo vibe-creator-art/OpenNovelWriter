@@ -90,6 +90,7 @@ export interface Novel {
     series: string | null
     seriesIndex: number | null
     language: string | null
+    outlineActSummaryCollapsesChapters: boolean
     ownerId: string
     createdAt: string
     updatedAt: string

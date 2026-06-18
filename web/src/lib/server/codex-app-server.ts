@@ -208,6 +208,11 @@ class CodexAppServerClient {
                 CODEX_HOME: codexHome,
             },
             stdio: ['pipe', 'pipe', 'pipe'],
+            // On Windows `codex` is installed as a `.cmd`/`.ps1` shim that Node's direct
+            // spawn cannot resolve (spawn codex ENOENT). Routing through the shell lets it
+            // resolve the command the same way an interactive prompt does. macOS/Linux keep
+            // the direct exec.
+            shell: globalThis.process.platform === 'win32',
         })
 
         const client = new CodexAppServerClient(child)

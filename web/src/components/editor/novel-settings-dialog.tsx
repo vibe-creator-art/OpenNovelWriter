@@ -37,7 +37,7 @@ import {
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowDownAZ, Ban, Check, GripVertical, Info, Plus, Upload, Trash2 } from 'lucide-react'
+import { ArrowDownAZ, Ban, Brain, Check, GripVertical, Info, Plus, Upload, Trash2 } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 
 interface NovelSettingsDialogProps {
@@ -47,7 +47,7 @@ interface NovelSettingsDialogProps {
     onUpdate: (novel: Novel) => void
     labels: NovelLabel[]
     onLabelsChange: (labels: NovelLabel[]) => void
-    initialTab?: 'metadata' | 'writing'
+    initialTab?: 'metadata' | 'writing' | 'memory'
 }
 
 const LANGUAGES = [
@@ -216,7 +216,7 @@ export function NovelSettingsDialog({
         if (locale?.toLowerCase().startsWith('zh')) return 'zh-CN'
         return 'en'
     }, [locale])
-    const [activeTab, setActiveTab] = useState<'metadata' | 'writing'>('metadata')
+    const [activeTab, setActiveTab] = useState<'metadata' | 'writing' | 'memory'>('metadata')
     const [saving, setSaving] = useState(false)
     const [uploading, setUploading] = useState(false)
     const [labelsBusy, setLabelsBusy] = useState(false)
@@ -229,6 +229,7 @@ export function NovelSettingsDialog({
     const [description, setDescription] = useState('')
     const [coverImage, setCoverImage] = useState('')
     const [language, setLanguage] = useState(defaultNovelLanguage)
+    const [outlineCollapsesChapters, setOutlineCollapsesChapters] = useState(true)
     const [draftLabels, setDraftLabels] = useState<NovelLabel[]>([])
     const draftLabelsRef = useRef<NovelLabel[]>([])
 
@@ -247,6 +248,7 @@ export function NovelSettingsDialog({
             setDescription(novel.description || '')
             setCoverImage(novel.coverImage || '')
             setLanguage(novel.language || defaultNovelLanguage)
+            setOutlineCollapsesChapters(novel.outlineActSummaryCollapsesChapters ?? true)
         }
     }, [defaultNovelLanguage, novel])
 
@@ -412,6 +414,7 @@ export function NovelSettingsDialog({
                 description: description || null,
                 coverImage: coverImage || null,
                 language,
+                outlineActSummaryCollapsesChapters: outlineCollapsesChapters,
             })
             onUpdate(updated)
             onOpenChange(false) // Close dialog after successful save
@@ -465,6 +468,16 @@ export function NovelSettingsDialog({
                     >
                         <span className="text-lg">✏️</span>
                         {t('tabs.writing')}
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('memory')}
+                        className={`flex items-center gap-2 pb-3 px-1 border-b-2 transition-colors ${activeTab === 'memory'
+                            ? 'border-primary text-primary font-medium'
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                            }`}
+                    >
+                        <Brain className="h-4 w-4" />
+                        {t('tabs.memory')}
                     </button>
                 </div>
 
@@ -697,6 +710,32 @@ export function NovelSettingsDialog({
                                     </div>
 
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'memory' && (
+                        <div className="max-w-2xl">
+                            <div className="mb-4">
+                                <h3 className="text-sm font-semibold">{t('memory.outlineTitle')}</h3>
+                                <p className="text-xs text-muted-foreground mt-1">{t('memory.outlineDescription')}</p>
+                            </div>
+                            <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+                                <div className="space-y-1">
+                                    <Label className="text-sm font-medium">{t('memory.collapseChaptersLabel')}</Label>
+                                    <p className="text-xs text-muted-foreground">{t('memory.collapseChaptersDescription')}</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={outlineCollapsesChapters}
+                                    onClick={() => setOutlineCollapsesChapters((v) => !v)}
+                                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${outlineCollapsesChapters ? 'bg-primary' : 'bg-input'}`}
+                                >
+                                    <span
+                                        className={`inline-block h-5 w-5 transform rounded-full bg-background shadow transition-transform ${outlineCollapsesChapters ? 'translate-x-5' : 'translate-x-0.5'}`}
+                                    />
+                                </button>
                             </div>
                         </div>
                     )}
