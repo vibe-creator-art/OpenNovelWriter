@@ -11,6 +11,8 @@ type ParsedSkillDocument = {
     prompt: string | null
 }
 
+type SkillPresetOrigin = { presetId: string; revision: number }
+
 export type SkillRecord = {
     id: string
     name: string
@@ -24,6 +26,15 @@ export type SkillRecord = {
      */
     enabled: boolean
     prompt: string | null
+    /**
+     * The official preset this skill was cloned from, recorded in SKILL.md frontmatter as `presetId`.
+     * Cloned-from-preset skills are read-only unless preset authoring is enabled; re-cloning the skill
+     * (via {@link cloneSkill}) clears this so the copy becomes editable. Tracked out-of-band in
+     * `.preset-origins.json` (NOT in SKILL.md) so the document stays clean.
+     */
+    sourcePresetId: string | null
+    /** Revision of the official preset this skill was cloned from. */
+    sourcePresetRevision: number | null
     content: string
     createdAt: Date
     updatedAt: Date
@@ -32,7 +43,7 @@ export type SkillRecord = {
 const SKILL_FILE_NAME = 'SKILL.md'
 const SKILL_DIRECTORY_NAMES = ['scripts', 'references', 'assets'] as const
 const DISABLED_SKILLS_FILE_NAME = '.disabled-skills.json'
-const LEGACY_DEFAULT_SKILL_DESCRIPTION = 'Describe what this skill does and when to use it.'
+const PRESET_ORIGINS_FILE_NAME = '.preset-origins.json'
 
 export class SkillNotFoundError extends Error {}
 export class DuplicateSkillNameError extends Error {}
@@ -49,16 +60,17 @@ export async function listSkills(ownerId: string) {
     const root = getUserSkillsRoot(ownerId)
     await fs.mkdir(root, { recursive: true })
 
-    const [entries, disabledIds] = await Promise.all([
+    const [entries, disabledIds, origins] = await Promise.all([
         fs.readdir(root, { withFileTypes: true }),
         getDisabledSkillIds(ownerId),
+        getPresetOrigins(ownerId),
     ])
     const skills = await Promise.all(
         entries
             .filter((entry) => entry.isDirectory())
             .map(async (entry) => {
                 try {
-                    return await readSkillRecord(ownerId, entry.name, disabledIds)
+                    return await readSkillRecord(ownerId, entry.name, disabledIds, origins)
                 } catch {
                     return null
                 }
@@ -77,11 +89,16 @@ export async function listSkills(ownerId: string) {
 }
 
 export async function readSkill(ownerId: string, skillId: string) {
-    const disabledIds = await getDisabledSkillIds(ownerId)
-    return readSkillRecord(ownerId, normalizeSkillId(skillId), disabledIds)
+    const [disabledIds, origins] = await Promise.all([getDisabledSkillIds(ownerId), getPresetOrigins(ownerId)])
+    return readSkillRecord(ownerId, normalizeSkillId(skillId), disabledIds, origins)
 }
 
-async function readSkillRecord(ownerId: string, directoryName: string, disabledIds: Set<string>) {
+async function readSkillRecord(
+    ownerId: string,
+    directoryName: string,
+    disabledIds: Set<string>,
+    origins: Map<string, SkillPresetOrigin>
+) {
     const directory = getSkillDirectory(ownerId, directoryName)
     const filePath = path.join(directory, SKILL_FILE_NAME)
 
@@ -91,6 +108,7 @@ async function readSkillRecord(ownerId: string, directoryName: string, disabledI
     ])
 
     const parsed = parseSkillDocument(content)
+    const origin = origins.get(directoryName) ?? null
     return {
         id: directoryName,
         name: parsed.name,
@@ -98,6 +116,8 @@ async function readSkillRecord(ownerId: string, directoryName: string, disabledI
         category: parsed.category,
         enabled: !disabledIds.has(directoryName),
         prompt: parsed.prompt,
+        sourcePresetId: origin?.presetId ?? null,
+        sourcePresetRevision: origin?.revision ?? null,
         content: normalizeDocumentContent(content),
         createdAt: stats.birthtime,
         updatedAt: stats.mtime,
@@ -128,35 +148,82 @@ export async function createSkill(input: {
     return readSkill(input.ownerId, directoryName)
 }
 
+/**
+ * Parse and validate a raw SKILL.md string without touching disk. Used when importing skill
+ * presets so the caller can detect name conflicts before writing anything.
+ */
+export function parseSkillContent(content: string): ParsedSkillDocument {
+    return parseSkillDocument(normalizeDocumentContent(content))
+}
+
+/**
+ * Create a new skill directory from a full SKILL.md body (used by preset cloning). Unlike
+ * {@link createSkill}, the name comes from the document frontmatter and is written verbatim — name
+ * conflicts are expected to be resolved by the caller; only the on-disk directory name is de-duped.
+ */
+export async function createSkillFromContent(input: { ownerId: string; content: string }) {
+    const normalized = normalizeDocumentContent(input.content)
+    const parsed = parseSkillDocument(normalized)
+
+    const root = getUserSkillsRoot(input.ownerId)
+    await fs.mkdir(root, { recursive: true })
+
+    const directoryName = await getUniqueSkillDirectoryName(root, parsed.name)
+    const directory = path.join(root, directoryName)
+    await fs.mkdir(directory, { recursive: true })
+    await Promise.all(SKILL_DIRECTORY_NAMES.map((name) => fs.mkdir(path.join(directory, name), { recursive: true })))
+    await fs.writeFile(path.join(directory, SKILL_FILE_NAME), normalized, 'utf8')
+
+    return readSkill(input.ownerId, directoryName)
+}
+
+/**
+ * Record (or clear, with `origin === null`) which official preset a skill was cloned from. Stored in
+ * `.preset-origins.json` at the user's skills root, keyed by skill id, so SKILL.md stays clean.
+ */
+export async function setSkillPresetOrigin(ownerId: string, skillId: string, origin: SkillPresetOrigin | null) {
+    const directoryName = normalizeSkillId(skillId)
+    const origins = await getPresetOrigins(ownerId)
+    if (origin) origins.set(directoryName, origin)
+    else if (!origins.delete(directoryName)) return
+    await writePresetOrigins(ownerId, origins)
+}
+
+/**
+ * Duplicate an owned skill into a fresh, editable copy: the preset-origin marker is dropped (the new
+ * directory simply has no `.preset-origins.json` entry) and the name is auto-numbered to avoid
+ * collisions. This is the "clone before editing" escape hatch for skills cloned from an official preset.
+ */
+export async function cloneSkill(input: { ownerId: string; skillId: string }) {
+    const source = await readSkill(input.ownerId, input.skillId)
+    const existingKeys = await loadSkillNameKeys(input.ownerId)
+    const cloneName = getNextAvailableNumberedSkillName(source.name, existingKeys)
+
+    const content = setSkillFrontmatterField(source.content, 'name', cloneName)
+    return createSkillFromContent({ ownerId: input.ownerId, content })
+}
+
 export async function updateSkill(input: {
     ownerId: string
     skillId: string
     content: string
 }) {
-    const currentDirectoryName = normalizeSkillId(input.skillId)
-    const directory = getSkillDirectory(input.ownerId, currentDirectoryName)
+    const directoryName = normalizeSkillId(input.skillId)
+    const directory = getSkillDirectory(input.ownerId, directoryName)
     const content = normalizeDocumentContent(input.content)
     const parsed = parseSkillDocument(content)
     await ensureSkillExists(directory)
 
-    const existingKeys = await loadSkillNameKeys(input.ownerId, currentDirectoryName)
+    const existingKeys = await loadSkillNameKeys(input.ownerId, directoryName)
     const nextKey = toSkillNameKey(parsed.name)
     if (nextKey && existingKeys.has(nextKey)) {
         throw new DuplicateSkillNameError('Skill name already exists')
     }
 
-    let nextDirectoryName = currentDirectoryName
-    if (await shouldRenameSkillDirectory(input.ownerId, currentDirectoryName, parsed.name)) {
-        nextDirectoryName = await getUniqueSkillDirectoryName(
-            getUserSkillsRoot(input.ownerId),
-            parsed.name,
-            currentDirectoryName
-        )
-        await fs.rename(directory, getSkillDirectory(input.ownerId, nextDirectoryName))
-    }
-
-    await fs.writeFile(path.join(getSkillDirectory(input.ownerId, nextDirectoryName), SKILL_FILE_NAME), content, 'utf8')
-    return readSkill(input.ownerId, nextDirectoryName)
+    // The directory name is a stable id: renaming a skill only rewrites frontmatter, it never moves the
+    // directory. This removes the autosave race where a debounced save targeted a just-renamed directory.
+    await fs.writeFile(path.join(directory, SKILL_FILE_NAME), content, 'utf8')
+    return readSkill(input.ownerId, directoryName)
 }
 
 export async function deleteSkill(ownerId: string, skillId: string) {
@@ -170,6 +237,8 @@ export async function deleteSkill(ownerId: string, skillId: string) {
     if (disabled.delete(directoryName)) {
         await writeDisabledSkillIds(ownerId, disabled)
     }
+    // Drop any preset-origin entry for the removed skill.
+    await setSkillPresetOrigin(ownerId, directoryName, null)
 }
 
 function getDisabledSkillsFilePath(ownerId: string) {
@@ -191,6 +260,38 @@ async function writeDisabledSkillIds(ownerId: string, ids: Set<string>) {
     const root = getUserSkillsRoot(ownerId)
     await fs.mkdir(root, { recursive: true })
     await fs.writeFile(getDisabledSkillsFilePath(ownerId), `${JSON.stringify([...ids], null, 2)}\n`, 'utf8')
+}
+
+function getPresetOriginsFilePath(ownerId: string) {
+    return path.join(getUserSkillsRoot(ownerId), PRESET_ORIGINS_FILE_NAME)
+}
+
+async function getPresetOrigins(ownerId: string): Promise<Map<string, SkillPresetOrigin>> {
+    try {
+        const raw = await fs.readFile(getPresetOriginsFilePath(ownerId), 'utf8')
+        const parsed = JSON.parse(raw) as unknown
+        if (typeof parsed !== 'object' || parsed === null) return new Map()
+        const result = new Map<string, SkillPresetOrigin>()
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+            if (typeof value !== 'object' || value === null) continue
+            const presetId = (value as { presetId?: unknown }).presetId
+            const revision = (value as { revision?: unknown }).revision
+            if (typeof presetId !== 'string' || !presetId.trim()) continue
+            result.set(key, {
+                presetId: presetId.trim(),
+                revision: typeof revision === 'number' && Number.isFinite(revision) ? revision : 1,
+            })
+        }
+        return result
+    } catch {
+        return new Map()
+    }
+}
+
+async function writePresetOrigins(ownerId: string, origins: Map<string, SkillPresetOrigin>) {
+    const root = getUserSkillsRoot(ownerId)
+    await fs.mkdir(root, { recursive: true })
+    await fs.writeFile(getPresetOriginsFilePath(ownerId), `${JSON.stringify(Object.fromEntries(origins), null, 2)}\n`, 'utf8')
 }
 
 /**
@@ -223,6 +324,8 @@ export function toSkillDto(record: SkillRecord) {
         enabled: record.enabled,
         prompt: record.prompt,
         content: record.content,
+        sourcePresetId: record.sourcePresetId,
+        sourcePresetRevision: record.sourcePresetRevision,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
     }
@@ -252,13 +355,12 @@ function normalizeDocumentContent(content: string) {
     return normalized.endsWith('\n') ? normalized : `${normalized}\n`
 }
 
-async function getUniqueSkillDirectoryName(root: string, name: string, excludeDirectoryName: string | null = null) {
+async function getUniqueSkillDirectoryName(root: string, name: string) {
     const base = sanitizeSkillDirectoryName(name) || 'skill'
     let candidate = base
     let counter = 1
 
     for (;;) {
-        if (candidate === excludeDirectoryName) return candidate
         try {
             await fs.access(path.join(root, candidate))
             counter += 1
@@ -283,6 +385,28 @@ function escapeFrontmatterScalar(value: string) {
     return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
+/**
+ * Set (or, with `value === null`, remove) a top-level scalar field in a SKILL.md frontmatter block.
+ * Only matches fields at column 0, so it never touches indented block-scalar continuation lines.
+ */
+function setSkillFrontmatterField(content: string, key: string, value: string | null): string {
+    const normalized = content.replace(/\r\n/g, '\n')
+    if (!normalized.startsWith('---\n')) return normalized
+
+    const closingIndex = normalized.indexOf('\n---\n', 4)
+    if (closingIndex === -1) return normalized
+
+    const frontmatter = normalized.slice(4, closingIndex)
+    const body = normalized.slice(closingIndex + 5)
+    const pattern = new RegExp(`^${key}\\s*:`)
+    const lines = frontmatter.split('\n').filter((line) => !pattern.test(line))
+    if (value !== null) {
+        lines.push(`${key}: ${escapeFrontmatterScalar(value)}`)
+    }
+
+    return `---\n${lines.join('\n')}\n---\n${body}`
+}
+
 function createDefaultSkillMarkdown(input: { name: string; category: SkillCategory }) {
     return [
         '---',
@@ -291,8 +415,6 @@ function createDefaultSkillMarkdown(input: { name: string; category: SkillCatego
         `category: ${input.category}`,
         'prompt: ""',
         '---',
-        '',
-        `# ${input.name}`,
         '',
         '## Purpose',
         'Describe the task this skill is responsible for.',
@@ -319,11 +441,7 @@ function parseSkillDocument(content: string): ParsedSkillDocument {
 
     const fields = parseFrontmatterFields(frontmatter)
     const name = fields.name?.trim() ?? ''
-    const normalizedDescription = fields.description?.trim() || null
-    const description =
-        normalizedDescription && normalizedDescription !== LEGACY_DEFAULT_SKILL_DESCRIPTION
-            ? normalizedDescription
-            : null
+    const description = fields.description?.trim() || null
     const category = normalizeSkillCategory(fields.category?.trim())
     const prompt = fields.prompt?.trim() || null
 
@@ -367,11 +485,6 @@ async function ensureSkillExists(directory: string) {
     } catch {
         throw new SkillNotFoundError('Skill not found')
     }
-}
-
-async function shouldRenameSkillDirectory(ownerId: string, directoryName: string, nextSkillName: string) {
-    const current = await readSkill(ownerId, directoryName)
-    return toSkillNameKey(current.name) !== toSkillNameKey(nextSkillName)
 }
 
 function splitFrontmatter(markdown: string) {

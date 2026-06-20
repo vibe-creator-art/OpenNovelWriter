@@ -33,6 +33,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 userId: user.userId,
                 bundle: preset.bundle,
                 overwriteExisting,
+                sourcePresetId: preset.metadata.presetId,
+                sourcePresetRevision: preset.metadata.revision,
             })
         )
 

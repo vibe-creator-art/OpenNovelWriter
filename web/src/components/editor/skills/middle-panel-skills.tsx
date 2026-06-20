@@ -12,12 +12,20 @@ import {
     PenLine,
     Plus,
     Search,
-    Wand2,
+    Sparkles,
     X,
     type LucideIcon,
 } from 'lucide-react'
 
-import { promptApi, skillApi, type Prompt, type Skill } from '@/lib/api'
+import {
+    ApiError,
+    promptApi,
+    skillApi,
+    skillPresetApi,
+    type BuiltinSkillPreset,
+    type Prompt,
+    type Skill,
+} from '@/lib/api'
 import { normalizeSkillCategory, type SkillCategory } from '@/lib/skills'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -25,24 +33,25 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import { SkillPresetLibrarySection } from '@/components/editor/skills/skill-preset-library-section'
+import { SkillPresetPublishDialog } from '@/components/editor/skills/skill-preset-publish-dialog'
 
 const CATEGORY_ITEMS: Array<{ id: SkillCategory; icon: LucideIcon; translationKey: string }> = [
     { id: 'scene_continuation', icon: PenLine, translationKey: 'sceneContinuation' },
     { id: 'scene_action', icon: List, translationKey: 'sceneAction' },
-    { id: 'text_replacement', icon: Wand2, translationKey: 'textReplacement' },
     { id: 'ai_chat', icon: MessageCircle, translationKey: 'aiChat' },
 ]
 
 const DEFAULT_EXPANDED_CATEGORIES: Record<SkillCategory, boolean> = {
     scene_continuation: true,
     scene_action: true,
-    text_replacement: true,
     ai_chat: true,
 }
 
@@ -50,10 +59,6 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 type MiddlePanelSkillsProps = {
     novelId?: string
-}
-
-function escapeRegExp(value: string) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function escapeDoubleQuotedYaml(value: string) {
@@ -100,7 +105,7 @@ function extractSkillDescriptionFromMarkdown(content: string) {
     return raw
 }
 
-function replaceSkillNameInMarkdown(content: string, nextName: string, previousName: string | null) {
+function replaceSkillNameInMarkdown(content: string, nextName: string) {
     const normalized = content.replace(/\r\n/g, '\n')
     if (!normalized.startsWith('---\n')) return normalized
 
@@ -114,16 +119,7 @@ function replaceSkillNameInMarkdown(content: string, nextName: string, previousN
         ? frontmatter.replace(/^name\s*:\s*.+$/m, nextFrontmatterLine)
         : `${nextFrontmatterLine}\n${frontmatter}`
 
-    let nextBody = body
-    const trimmedPrevious = previousName?.trim() ?? ''
-    if (trimmedPrevious) {
-        const headingPattern = new RegExp(`^#\\s+${escapeRegExp(trimmedPrevious)}\\s*$`, 'm')
-        if (headingPattern.test(nextBody)) {
-            nextBody = nextBody.replace(headingPattern, `# ${nextName}`)
-        }
-    }
-
-    return `---\n${nextFrontmatter}\n---\n${nextBody}`
+    return `---\n${nextFrontmatter}\n---\n${body}`
 }
 
 function extractSkillPromptFromMarkdown(content: string) {
@@ -200,6 +196,58 @@ function replaceSkillDescriptionInMarkdown(content: string, description: string)
     return `---\n${nextFrontmatter}\n---\n${body}`
 }
 
+/** The markdown body after the frontmatter block — this is the only part the user edits directly.
+ *  Returned verbatim (no trimming) so extract/replace round-trip is idempotent: trimming on every
+ *  render would fight edits at the very top (e.g. pressing Enter on line 1 would be undone, and the
+ *  controlled textarea would jump the caret to the end). The body is flushed to the top once on load
+ *  via {@link normalizeSkillDraftContent} instead. */
+function extractSkillBodyFromMarkdown(content: string) {
+    const normalized = content.replace(/\r\n/g, '\n')
+    if (!normalized.startsWith('---\n')) return normalized
+    const closingIndex = normalized.indexOf('\n---\n', 4)
+    if (closingIndex === -1) return normalized
+    return normalized.slice(closingIndex + 5)
+}
+
+/** Strip the blank line(s) between the frontmatter and the body once, when a skill is loaded into the
+ *  draft, so the body renders flush to the top without a non-idempotent per-render transform. */
+function normalizeSkillDraftContent(content: string) {
+    const normalized = content.replace(/\r\n/g, '\n')
+    if (!normalized.startsWith('---\n')) return normalized
+    const closingIndex = normalized.indexOf('\n---\n', 4)
+    if (closingIndex === -1) return normalized
+    const frontmatter = normalized.slice(4, closingIndex)
+    const body = normalized.slice(closingIndex + 5).replace(/^\n+/, '')
+    return `---\n${frontmatter}\n---\n${body}`
+}
+
+/** Replace the body while keeping the frontmatter intact (frontmatter is edited via the fields above).
+ *  Verbatim reconstruction — the inverse of {@link extractSkillBodyFromMarkdown} — so editing is stable. */
+function replaceSkillBodyInMarkdown(content: string, body: string) {
+    const normalized = content.replace(/\r\n/g, '\n')
+    if (!normalized.startsWith('---\n')) return body
+    const closingIndex = normalized.indexOf('\n---\n', 4)
+    if (closingIndex === -1) return body
+    const frontmatter = normalized.slice(4, closingIndex)
+    return `---\n${frontmatter}\n---\n${body}`
+}
+
+function replaceSkillCategoryInMarkdown(content: string, category: string) {
+    const normalized = content.replace(/\r\n/g, '\n')
+    if (!normalized.startsWith('---\n')) return normalized
+    const closingIndex = normalized.indexOf('\n---\n', 4)
+    if (closingIndex === -1) return normalized
+
+    const frontmatter = normalized.slice(4, closingIndex)
+    const body = normalized.slice(closingIndex + 5)
+    const nextLine = `category: ${category}`
+    const nextFrontmatter = /^category\s*:\s*.+$/m.test(frontmatter)
+        ? frontmatter.replace(/^category\s*:\s*.+$/m, nextLine)
+        : `${frontmatter}\n${nextLine}`
+
+    return `---\n${nextFrontmatter}\n---\n${body}`
+}
+
 export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
     const t = useTranslations('skills')
     const [loading, setLoading] = useState(true)
@@ -218,6 +266,24 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
     const [saveState, setSaveState] = useState<SaveState>('idle')
     const [isEditingName, setIsEditingName] = useState(false)
     const [prompts, setPrompts] = useState<Prompt[]>([])
+    const [promptsLoaded, setPromptsLoaded] = useState(false)
+
+    const [builtinPresets, setBuiltinPresets] = useState<BuiltinSkillPreset[]>([])
+    const [builtinPresetsLoading, setBuiltinPresetsLoading] = useState(true)
+    const [builtinPresetsError, setBuiltinPresetsError] = useState<string | null>(null)
+    const [presetAuthoringEnabled, setPresetAuthoringEnabled] = useState(false)
+    const [cloningPresetId, setCloningPresetId] = useState<string | null>(null)
+    const [cloningAllPresets, setCloningAllPresets] = useState(false)
+    const [cloneOverwritePresetId, setCloneOverwritePresetId] = useState<string | null>(null)
+    const [cloneConflictNames, setCloneConflictNames] = useState<string[]>([])
+    const [cloneOverwriteConfirmOpen, setCloneOverwriteConfirmOpen] = useState(false)
+    const [publishDialogOpen, setPublishDialogOpen] = useState(false)
+    const [publishDialogMode, setPublishDialogMode] = useState<'create' | 'overwrite'>('create')
+    const [publishPresetName, setPublishPresetName] = useState('')
+    const [publishDescription, setPublishDescription] = useState('')
+    const [publishOverwritePresetId, setPublishOverwritePresetId] = useState('')
+    const [publishBusy, setPublishBusy] = useState(false)
+    const [publishError, setPublishError] = useState<string | null>(null)
 
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const latestDraftRef = useRef('')
@@ -264,7 +330,10 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         void (async () => {
             try {
                 const { prompts: list } = await promptApi.list()
-                if (!cancelled) setPrompts(list)
+                if (!cancelled) {
+                    setPrompts(list)
+                    setPromptsLoaded(true)
+                }
             } catch {
                 if (!cancelled) setPrompts([])
             }
@@ -273,6 +342,29 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
             cancelled = true
         }
     }, [])
+
+    const loadBuiltinPresets = useCallback(async () => {
+        setBuiltinPresetsLoading(true)
+        setBuiltinPresetsError(null)
+        try {
+            const { authoringEnabled, presets } = await skillPresetApi.list()
+            setPresetAuthoringEnabled(authoringEnabled)
+            setBuiltinPresets(presets)
+            setPublishOverwritePresetId((prev) => {
+                if (prev && presets.some((preset) => preset.presetId === prev)) return prev
+                return presets[0]?.presetId ?? ''
+            })
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to load presets'
+            setBuiltinPresetsError(message)
+        } finally {
+            setBuiltinPresetsLoading(false)
+        }
+    }, [])
+
+    useEffect(() => {
+        void loadBuiltinPresets()
+    }, [loadBuiltinPresets])
 
     useEffect(() => {
         if (typeof window === 'undefined') return
@@ -326,6 +418,21 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         () => skills.find((skill) => skill.id === selectedSkillId) ?? null,
         [selectedSkillId, skills]
     )
+    // A skill cloned from an official preset is read-only unless the user is in preset-authoring mode.
+    // Editing requires cloning it first (which yields an unmarked, editable copy).
+    const editorReadOnly = useMemo(
+        () => Boolean(selectedSkill?.sourcePresetId) && !presetAuthoringEnabled,
+        [presetAuthoringEnabled, selectedSkill?.sourcePresetId]
+    )
+    // For a preset-sourced skill: the cloned revision and whether the official preset is now newer.
+    const skillPresetUpdate = useMemo(() => {
+        const sourceId = selectedSkill?.sourcePresetId ?? null
+        const clonedRevision = selectedSkill?.sourcePresetRevision ?? null
+        if (!sourceId) return { sourceId: null as string | null, clonedRevision: null as number | null, updateAvailable: false }
+        const current = builtinPresets.find((preset) => preset.presetId === sourceId) ?? null
+        const updateAvailable = current != null && clonedRevision != null && current.revision > clonedRevision
+        return { sourceId, clonedRevision, updateAvailable }
+    }, [builtinPresets, selectedSkill?.sourcePresetId, selectedSkill?.sourcePresetRevision])
     const draftSkillName = useMemo(
         () => extractSkillNameFromMarkdown(draftContent) ?? selectedSkill?.name ?? '',
         [draftContent, selectedSkill?.name]
@@ -338,6 +445,9 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         () => extractSkillPromptFromMarkdown(draftContent) ?? selectedSkill?.prompt ?? '',
         [draftContent, selectedSkill?.prompt]
     )
+    // The textarea edits only the body; the frontmatter (name/description/category/prompt) is hidden and
+    // managed through the fields above, so it can't be accidentally broken.
+    const draftSkillBody = useMemo(() => extractSkillBodyFromMarkdown(draftContent), [draftContent])
     // A skill can only bind a prompt from its own category — no cross-category selection.
     const draftSkillCategory = useMemo(
         () =>
@@ -359,6 +469,36 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         [draftSkillCategory, prompts]
     )
 
+    // Names of every prompt the user owns (case-insensitive) — used to detect skills whose bound prompt
+    // no longer exists (deleted or renamed). Only meaningful once the prompt list has actually loaded.
+    const promptNameSet = useMemo(() => new Set(prompts.map((prompt) => prompt.name.trim().toLowerCase())), [prompts])
+    const isPromptNameMissing = useCallback(
+        (promptName: string | null | undefined) => {
+            const name = promptName?.trim()
+            if (!name) return false
+            return promptsLoaded && !promptNameSet.has(name.toLowerCase())
+        },
+        [promptNameSet, promptsLoaded]
+    )
+    const draftPromptMissing = useMemo(() => isPromptNameMissing(draftSkillPrompt), [draftSkillPrompt, isPromptNameMissing])
+
+    // A skill that binds a now-missing prompt can't run, so default it to disabled (and surface why).
+    useEffect(() => {
+        if (!promptsLoaded) return
+        const broken = skills.filter((skill) => skill.enabled && isPromptNameMissing(skill.prompt))
+        if (broken.length === 0) return
+        void (async () => {
+            for (const skill of broken) {
+                try {
+                    const { skill: updated } = await skillApi.setEnabled(skill.id, false)
+                    setSkills((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+                } catch (err) {
+                    console.error(err)
+                }
+            }
+        })()
+    }, [isPromptNameMissing, promptsLoaded, skills])
+
     useEffect(() => {
         if (!selectedSkill) {
             setDraftContent('')
@@ -369,12 +509,13 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
             return
         }
 
-        setDraftContent(selectedSkill.content)
+        const normalizedContent = normalizeSkillDraftContent(selectedSkill.content)
+        setDraftContent(normalizedContent)
         setDraftSkillId(selectedSkill.id)
-        latestDraftRef.current = selectedSkill.content
+        latestDraftRef.current = normalizedContent
         lastSavedContentRef.current = {
             id: selectedSkill.id,
-            content: selectedSkill.content,
+            content: normalizedContent,
         }
         setSaveState('idle')
 
@@ -399,6 +540,9 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
 
     useEffect(() => {
         if (!selectedSkill) return
+        // Skills cloned from an official preset are read-only outside authoring mode: never autosave.
+        // The server (PUT /skills/[id]) enforces the same rule; this just avoids no-op churn.
+        if (editorReadOnly) return
         // Skip the transitional render right after a selection switch, where `draftContent` still
         // holds the previously selected skill's markdown. Validating/saving here would compare the
         // wrong draft against the new selection.
@@ -420,7 +564,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
             const savedName = extractSkillNameFromMarkdown(lastSaved.content) ?? ''
             const currentDraftName = extractSkillNameFromMarkdown(draftContent) ?? ''
             if (savedName !== currentDraftName) {
-                setDraftContent((prev) => replaceSkillNameInMarkdown(prev, savedName, currentDraftName))
+                setDraftContent((prev) => replaceSkillNameInMarkdown(prev, savedName))
             }
             return
         }
@@ -470,7 +614,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         return () => {
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
         }
-    }, [draftContent, draftSkillId, getSkillNameError, isEditingName, selectedSkill, t])
+    }, [draftContent, draftSkillId, editorReadOnly, getSkillNameError, isEditingName, selectedSkill, t])
 
     const filteredSkills = useMemo(() => {
         const normalized = searchQuery.trim().toLowerCase()
@@ -488,7 +632,6 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         const grouped: Record<SkillCategory, Skill[]> = {
             scene_continuation: [],
             scene_action: [],
-            text_replacement: [],
             ai_chat: [],
         }
 
@@ -531,21 +674,28 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
     const handleSetEnabled = useCallback(async (skill: Skill, enabled: boolean) => {
         if (skill.enabled === enabled) return
 
+        // Refuse to enable a skill whose bound prompt no longer exists — it can't run.
+        if (enabled && isPromptNameMissing(skill.prompt)) {
+            setError(t('errors.missingPromptCannotEnable'))
+            return
+        }
+
         try {
             setError(null)
             // Enabled state lives outside SKILL.md: toggling adds/removes the CODEX_HOME symlink.
             const { skill: updated } = await skillApi.setEnabled(skill.id, enabled)
             setSkills((prev) => prev.map((item) => (item.id === skill.id ? updated : item)))
             if (selectedSkillId === skill.id) {
-                setDraftContent(updated.content)
-                latestDraftRef.current = updated.content
-                lastSavedContentRef.current = { id: updated.id, content: updated.content }
+                const normalizedContent = normalizeSkillDraftContent(updated.content)
+                setDraftContent(normalizedContent)
+                latestDraftRef.current = normalizedContent
+                lastSavedContentRef.current = { id: updated.id, content: normalizedContent }
             }
         } catch (err) {
             console.error(err)
             setError(err instanceof Error ? err.message : t('errors.saveFailed'))
         }
-    }, [selectedSkillId, t])
+    }, [isPromptNameMissing, selectedSkillId, t])
 
     const handleDelete = useCallback(async () => {
         if (!selectedSkill) return
@@ -565,6 +715,157 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         }
     }, [selectedSkill, skills, t])
 
+    const handleCloneSkill = useCallback(async () => {
+        if (!selectedSkill) return
+        try {
+            setError(null)
+            // Produces an editable copy with the preset-origin marker stripped (the "clone to edit" path).
+            const { skill } = await skillApi.clone(selectedSkill.id)
+            setSkills((prev) => [skill, ...prev])
+            const category = normalizeSkillCategory(skill.category)
+            if (category) {
+                setActiveCategory(category)
+                setExpandedCategories((prev) => ({ ...prev, [category]: true }))
+            }
+            setSelectedSkillId(skill.id)
+        } catch (err) {
+            console.error(err)
+            const detail = err instanceof Error ? err.message : ''
+            setError(detail ? `${t('errors.cloneFailed')}: ${detail}` : t('errors.cloneFailed'))
+        }
+    }, [selectedSkill, t])
+
+    const handleClonePreset = useCallback(async (presetId: string, overwriteExisting = false) => {
+        setCloningPresetId(presetId)
+        setBuiltinPresetsError(null)
+        try {
+            const { skills: importedSkills } = await skillPresetApi.clone(presetId, { overwriteExisting })
+            const importedIds = new Set(importedSkills.map((skill) => skill.id))
+            setSkills((prev) => [...importedSkills, ...prev.filter((skill) => !importedIds.has(skill.id))])
+
+            const preset = builtinPresets.find((item) => item.presetId === presetId) ?? null
+            const entryKey = (preset?.entrySkillName ?? importedSkills[0]?.name ?? '').trim().toLowerCase()
+            const entrySkill = importedSkills.find((skill) => skill.name.trim().toLowerCase() === entryKey) ?? importedSkills[0] ?? null
+            if (entrySkill) {
+                const category = normalizeSkillCategory(entrySkill.category)
+                if (category) {
+                    setExpandedCategories((prev) => ({ ...prev, [category]: true }))
+                    setActiveCategory(category)
+                }
+                setSelectedSkillId(entrySkill.id)
+            }
+
+            setCloneOverwriteConfirmOpen(false)
+            setCloneOverwritePresetId(null)
+            setCloneConflictNames([])
+        } catch (err) {
+            if (err instanceof ApiError) {
+                const data = err.data as { code?: unknown; names?: unknown } | undefined
+                const names = Array.isArray(data?.names)
+                    ? data.names.filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+                    : []
+
+                if (err.status === 409 && data?.code === 'SKILL_NAME_ALREADY_EXISTS' && names.length > 0 && !overwriteExisting) {
+                    setCloneOverwritePresetId(presetId)
+                    setCloneConflictNames(names)
+                    setCloneOverwriteConfirmOpen(true)
+                    return
+                }
+            }
+
+            console.error(err)
+            const detail = err instanceof Error ? err.message : ''
+            setBuiltinPresetsError(detail || t('presets.errors.cloneFailed'))
+        } finally {
+            setCloningPresetId((prev) => (prev === presetId ? null : prev))
+        }
+    }, [builtinPresets, t])
+
+    const handleConfirmCloneOverwrite = useCallback(async () => {
+        if (!cloneOverwritePresetId) return
+        await handleClonePreset(cloneOverwritePresetId, true)
+    }, [cloneOverwritePresetId, handleClonePreset])
+
+    const handleCloneAllPresets = useCallback(async () => {
+        setCloningAllPresets(true)
+        setBuiltinPresetsError(null)
+        try {
+            const allImported: Skill[] = []
+            for (const preset of builtinPresets) {
+                // Overwrite existing clones so "clone all" updates everything to the latest official version.
+                const { skills: importedSkills } = await skillPresetApi.clone(preset.presetId, { overwriteExisting: true })
+                allImported.push(...importedSkills)
+            }
+            if (allImported.length > 0) {
+                const importedIds = new Set(allImported.map((skill) => skill.id))
+                setSkills((prev) => [...allImported, ...prev.filter((skill) => !importedIds.has(skill.id))])
+            }
+        } catch (err) {
+            console.error(err)
+            const detail = err instanceof Error ? err.message : ''
+            setBuiltinPresetsError(detail || t('presets.errors.cloneFailed'))
+        } finally {
+            setCloningAllPresets(false)
+        }
+    }, [builtinPresets, t])
+
+    const handleOpenPublishDialog = useCallback((mode: 'create' | 'overwrite') => {
+        if (!selectedSkill) return
+
+        const skillName = (selectedSkill.name ?? '').trim() || t('actions.newSkillName')
+        const key = skillName.trim().toLowerCase()
+        const matchingPreset = builtinPresets.find(
+            (preset) => preset.entrySkillName.trim().toLowerCase() === key || preset.name.trim().toLowerCase() === key
+        ) ?? builtinPresets[0] ?? null
+
+        setPublishDialogMode(mode)
+        setPublishPresetName(mode === 'overwrite' ? matchingPreset?.name ?? skillName : skillName)
+        setPublishDescription(mode === 'overwrite' ? matchingPreset?.description ?? selectedSkill.description ?? '' : selectedSkill.description ?? '')
+        setPublishOverwritePresetId(matchingPreset?.presetId ?? builtinPresets[0]?.presetId ?? '')
+        setPublishError(null)
+        setPublishDialogOpen(true)
+    }, [builtinPresets, selectedSkill, t])
+
+    const handlePublishDialogOpenChange = useCallback((open: boolean) => {
+        setPublishDialogOpen(open)
+        if (!open) setPublishError(null)
+    }, [])
+
+    const handleSubmitPublishDialog = useCallback(async () => {
+        if (!selectedSkill) return
+
+        setPublishBusy(true)
+        setPublishError(null)
+        try {
+            const description = publishDescription.trim() ? publishDescription.trim() : null
+            if (publishDialogMode === 'create') {
+                await skillPresetApi.publish({
+                    skillId: selectedSkill.id,
+                    name: publishPresetName,
+                    description,
+                })
+            } else {
+                if (!publishOverwritePresetId) {
+                    throw new Error(t('presets.errors.selectPreset'))
+                }
+                await skillPresetApi.update(publishOverwritePresetId, {
+                    skillId: selectedSkill.id,
+                    name: publishPresetName,
+                    description,
+                })
+            }
+
+            await loadBuiltinPresets()
+            setPublishDialogOpen(false)
+        } catch (err) {
+            console.error(err)
+            const detail = err instanceof Error ? err.message : ''
+            setPublishError(detail || t('presets.errors.publishFailed'))
+        } finally {
+            setPublishBusy(false)
+        }
+    }, [loadBuiltinPresets, publishDescription, publishDialogMode, publishOverwritePresetId, publishPresetName, selectedSkill, t])
+
     const saveLabel = useMemo(() => {
         if (saveState === 'saving') return t('status.saving')
         if (saveState === 'saved') return t('status.saved')
@@ -581,6 +882,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
     }
 
     return (
+        <>
         <div className="flex h-full min-h-0">
             <section className="w-[340px] shrink-0 border-r bg-card flex flex-col">
                 <div className="border-b p-3">
@@ -612,6 +914,26 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                         </DropdownMenu>
                     </div>
                 </div>
+
+                <SkillPresetLibrarySection
+                    presets={builtinPresets}
+                    loading={builtinPresetsLoading}
+                    error={builtinPresetsError}
+                    cloningPresetId={cloningPresetId}
+                    cloningAll={cloningAllPresets}
+                    cloneConflictNames={cloneConflictNames}
+                    cloneOverwriteConfirmOpen={cloneOverwriteConfirmOpen}
+                    onClonePreset={(presetId, overwriteExisting) => void handleClonePreset(presetId, overwriteExisting)}
+                    onCloneAllPresets={() => void handleCloneAllPresets()}
+                    onCloneOverwriteConfirmOpenChange={(open) => {
+                        setCloneOverwriteConfirmOpen(open)
+                        if (!open) {
+                            setCloneOverwritePresetId(null)
+                            setCloneConflictNames([])
+                        }
+                    }}
+                    onConfirmCloneOverwrite={() => void handleConfirmCloneOverwrite()}
+                />
 
                 {error && <div className="border-b px-3 py-2 text-sm text-destructive">{error}</div>}
 
@@ -688,7 +1010,8 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                                                 <span
                                                                     className={cn(
                                                                         'truncate text-sm font-medium',
-                                                                        !skill.enabled && 'text-muted-foreground'
+                                                                        !skill.enabled && 'text-muted-foreground',
+                                                                        skill.sourcePresetId && 'italic text-muted-foreground'
                                                                     )}
                                                                 >
                                                                     {skill.name}
@@ -760,6 +1083,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                 <div className="shrink-0 text-sm font-medium">{t('editor.name')}</div>
                                 <Input
                                     value={draftSkillName}
+                                    disabled={editorReadOnly}
                                     onFocus={() => {
                                         setError(null)
                                         setIsEditingName(true)
@@ -768,7 +1092,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                     onChange={(event) => {
                                         setError(null)
                                         setDraftContent((prev) =>
-                                            replaceSkillNameInMarkdown(prev, event.target.value, draftSkillName)
+                                            replaceSkillNameInMarkdown(prev, event.target.value)
                                         )
                                     }}
                                     placeholder={t('editor.namePlaceholder')}
@@ -786,6 +1110,20 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                             </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
+                                            {presetAuthoringEnabled && (
+                                                <>
+                                                    <DropdownMenuItem onClick={() => handleOpenPublishDialog('create')}>
+                                                        {t('presets.publish.createMenu')}
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => handleOpenPublishDialog('overwrite')}>
+                                                        {t('presets.publish.overwriteMenu')}
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuSeparator />
+                                                </>
+                                            )}
+                                            <DropdownMenuItem onClick={() => void handleCloneSkill()}>
+                                                {t('actions.cloneSkill')}
+                                            </DropdownMenuItem>
                                             <DropdownMenuItem className="text-destructive" onClick={() => void handleDelete()}>
                                                 {t('actions.deleteSkill')}
                                             </DropdownMenuItem>
@@ -798,6 +1136,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                 <div className="shrink-0 text-sm font-medium">{t('editor.description')}</div>
                                 <Input
                                     value={draftSkillDescription}
+                                    disabled={editorReadOnly}
                                     onChange={(event) => {
                                         setError(null)
                                         setDraftContent((prev) =>
@@ -809,10 +1148,38 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                             </div>
 
                             <div className="mt-2 flex items-center gap-3">
+                                <div className="shrink-0 text-sm font-medium">{t('editor.category')}</div>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" size="sm" className="min-w-[180px] justify-between gap-2" disabled={editorReadOnly}>
+                                            <span className="truncate">
+                                                {categories.find((item) => item.id === draftSkillCategory)?.label ?? '—'}
+                                            </span>
+                                            <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="start" className="w-56">
+                                        {categories.map((item) => (
+                                            <DropdownMenuItem
+                                                key={item.id}
+                                                onClick={() => {
+                                                    setError(null)
+                                                    setDraftContent((prev) => replaceSkillCategoryInMarkdown(prev, item.id))
+                                                }}
+                                            >
+                                                <item.icon className="h-4 w-4" />
+                                                <span className="truncate">{item.label}</span>
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
+
+                            <div className="mt-2 flex items-center gap-3">
                                 <div className="shrink-0 text-sm font-medium">{t('editor.associatedPrompt')}</div>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                        <Button variant="outline" size="sm" className="min-w-[180px] justify-between gap-2">
+                                        <Button variant="outline" size="sm" className="min-w-[180px] justify-between gap-2" disabled={editorReadOnly}>
                                             <span className="truncate">
                                                 {draftSkillPrompt || t('editor.associatedPromptNone')}
                                             </span>
@@ -843,9 +1210,41 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                 </DropdownMenu>
                             </div>
                             <p className="mt-1 text-xs text-muted-foreground">{t('editor.associatedPromptHint')}</p>
+
+                            {draftPromptMissing && (
+                                <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                                    {t('editor.missingPromptNotice', { prompt: draftSkillPrompt })}
+                                </div>
+                            )}
                         </div>
 
                         <Separator />
+
+                        {editorReadOnly && (
+                            <div className="mx-5 mt-3 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-300">
+                                <div>
+                                    {skillPresetUpdate.clonedRevision != null
+                                        ? t('editor.presetReadOnlyNoticeVersioned', { revision: skillPresetUpdate.clonedRevision.toFixed(1) })
+                                        : t('editor.presetReadOnlyNotice')}
+                                </div>
+                                {skillPresetUpdate.updateAvailable && (
+                                    <div className="mt-2 flex items-center gap-2">
+                                        <span className="font-medium">{t('editor.presetUpdateAvailable')}</span>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 gap-1 border-amber-400/60 bg-background/60"
+                                            onClick={() => {
+                                                if (skillPresetUpdate.sourceId) void handleClonePreset(skillPresetUpdate.sourceId, true)
+                                            }}
+                                        >
+                                            <Sparkles className="h-3.5 w-3.5" />
+                                            {t('editor.presetUpdateClone')}
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="px-5 py-3">
                             <div className="text-base font-semibold">{t('editor.sectionTitle')}</div>
@@ -853,12 +1252,16 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
 
                         <div className="flex-1 min-h-0 px-5 pb-5">
                             <Textarea
-                                value={draftContent}
+                                value={draftSkillBody}
+                                readOnly={editorReadOnly}
                                 onChange={(event) => {
                                     setError(null)
-                                    setDraftContent(event.target.value)
+                                    setDraftContent((prev) => replaceSkillBodyInMarkdown(prev, event.target.value))
                                 }}
-                                className="h-full min-h-[420px] resize-none font-mono text-sm leading-6"
+                                className={cn(
+                                    'h-full min-h-[420px] resize-none font-mono text-sm leading-6',
+                                    editorReadOnly && 'bg-muted/40 text-muted-foreground'
+                                )}
                                 placeholder={t('editor.placeholder')}
                             />
                         </div>
@@ -866,5 +1269,29 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                 )}
             </section>
         </div>
+
+        <SkillPresetPublishDialog
+            open={publishDialogOpen}
+            mode={publishDialogMode}
+            presets={builtinPresets}
+            presetName={publishPresetName}
+            description={publishDescription}
+            overwritePresetId={publishOverwritePresetId}
+            busy={publishBusy}
+            error={publishError}
+            onOpenChange={handlePublishDialogOpenChange}
+            onPresetNameChange={setPublishPresetName}
+            onDescriptionChange={setPublishDescription}
+            onOverwritePresetIdChange={(presetId) => {
+                const preset = builtinPresets.find((item) => item.presetId === presetId) ?? null
+                setPublishOverwritePresetId(presetId)
+                if (preset) {
+                    setPublishPresetName(preset.name)
+                    setPublishDescription(preset.description ?? '')
+                }
+            }}
+            onSubmit={() => void handleSubmitPublishDialog()}
+        />
+        </>
     )
 }

@@ -77,11 +77,31 @@
         "importNovel": "Import Novel",
         "importing": "Importing...",
         "importOptions": {
-            "fromNovelCrafter": "Import from NC"
+            "fromNovelCrafter": "Import from NC",
+            "fromTavernCard": "Import from Tavern Card"
         },
         "importErrors": {
             "invalidProject": "The selected folder is not a valid NovelCrafter export.",
-            "missingImportContent": "The selected project does not contain any importable terms or snippets."
+            "missingImportContent": "The selected project does not contain any importable terms or snippets.",
+            "invalidTavernCard": "The selected file is not a valid SillyTavern character card (no embedded character data found)."
+        },
+        "tavernImport": {
+            "dialogTitle": "Import Tavern Card",
+            "dialogDescription": "Template variables were detected in \"{name}\". Choose how to handle them during import.",
+            "charMacroLabel": "How to handle '{{char}}'",
+            "charReplace": "Replace with \"{name}\"",
+            "charKeep": "Keep '{{char}}' (edit later with Codex)",
+            "userMacroLabel": "How to handle '{{user}}'",
+            "userKeep": "Keep '{{user}}' (edit later with Codex)",
+            "userReplace": "Replace with a name",
+            "userNamePlaceholder": "Enter the user's name",
+            "confirm": "Import",
+            "firstChapterTitle": "Chapter 1",
+            "characterProfileTitle": "Character Profile",
+            "descriptionLabel": "Description",
+            "personalityLabel": "Personality",
+            "scenarioLabel": "Scenario",
+            "loreFallbackTitle": "Lore Entry"
         },
         "createNovel": "Create Novel",
         "empty": "Your bookshelf is empty. Start writing your first novel!",
@@ -919,7 +939,6 @@
             "emptyDescription": "General sessions can be created freely. Scene operation and continuation sessions will be attached by their workflows later.",
             "generalEmpty": "No general sessions yet.",
             "boundCategoryEmpty": "This category is created by its workflow.",
-            "textReplacementPlaceholder": "Text replacement sessions are coming soon.",
             "noMessages": "No messages yet",
             "startTitle": "Let Codex help write your novel",
             "startDescription": "",
@@ -1111,7 +1130,6 @@
             "default": "Default Prompts",
             "sceneContinuation": "Scene Continuation",
             "sceneAction": "Scene Actions",
-            "textReplacement": "Text Replacement",
             "aiChat": "AI Chat",
             "components": "Prompt Components"
         },
@@ -1164,6 +1182,7 @@
             "loading": "Loading presets...",
             "empty": "No presets yet",
             "clone": "Clone",
+            "cloneAll": "Clone all",
             "cloning": "Cloning...",
             "revision": "v{revision}",
             "promptCount": "{count} prompts",
@@ -1210,6 +1229,10 @@
         "editor": {
             "emptyState": "Select a prompt to edit",
             "name": "Name",
+            "presetReadOnlyNotice": "Read-only — clone it first to edit",
+            "presetReadOnlyNoticeVersioned": "Cloned from preset v{revision} — read-only, clone it first to edit",
+            "presetUpdateAvailable": "Update available",
+            "presetUpdateClone": "Clone update",
             "systemMessage": "System Message",
             "message": "Message",
             "messages": "Messages",
@@ -1579,10 +1602,47 @@
             "empty": "No skills",
             "entries": "{count} items"
         },
+        "presets": {
+            "title": "Official Presets",
+            "description": "Built-in skill presets are read-only. Clone one into your skill library to edit it.",
+            "loading": "Loading presets...",
+            "empty": "No presets yet",
+            "clone": "Clone",
+            "cloneAll": "Clone all",
+            "cloning": "Cloning...",
+            "cancel": "Cancel",
+            "revision": "v{revision}",
+            "skillCount": "{count} skills",
+            "overwriteDialog": {
+                "title": "Overwrite existing skills?",
+                "description": "Some skill names in this preset already exist. Continuing will overwrite those skills in place.",
+                "confirm": "Overwrite and clone"
+            },
+            "publish": {
+                "createMenu": "Publish as preset",
+                "overwriteMenu": "Overwrite preset",
+                "createTitle": "Publish Skill Preset",
+                "createDescription": "Save the current skill's SKILL.md as a built-in JSON preset.",
+                "overwriteTitle": "Overwrite Skill Preset",
+                "overwriteDescription": "Replace an existing preset with the current skill and increment its version by 0.1.",
+                "name": "Preset name",
+                "descriptionLabel": "Description",
+                "descriptionPlaceholder": "Describe what this preset is for...",
+                "overwritePreset": "Preset to overwrite",
+                "selectPreset": "Select preset",
+                "saving": "Saving...",
+                "createSubmit": "Publish preset",
+                "overwriteSubmit": "Overwrite and upgrade"
+            },
+            "errors": {
+                "cloneFailed": "Failed to clone preset",
+                "publishFailed": "Failed to publish preset",
+                "selectPreset": "Select a preset to overwrite"
+            }
+        },
         "categories": {
             "sceneContinuation": "Scene Continuation",
             "sceneAction": "Scene Action",
-            "textReplacement": "Text Replacement",
             "aiChat": "AI Chat"
         },
         "actions": {
@@ -1591,20 +1651,27 @@
             "newSkillName": "New skill",
             "enableSkill": "Enable skill",
             "disableSkill": "Disable skill",
+            "cloneSkill": "Clone skill",
             "deleteSkill": "Delete skill",
             "more": "More"
         },
         "editor": {
             "emptyState": "Select a skill to edit",
             "name": "Name",
+            "presetReadOnlyNotice": "Read-only — clone it first to edit",
+            "presetReadOnlyNoticeVersioned": "Cloned from preset v{revision} — read-only, clone it first to edit",
+            "presetUpdateAvailable": "Update available",
+            "presetUpdateClone": "Clone update",
             "namePlaceholder": "Enter skill name",
             "description": "Description",
             "descriptionPlaceholder": "Enter skill description",
+            "category": "Type",
             "associatedPrompt": "Associated prompt",
             "associatedPromptNone": "None",
             "associatedPromptHint": "When Codex runs this skill it assembles this prompt into a draft and calls the model group (to use a model better suited for fiction).",
+            "missingPromptNotice": "Associated prompt \"{prompt}\" is missing — the skill was auto-disabled. Clone that prompt first, or check whether it was renamed.",
             "sectionTitle": "编辑Skills",
-            "placeholder": "Edit SKILL.md here...",
+            "placeholder": "Write the skill instructions here (purpose, when to use, steps, output)...",
             "frontmatterHint": "This editor writes directly to `SKILL.md` and validates its frontmatter when saving.",
             "requiredFields": "Required fields: name / category",
             "structureHint": "`scripts/`, `references/`, and `assets/` are created automatically when a skill is added. They are read-only in the UI for now."
@@ -1617,8 +1684,10 @@
         "errors": {
             "loadFailed": "Failed to load skills",
             "createFailed": "Failed to create skill",
+            "cloneFailed": "Failed to clone skill",
             "deleteFailed": "Failed to delete skill",
             "saveFailed": "Failed to save skill",
+            "missingPromptCannotEnable": "Associated prompt is missing — can't enable. Clone that prompt first or check whether it was renamed.",
             "nameCannotBeEmpty": "Name cannot be empty",
             "nameAlreadyExists": "A skill with this name already exists"
         }

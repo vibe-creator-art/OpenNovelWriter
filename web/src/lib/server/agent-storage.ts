@@ -114,11 +114,11 @@ export async function updateAgent(input: {
     content?: string
     enabled?: boolean
 }) {
-    const currentDirectoryName = normalizeAgentId(input.agentId)
-    const currentDirectory = getAgentDirectory(input.ownerId, currentDirectoryName)
-    await ensureAgentExists(currentDirectory)
+    const directoryName = normalizeAgentId(input.agentId)
+    const directory = getAgentDirectory(input.ownerId, directoryName)
+    await ensureAgentExists(directory)
 
-    const current = await readAgent(input.ownerId, currentDirectoryName)
+    const current = await readAgent(input.ownerId, directoryName)
     const nextName = typeof input.name === 'string' ? input.name.trim() : current.name
     const nextContent = typeof input.content === 'string' ? normalizeAgentContent(input.content) : current.content
     const nextEnabled = typeof input.enabled === 'boolean' ? input.enabled : current.enabled
@@ -127,36 +127,27 @@ export async function updateAgent(input: {
         throw new Error('Agent name cannot be empty')
     }
 
-    const existingKeys = await loadAgentNameKeys(input.ownerId, currentDirectoryName)
+    const existingKeys = await loadAgentNameKeys(input.ownerId, directoryName)
     const nextKey = toAgentNameKey(nextName)
     if (nextKey && existingKeys.has(nextKey)) {
         throw new DuplicateAgentNameError('Agent name already exists')
     }
 
-    let nextDirectoryName = currentDirectoryName
-    if (toAgentNameKey(current.name) !== nextKey) {
-        nextDirectoryName = await getUniqueAgentDirectoryName(
-            getUserAgentsRoot(input.ownerId),
-            nextName,
-            currentDirectoryName
-        )
-        await fs.rename(currentDirectory, getAgentDirectory(input.ownerId, nextDirectoryName))
-    }
-
-    const nextDirectory = getAgentDirectory(input.ownerId, nextDirectoryName)
+    // The directory name is a stable id: renaming an agent only rewrites meta.json/AGENTS.md, it never
+    // moves the directory. This removes the autosave race where a debounced save targeted a renamed dir.
     await Promise.all([
-        fs.writeFile(path.join(nextDirectory, AGENT_FILE_NAME), nextContent, 'utf8'),
-        writeAgentMeta(nextDirectory, {
+        fs.writeFile(path.join(directory, AGENT_FILE_NAME), nextContent, 'utf8'),
+        writeAgentMeta(directory, {
             name: nextName,
             enabled: nextEnabled,
         }),
     ])
 
     if (nextEnabled) {
-        await disableOtherAgents(input.ownerId, nextDirectoryName)
+        await disableOtherAgents(input.ownerId, directoryName)
     }
 
-    return readAgent(input.ownerId, nextDirectoryName)
+    return readAgent(input.ownerId, directoryName)
 }
 
 export async function deleteAgent(ownerId: string, agentId: string) {
@@ -211,13 +202,12 @@ async function writeAgentMeta(directory: string, meta: AgentMeta) {
     )
 }
 
-async function getUniqueAgentDirectoryName(root: string, name: string, excludeDirectoryName: string | null = null) {
+async function getUniqueAgentDirectoryName(root: string, name: string) {
     const base = sanitizeAgentDirectoryName(name) || 'agent'
     let candidate = base
     let counter = 1
 
     for (;;) {
-        if (candidate === excludeDirectoryName) return candidate
         try {
             await fs.access(path.join(root, candidate))
             counter += 1

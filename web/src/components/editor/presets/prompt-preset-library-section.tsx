@@ -24,9 +24,11 @@ type PromptPresetLibrarySectionProps = {
     loading: boolean
     error: string | null
     cloningPresetId: string | null
+    cloningAll: boolean
     cloneConflictNames: string[]
     cloneOverwriteConfirmOpen: boolean
     onClonePreset: (presetId: string, overwriteExisting?: boolean) => void | Promise<void>
+    onCloneAllPresets: () => void | Promise<void>
     onCloneOverwriteConfirmOpenChange: (open: boolean) => void
     onConfirmCloneOverwrite: () => void | Promise<void>
     className?: string
@@ -38,9 +40,11 @@ export function PromptPresetLibrarySection({
     loading,
     error,
     cloningPresetId,
+    cloningAll,
     cloneConflictNames,
     cloneOverwriteConfirmOpen,
     onClonePreset,
+    onCloneAllPresets,
     onCloneOverwriteConfirmOpenChange,
     onConfirmCloneOverwrite,
     className,
@@ -53,24 +57,38 @@ export function PromptPresetLibrarySection({
     return (
         <>
             <div className={cn('space-y-3 border-b p-3', className)}>
-                <button
-                    type="button"
-                    className="flex w-full items-start gap-2 text-left"
-                    onClick={() => setExpanded((current) => !current)}
-                >
-                    {expanded ? (
-                        <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    ) : (
-                        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex items-center gap-2 text-sm font-medium">
-                            <Sparkles className="h-4 w-4 text-muted-foreground" />
-                            <span>{t('presets.title')}</span>
+                <div className="flex items-start gap-2">
+                    <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                        onClick={() => setExpanded((current) => !current)}
+                    >
+                        {expanded ? (
+                            <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                            <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-center gap-2 text-sm font-medium">
+                                <Sparkles className="h-4 w-4 text-muted-foreground" />
+                                <span>{t('presets.title')}</span>
+                            </div>
+                            <p className="text-xs leading-5 text-muted-foreground">{t('presets.description')}</p>
                         </div>
-                        <p className="text-xs leading-5 text-muted-foreground">{t('presets.description')}</p>
-                    </div>
-                </button>
+                    </button>
+                    {visiblePresets.length > 0 && (
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0 gap-1"
+                            onClick={() => void onCloneAllPresets()}
+                            disabled={cloningAll || cloningPresetId !== null}
+                        >
+                            {cloningAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                            {t('presets.cloneAll')}
+                        </Button>
+                    )}
+                </div>
 
                 {expanded && (
                     <>
@@ -106,21 +124,19 @@ export function PromptPresetLibrarySection({
                                             </Badge>
                                         </div>
 
-                                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                                            <Badge variant="outline" className="font-normal">
-                                                <Box className="mr-1 h-3 w-3" />
-                                                {t('presets.promptCount', { count: preset.promptCount })}
-                                            </Badge>
-                                            <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-                                                {preset.entryPromptName}
-                                            </span>
-                                        </div>
-
-                                        <div className="mt-3 flex items-center justify-between gap-2">
-                                            <span className="truncate text-[11px] text-muted-foreground">{preset.presetId}</span>
+                                        <div className="mt-2 flex items-center justify-between gap-2">
+                                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                                <Badge variant="outline" className="font-normal">
+                                                    <Box className="mr-1 h-3 w-3" />
+                                                    {t('presets.promptCount', { count: preset.promptCount })}
+                                                </Badge>
+                                                <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                                                    {preset.entryPromptName}
+                                                </span>
+                                            </div>
                                             <Button
                                                 size="sm"
-                                                className="gap-1"
+                                                className="shrink-0 gap-1"
                                                 onClick={() => void onClonePreset(preset.presetId, false)}
                                                 disabled={cloningPresetId === preset.presetId}
                                             >

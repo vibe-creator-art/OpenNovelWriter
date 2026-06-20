@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getCurrentUser } from '@/lib/auth'
+import { isPresetAuthoringEnabled } from '@/lib/preset-authoring'
 import { syncActiveCodexConnectionSkills } from '@/lib/server/codex-skill-sync'
 import {
     deleteSkill,
@@ -46,6 +47,17 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         const content = typeof body?.content === 'string' ? body.content : ''
         if (!content.trim()) {
             return NextResponse.json({ detail: 'Content is required' }, { status: 400 })
+        }
+
+        // Skills cloned from an official preset are read-only unless preset authoring is enabled.
+        // The check is against the on-disk origin marker, so a client can't unlock by editing the
+        // `presetId` frontmatter in the payload — they must clone the skill first.
+        const existing = await readSkill(user.userId, id)
+        if (existing.sourcePresetId && !isPresetAuthoringEnabled()) {
+            return NextResponse.json(
+                { detail: 'This skill is from an official preset. Clone it before editing.', code: 'PRESET_SOURCED_READ_ONLY' },
+                { status: 403 }
+            )
         }
 
         const skill = await updateSkill({

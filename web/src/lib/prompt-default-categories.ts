@@ -3,7 +3,6 @@ import { isPromptCategory, normalizePromptCategory } from '@/lib/prompts'
 export const DEFAULT_PROMPT_SELECTION_CATEGORIES = [
     'scene_continuation',
     'scene_action',
-    'text_replacement',
     'ai_chat',
 ] as const
 

@@ -79,6 +79,10 @@ export function PromptEditorPanel({
     onExportPromptToJson,
     canPublishPresets,
     onOpenPublishDialog,
+    readOnly,
+    presetSourceRevision,
+    presetUpdateAvailable,
+    onClonePresetUpdate,
     onStartDraftNameEditing,
     onEndDraftNameEditing,
     onUpdateDraftName,
@@ -142,6 +146,10 @@ export function PromptEditorPanel({
     onExportPromptToJson: () => void | Promise<void>
     canPublishPresets: boolean
     onOpenPublishDialog: (mode: 'create' | 'overwrite') => void | Promise<void>
+    readOnly: boolean
+    presetSourceRevision: number | null
+    presetUpdateAvailable: boolean
+    onClonePresetUpdate: () => void | Promise<void>
     onStartDraftNameEditing: () => void
     onEndDraftNameEditing: () => void
     onUpdateDraftName: (value: string) => void
@@ -309,11 +317,36 @@ export function PromptEditorPanel({
                         <div className="shrink-0 text-sm font-medium">{t('editor.name')}</div>
                         <Input
                             value={draft.name}
+                            disabled={readOnly}
                             onFocus={onStartDraftNameEditing}
                             onBlur={onEndDraftNameEditing}
                             onChange={(event) => onUpdateDraftName(event.target.value)}
                         />
                     </div>
+
+                    {readOnly && (
+                        <div className="mb-4 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-300">
+                            <div>
+                                {presetSourceRevision != null
+                                    ? t('editor.presetReadOnlyNoticeVersioned', { revision: presetSourceRevision.toFixed(1) })
+                                    : t('editor.presetReadOnlyNotice')}
+                            </div>
+                            {presetUpdateAvailable && (
+                                <div className="mt-2 flex items-center gap-2">
+                                    <span className="font-medium">{t('editor.presetUpdateAvailable')}</span>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 gap-1 border-amber-400/60 bg-background/60"
+                                        onClick={() => void onClonePresetUpdate()}
+                                    >
+                                        <Sparkles className="h-3.5 w-3.5" />
+                                        {t('editor.presetUpdateClone')}
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {error && (
                         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -389,6 +422,7 @@ export function PromptEditorPanel({
                     </div>
                     <Separator className="mb-4" />
 
+                    <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0 disabled:opacity-60">
                     {editorTab === 'general' && (
                         <div className="space-y-4">
                             <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(280px,1fr)]">
@@ -862,6 +896,7 @@ export function PromptEditorPanel({
                             )}
                         </div>
                     )}
+                    </fieldset>
 
                     {historyEnabled && (
                         <PromptHistoryDialog

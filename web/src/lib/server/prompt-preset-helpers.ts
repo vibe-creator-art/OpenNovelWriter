@@ -171,6 +171,8 @@ export async function importPromptBundleForOwner(params: {
     userId: string
     bundle: PromptBundleV1
     overwriteExisting: boolean
+    sourcePresetId?: string | null
+    sourcePresetRevision?: number | null
 }): Promise<
     | { ok: true; prompts: ReturnType<typeof toPromptDto>[] }
     | { ok: false; status: number; detail: string; code?: string; names?: string[] }
@@ -317,6 +319,8 @@ export async function importPromptBundleForOwner(params: {
                     allowAgentCall: prompt.allowAgentCall,
                     agentCallMode: prompt.agentCallMode,
                     isNsfw: prompt.isNsfw,
+                    sourcePresetId: params.sourcePresetId ?? null,
+                    sourcePresetRevision: params.sourcePresetRevision ?? null,
                 },
             })
             : await params.prisma.prompt.create({
@@ -332,6 +336,8 @@ export async function importPromptBundleForOwner(params: {
                     allowAgentCall: prompt.allowAgentCall,
                     agentCallMode: prompt.agentCallMode,
                     isNsfw: prompt.isNsfw,
+                    sourcePresetId: params.sourcePresetId ?? null,
+                    sourcePresetRevision: params.sourcePresetRevision ?? null,
                     ownerId: params.userId,
                 },
             })

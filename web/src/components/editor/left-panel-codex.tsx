@@ -219,22 +219,6 @@ export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCod
                             )
                         })}
 
-                        {/* TODO(future work): wire up a real "text replacement" Codex session
-                            category (type + workflow + creation). For now this is a static,
-                            non-interactive placeholder so the category is visible in the list. */}
-                        <section className="min-w-0">
-                            <div className="flex h-7 w-full items-center gap-1 rounded px-2 text-xs font-semibold text-muted-foreground">
-                                <ChevronRight className="h-3 w-3" />
-                                {!isCompact && <span className="truncate">{t('codex.categories.text_replacement')}</span>}
-                                <span className="ml-auto text-[11px]">0</span>
-                            </div>
-                            {!isCompact && (
-                                <div className="px-3 py-3 text-xs leading-5 text-muted-foreground">
-                                    {t('codex.textReplacementPlaceholder')}
-                                </div>
-                            )}
-                        </section>
-
                         {!sessionState?.loading && sessions.length === 0 && !isCompact && (
                             <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
                                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">

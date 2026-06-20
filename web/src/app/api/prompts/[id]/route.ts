@@ -6,6 +6,7 @@ import { normalizePromptInputs } from '@/lib/prompt-inputs'
 import { recordRevisionHistory, safeParseRevisionHistoryJson } from '@/lib/revision-history'
 import { getPromptApiErrorDetail, getPromptPrimaryMessageContent, normalizeIncomingMessages, normalizeStoredMessages, toPromptDto } from '@/lib/server/prompt-helpers'
 import { loadPromptNameKeys, toPromptNameKey } from '@/lib/server/prompt-names'
+import { isPresetAuthoringEnabled } from '@/lib/preset-authoring'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -76,6 +77,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
         if (!existing) {
             return NextResponse.json({ detail: 'Prompt not found' }, { status: 404 })
+        }
+
+        // Prompts cloned from an official preset are read-only unless preset authoring is enabled.
+        // Editing requires cloning the prompt first (which produces an unmarked, editable copy).
+        const existingSourcePresetId = (existing as { sourcePresetId?: string | null }).sourcePresetId ?? null
+        if (existingSourcePresetId && !isPresetAuthoringEnabled()) {
+            return NextResponse.json(
+                { detail: 'This prompt is from an official preset. Clone it before editing.', code: 'PRESET_SOURCED_READ_ONLY' },
+                { status: 403 }
+            )
         }
 
         const body = await request.json().catch(() => null)

@@ -194,6 +194,19 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             (_full, label: string, snippetId: string) =>
                 `${label} (snippet — read its full content in novel/snippets/${snippetId}.md before responding)`
         )
+        // A chapter reference points Codex at that chapter's projected file (keyed by chapter id).
+        .replace(
+            /\[([^\]]+)\]\(chapter:([^)]+)\)/g,
+            (_full, label: string, chapterId: string) =>
+                `${label} (章 — read this chapter's full content in novel/chapters/${chapterId}.md before responding)`
+        )
+        // A volume (act) has no single file — point Codex at the volume's section in the outline,
+        // where it can read the per-chapter summaries and open the chapter files it actually needs.
+        .replace(
+            /\[([^\]]+)\]\(act:([^)]+)\)/g,
+            (_full, label: string, actNumber: string) =>
+                `${label} (卷 — read the section marked \`<!-- act_number: ${actNumber} -->\` in novel/outline.md for this volume's chapter structure and summaries, then open the relevant novel/chapters/<id>.md when you need the prose, before responding)`
+        )
 
     // A chat skill with a bound prompt assembles that prompt on the client (filled inputs + the
     // overview + referenced terms) and ships the resolved blocks here. Materialize them into the

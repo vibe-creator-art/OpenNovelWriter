@@ -1,7 +1,6 @@
 export const SKILL_CATEGORIES = [
     'scene_continuation',
     'scene_action',
-    'text_replacement',
     'ai_chat',
 ] as const
 

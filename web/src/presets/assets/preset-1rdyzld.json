@@ -5,17 +5,17 @@
     "presetId": "preset-1rdyzld",
     "name": "预设-通用聊天",
     "description": "通用聊天，可以在额外信息里插入额外的内容。注入的信息会和已注入的知识进行去重，保证不破坏缓存以及减少重复注入。为了不破坏缓存，选取聊天系统提示词后无法切换",
-    "revision": 1,
-    "exportedAt": "2026-05-20T21:39:20.255Z"
+    "revision": 1.2,
+    "exportedAt": "2026-06-20T07:34:50.721Z"
   },
   "bundle": {
     "schema": "open-novel-writer/prompt-bundle",
     "version": 1,
-    "exportedAt": "2026-05-20T21:39:20.255Z",
-    "entryName": "通用聊天",
+    "exportedAt": "2026-06-20T07:34:50.721Z",
+    "entryName": "预设-通用聊天",
     "prompts": [
       {
-        "name": "通用聊天",
+        "name": "预设-通用聊天",
         "category": "ai_chat",
         "description": null,
         "messages": [
@@ -98,7 +98,7 @@
         "modelGroupIds": [],
         "modelSetIds": [],
         "allowLlmCall": true,
-        "allowAgentCall": false,
+        "allowAgentCall": true,
         "agentCallMode": "generate_then_agent"
       },
       {

@@ -1,6 +1,6 @@
 'use client'
 
-import { Blocks, List, MessageCircle, PenLine, Sparkles, Wand2 } from 'lucide-react'
+import { Blocks, List, MessageCircle, PenLine, Sparkles } from 'lucide-react'
 
 import type { Prompt } from '@/lib/api'
 import { countStringArgCallsFromMessages } from '@/lib/prompt-template'
@@ -26,7 +26,6 @@ export function buildPromptCategories(t: PromptTranslateFn): readonly PromptCate
         { id: 'default', label: t('categories.default'), Icon: Sparkles },
         { id: 'scene_continuation', label: t('categories.sceneContinuation'), Icon: PenLine },
         { id: 'scene_action', label: t('categories.sceneAction'), Icon: List },
-        { id: 'text_replacement', label: t('categories.textReplacement'), Icon: Wand2 },
         { id: 'ai_chat', label: t('categories.aiChat'), Icon: MessageCircle },
         { id: 'component', label: t('categories.components'), Icon: Blocks },
     ]
@@ -47,7 +46,6 @@ export function buildPromptsByCategory(filteredPrompts: Prompt[]) {
         default: [],
         scene_continuation: [],
         scene_action: [],
-        text_replacement: [],
         ai_chat: [],
         component: [],
     }

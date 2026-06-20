@@ -7,6 +7,7 @@ import type { SkillCategory } from './skills'
 import type { StoredTerms, TermEntryGalleryItem } from '@/components/editor/terms/types'
 import type { RevisionHistoryItem } from '@/lib/revision-history'
 import type { PromptBundleV1 } from './prompt-bundle'
+import type { SkillPresetAssetV1 } from './skill-preset'
 
 const API_BASE = '/api'
 
@@ -401,6 +402,8 @@ export interface Prompt {
     history?: RevisionHistoryItem[]
     isNsfw: boolean
     sortOrder: number
+    sourcePresetId: string | null
+    sourcePresetRevision: number | null
     ownerId: string
     createdAt: string
     updatedAt: string
@@ -444,6 +447,8 @@ export interface Skill {
     enabled: boolean
     prompt: string | null
     content: string
+    sourcePresetId: string | null
+    sourcePresetRevision: number | null
     createdAt: string
     updatedAt: string
 }
@@ -650,6 +655,11 @@ export const skillApi = {
             body: JSON.stringify(data),
         }),
 
+    clone: (id: string) =>
+        fetchApi<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}/clone`, {
+            method: 'POST',
+        }),
+
     update: (id: string, data: { content: string }) =>
         fetchApi<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}`, {
             method: 'PUT',
@@ -664,6 +674,63 @@ export const skillApi = {
 
     delete: (id: string) =>
         fetchApi<{ ok: true }>(`/skills/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+}
+
+export interface BuiltinSkillPreset {
+    presetId: string
+    name: string
+    description: string | null
+    revision: number
+    exportedAt: string
+    skillCount: number
+    skillCategories: Array<SkillCategory | string>
+    entrySkillName: string
+    entrySkillCategory: SkillCategory | string
+}
+
+export interface SkillPresetListResponse {
+    authoringEnabled: boolean
+    presets: BuiltinSkillPreset[]
+}
+
+export interface SkillPresetPublishResult {
+    presetId: string
+    revision: number
+    preset: SkillPresetAssetV1
+}
+
+export const skillPresetApi = {
+    list: () => fetchApi<SkillPresetListResponse>('/skills/presets'),
+
+    get: (presetId: string) => fetchApi<{ preset: SkillPresetAssetV1 }>(`/skills/presets/${encodeURIComponent(presetId)}`),
+
+    clone: (presetId: string, data?: { overwriteExisting?: boolean }) =>
+        fetchApi<{ presetId: string; skills: Skill[] }>(`/skills/presets/${encodeURIComponent(presetId)}/clone`, {
+            method: 'POST',
+            body: JSON.stringify({
+                ...(data?.overwriteExisting !== undefined ? { overwriteExisting: data.overwriteExisting } : {}),
+            }),
+        }),
+
+    publish: (data: { skillId: string; name: string; description?: string | null }) =>
+        fetchApi<SkillPresetPublishResult>('/skills/presets/publish', {
+            method: 'POST',
+            body: JSON.stringify({
+                skillId: data.skillId,
+                name: data.name,
+                description: data.description ?? null,
+            }),
+        }),
+
+    update: (presetId: string, data: { skillId: string; name?: string; description?: string | null }) =>
+        fetchApi<SkillPresetPublishResult>(`/skills/presets/${encodeURIComponent(presetId)}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                skillId: data.skillId,
+                ...(data.name !== undefined ? { name: data.name } : {}),
+                ...(data.description !== undefined ? { description: data.description } : {}),
+            }),
+        }),
 }
 
 export const agentApi = {

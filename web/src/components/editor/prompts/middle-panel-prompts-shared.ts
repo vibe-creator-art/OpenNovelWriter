@@ -77,7 +77,6 @@ export const DEFAULT_EXPANDED_CATEGORIES: Record<PromptCategory, boolean> = {
     default: true,
     scene_continuation: true,
     scene_action: true,
-    text_replacement: true,
     ai_chat: true,
     component: true,
 }
@@ -88,7 +87,6 @@ export const CATEGORY_ORDER: PromptCategory[] = [
     'default',
     'scene_continuation',
     'scene_action',
-    'text_replacement',
     'ai_chat',
     'component',
 ]
@@ -96,7 +94,6 @@ export const CATEGORY_ORDER: PromptCategory[] = [
 export const HISTORY_CATEGORIES: PromptCategory[] = [
     'scene_continuation',
     'scene_action',
-    'text_replacement',
     'ai_chat',
     'component',
 ]

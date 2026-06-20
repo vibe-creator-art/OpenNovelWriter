@@ -43,9 +43,10 @@ export function usePromptDraftManager(params: {
     setActiveCategory: React.Dispatch<React.SetStateAction<PromptCategory>>
     setEditorTab: React.Dispatch<React.SetStateAction<PromptEditorTab>>
     onPromptChanged: () => void
+    readOnly: boolean
     t: PromptTranslateFn
 }) {
-    const { prompts, modelGroups, modelSets, selectedPromptId, setPrompts, setError, setActiveCategory, setEditorTab, onPromptChanged, t } = params
+    const { prompts, modelGroups, modelSets, selectedPromptId, setPrompts, setError, setActiveCategory, setEditorTab, onPromptChanged, readOnly, t } = params
 
     const [draft, setDraft] = useState<PromptDraft | null>(null)
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -155,6 +156,9 @@ export function usePromptDraftManager(params: {
 
     useEffect(() => {
         if (!draft) return
+        // Prompts cloned from an official preset are read-only outside authoring mode: never autosave.
+        // The server (PUT /prompts/[id]) enforces the same rule, so this is purely to avoid no-op churn.
+        if (readOnly) return
         const lastSaved = lastSavedRef.current
         if (!lastSaved || lastSaved.id !== draft.id) return
 
@@ -334,7 +338,7 @@ export function usePromptDraftManager(params: {
         return () => {
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
         }
-    }, [draft, getPromptNameError, isEditingName, onPromptChanged, restorePromptName, setError, setPrompts, t])
+    }, [draft, getPromptNameError, isEditingName, onPromptChanged, readOnly, restorePromptName, setError, setPrompts, t])
 
     const handleUpdateDraftName = useCallback((value: string) => {
         setError(null)

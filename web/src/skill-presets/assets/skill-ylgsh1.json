@@ -1,0 +1,26 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-ylgsh1",
+    "name": "预设-创建词条",
+    "description": null,
+    "revision": 1,
+    "exportedAt": "2026-06-20T08:50:01.639Z"
+  },
+  "bundle": {
+    "schema": "open-novel-writer/skill-bundle",
+    "version": 1,
+    "exportedAt": "2026-06-20T08:50:01.639Z",
+    "entryName": "预设-创建词条",
+    "skills": [
+      {
+        "name": "预设-创建词条",
+        "description": null,
+        "category": "ai_chat",
+        "prompt": null,
+        "content": "---\nname: \"预设-创建词条\"\ndescription: \"\"\ncategory: ai_chat\nprompt: \"\"\n---\n## Purpose\n根据用户的脑洞进行词条的创作，查询小说内容整理词条，使用create_term\n\n## When to use\n- 用户进行了一个描述，并且想要写入词条\n\n## Instructions\n如果用户进行脑洞创作，进行描述，你可以和用户进行交互，确认一些细节，如果用户让你自己决定就不需要，创建词条时参考已有的词条了解风格，并且如果用户提到比如这个人物将要在某个场景里出场或者和某些事件有联系，查找小说内容进行了解。\n"
+      }
+    ]
+  }
+}

@@ -2,7 +2,6 @@ export const PROMPT_CATEGORIES = [
     'default',
     'scene_continuation',
     'scene_action',
-    'text_replacement',
     'ai_chat',
     'component',
 ] as const

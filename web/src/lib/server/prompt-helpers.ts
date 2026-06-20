@@ -159,6 +159,8 @@ type PromptRecord = {
     historyJson?: string | null
     isNsfw?: boolean | null
     sortOrder: number
+    sourcePresetId?: string | null
+    sourcePresetRevision?: number | null
     ownerId: string
     createdAt: Date
     updatedAt: Date
@@ -195,6 +197,8 @@ export function toPromptDto(record: PromptRecord) {
         history,
         isNsfw: Boolean(record.isNsfw),
         sortOrder: record.sortOrder,
+        sourcePresetId: record.sourcePresetId ?? null,
+        sourcePresetRevision: record.sourcePresetRevision ?? null,
         ownerId: record.ownerId,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,

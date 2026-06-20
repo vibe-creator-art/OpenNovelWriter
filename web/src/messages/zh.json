@@ -77,11 +77,31 @@
         "importNovel": "导入小说",
         "importing": "导入中...",
         "importOptions": {
-            "fromNovelCrafter": "Import from NC"
+            "fromNovelCrafter": "Import from NC",
+            "fromTavernCard": "从酒馆卡导入"
         },
         "importErrors": {
             "invalidProject": "所选目录不是有效的 NovelCrafter 导出项目。",
-            "missingImportContent": "所选项目里没有可导入的词条或卡片内容。"
+            "missingImportContent": "所选项目里没有可导入的词条或卡片内容。",
+            "invalidTavernCard": "所选文件不是有效的酒馆角色卡（未找到嵌入的角色数据）。"
+        },
+        "tavernImport": {
+            "dialogTitle": "导入酒馆卡",
+            "dialogDescription": "在《{name}》中检测到模板变量，请选择导入时如何处理。",
+            "charMacroLabel": "'{{char}}' 的处理方式",
+            "charReplace": "替换为「{name}」",
+            "charKeep": "保留 '{{char}}'（之后用 Codex 修改）",
+            "userMacroLabel": "'{{user}}' 的处理方式",
+            "userKeep": "保留 '{{user}}'（之后用 Codex 修改）",
+            "userReplace": "替换为指定名称",
+            "userNamePlaceholder": "输入 user 的名字",
+            "confirm": "导入",
+            "firstChapterTitle": "第一章",
+            "characterProfileTitle": "角色设定",
+            "descriptionLabel": "角色描述",
+            "personalityLabel": "性格",
+            "scenarioLabel": "场景",
+            "loreFallbackTitle": "设定条目"
         },
         "createNovel": "创建新小说",
         "empty": "书架空空如也，开始创作您的第一部小说吧！",
@@ -919,7 +939,6 @@
             "emptyDescription": "「通用」可自由新建；场景操作与场景续写的会话会由对应工作流自动挂载到这里。",
             "generalEmpty": "暂无通用会话。",
             "boundCategoryEmpty": "该分类的会话由对应工作流自动创建。",
-            "textReplacementPlaceholder": "文字替换会话即将上线，敬请期待。",
             "noMessages": "还没有消息",
             "startTitle": "让 Codex 帮你创作小说",
             "startDescription": "",
@@ -982,8 +1001,7 @@
             "categories": {
                 "general": "通用",
                 "scene_operation": "场景操作",
-                "scene_continuation": "场景续写",
-                "text_replacement": "文字替换"
+                "scene_continuation": "场景续写"
             }
         },
         "act": {
@@ -1112,7 +1130,6 @@
             "default": "默认提示词",
             "sceneContinuation": "场景续写",
             "sceneAction": "场景操作",
-            "textReplacement": "文字替换",
             "aiChat": "AI聊天",
             "components": "提示词组件"
         },
@@ -1165,6 +1182,7 @@
             "loading": "加载预设中...",
             "empty": "暂无预设",
             "clone": "克隆",
+            "cloneAll": "一键克隆",
             "cloning": "克隆中...",
             "revision": "v{revision}",
             "promptCount": "{count} 个提示词",
@@ -1211,6 +1229,10 @@
         "editor": {
             "emptyState": "选择一个提示词进行编辑",
             "name": "名称",
+            "presetReadOnlyNotice": "不可编辑，请先克隆后编辑",
+            "presetReadOnlyNoticeVersioned": "克隆自官方预设 v{revision} · 不可编辑，请先克隆后编辑",
+            "presetUpdateAvailable": "检测到更新",
+            "presetUpdateClone": "克隆更新",
             "systemMessage": "系统消息",
             "message": "消息",
             "messages": "消息列表",
@@ -1580,10 +1602,47 @@
             "empty": "暂无技能",
             "entries": "{count} 个"
         },
+        "presets": {
+            "title": "官方预设",
+            "description": "内置技能预设不可直接编辑，可以克隆到你的技能库。",
+            "loading": "加载预设中...",
+            "empty": "暂无预设",
+            "clone": "克隆",
+            "cloneAll": "一键克隆",
+            "cloning": "克隆中...",
+            "cancel": "取消",
+            "revision": "v{revision}",
+            "skillCount": "{count} 个技能",
+            "overwriteDialog": {
+                "title": "覆盖已有技能？",
+                "description": "该预设中的部分技能名称已存在。继续后会原位覆盖这些技能。",
+                "confirm": "覆盖并克隆"
+            },
+            "publish": {
+                "createMenu": "发布为预设",
+                "overwriteMenu": "覆盖预设升级",
+                "createTitle": "发布技能预设",
+                "createDescription": "把当前技能的 SKILL.md 保存为内置 JSON 预设。",
+                "overwriteTitle": "覆盖技能预设",
+                "overwriteDescription": "用当前技能覆盖已有预设，并将版本号增加 0.1。",
+                "name": "预设名称",
+                "descriptionLabel": "描述",
+                "descriptionPlaceholder": "写点说明，方便用户理解这个预设...",
+                "overwritePreset": "要覆盖的预设",
+                "selectPreset": "选择预设",
+                "saving": "保存中...",
+                "createSubmit": "发布预设",
+                "overwriteSubmit": "覆盖并升级"
+            },
+            "errors": {
+                "cloneFailed": "克隆预设失败",
+                "publishFailed": "发布预设失败",
+                "selectPreset": "请选择要覆盖的预设"
+            }
+        },
         "categories": {
             "sceneContinuation": "场景续写",
             "sceneAction": "场景操作",
-            "textReplacement": "文字替换",
             "aiChat": "AI 聊天"
         },
         "actions": {
@@ -1592,20 +1651,27 @@
             "newSkillName": "新技能",
             "enableSkill": "启用技能",
             "disableSkill": "停用技能",
+            "cloneSkill": "克隆技能",
             "deleteSkill": "删除技能",
             "more": "更多"
         },
         "editor": {
             "emptyState": "选择一个技能进行编辑",
             "name": "名称",
+            "presetReadOnlyNotice": "不可编辑，请先克隆后编辑",
+            "presetReadOnlyNoticeVersioned": "克隆自官方预设 v{revision} · 不可编辑，请先克隆后编辑",
+            "presetUpdateAvailable": "检测到更新",
+            "presetUpdateClone": "克隆更新",
             "namePlaceholder": "输入技能名称",
             "description": "描述",
             "descriptionPlaceholder": "输入技能描述",
+            "category": "类型",
             "associatedPrompt": "关联提示词",
             "associatedPromptNone": "无",
             "associatedPromptHint": "Codex 执行该技能时，会把这个提示词拼成草稿并调用模型组生成（便于借助更适合写小说的模型）。",
+            "missingPromptNotice": "缺少关联提示词「{prompt}」，已自动停用。请先克隆该提示词，或检查它是否被改名。",
             "sectionTitle": "编辑技能",
-            "placeholder": "在此编辑 SKILL.md…",
+            "placeholder": "在此编写技能正文（用途、触发时机、步骤、输出）…",
             "frontmatterHint": "在此直接编辑 `SKILL.md`，保存时会校验 frontmatter。",
             "requiredFields": "必填字段：name / category",
             "structureHint": "`scripts/`、`references/`、`assets/` 会在新建时自动创建，当前界面暂不支持编辑这些目录。"
@@ -1618,8 +1684,10 @@
         "errors": {
             "loadFailed": "加载技能失败",
             "createFailed": "创建技能失败",
+            "cloneFailed": "克隆技能失败",
             "deleteFailed": "删除技能失败",
             "saveFailed": "保存技能失败",
+            "missingPromptCannotEnable": "缺少关联提示词，无法启用：请先克隆该提示词或检查是否被改名。",
             "nameCannotBeEmpty": "名称不能为空",
             "nameAlreadyExists": "名称已存在，请换一个"
         }

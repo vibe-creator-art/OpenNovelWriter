@@ -5,17 +5,17 @@
     "presetId": "preset-1wn6l8l",
     "name": "预设-通用场景总结",
     "description": "简单的进行场景总结",
-    "revision": 1,
-    "exportedAt": "2026-05-20T21:35:42.502Z"
+    "revision": 1.2,
+    "exportedAt": "2026-06-20T07:34:45.731Z"
   },
   "bundle": {
     "schema": "open-novel-writer/prompt-bundle",
     "version": 1,
-    "exportedAt": "2026-05-20T21:35:42.502Z",
-    "entryName": "通用场景总结",
+    "exportedAt": "2026-06-20T07:34:45.731Z",
+    "entryName": "预设-通用场景总结",
     "prompts": [
       {
-        "name": "通用场景总结",
+        "name": "预设-通用场景总结",
         "category": "scene_action",
         "description": null,
         "messages": [
@@ -132,7 +132,7 @@
         "modelGroupIds": [],
         "modelSetIds": [],
         "allowLlmCall": true,
-        "allowAgentCall": false,
+        "allowAgentCall": true,
         "agentCallMode": "generate_then_agent"
       }
     ]

@@ -1,0 +1,26 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-1jm5fum",
+    "name": "预设-内容分析",
+    "description": "示例skill，如何在general chat中调用组装好的提示词",
+    "revision": 1.2,
+    "exportedAt": "2026-06-20T08:50:17.200Z"
+  },
+  "bundle": {
+    "schema": "open-novel-writer/skill-bundle",
+    "version": 1,
+    "exportedAt": "2026-06-20T08:50:17.200Z",
+    "entryName": "预设-内容分析",
+    "skills": [
+      {
+        "name": "预设-内容分析",
+        "description": "示例skill，如何在general chat中调用组装好的提示词",
+        "category": "ai_chat",
+        "prompt": "预设-通用聊天",
+        "content": "---\nname: \"预设-内容分析\"\ndescription: \"示例skill，如何在general chat中调用组装好的提示词\"\ncategory: ai_chat\nprompt: \"预设-通用聊天\"\n---\n\n会自动构造prompt在artifact下，通过run_llm调用prompt绑定的默认模型，然后展示给user，并和user继续讨论\n"
+      }
+    ]
+  }
+}

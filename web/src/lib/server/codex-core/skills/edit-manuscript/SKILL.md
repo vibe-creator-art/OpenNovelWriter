@@ -1,16 +1,16 @@
 ---
 name: edit-manuscript
-description: 修改小说稿件本身：小说名、卷名、章名、场景摘要、场景正文。当用户要求改书名/卷章标题、更新某场景的总结，或对场景正文做润色、修改、续写落稿时，先读本技能再调用 update_novel_title / update_act_title / update_chapter_title / update_scene_summary / edit_scene_content。只是阅读或分析稿件时不需要本技能。
+description: 修改小说稿件本身：小说名、卷名、章名、场景正文。当用户要求改书名/卷章标题，或对场景正文做润色、修改、续写落稿时，先读本技能再调用 update_novel_title / update_act_title / update_chapter_title / edit_scene_content。改场景或卷的摘要请读 edit-summary 技能；只是阅读或分析稿件时不需要本技能。
 ---
 
 # 稿件的修改
 
 `novel/outline.md` 和 `novel/chapters/<chapter_id>.md` 是只读投影，**不要直接编辑投影文件**，一律走 MCP 工具。调用时用投影里 HTML 注释标注的 `novel_id`、`act_number`、`chapter_id`、`scene_id`。
 
-## 标题与摘要
+## 标题
 
 - `update_novel_title` / `update_act_title` / `update_chapter_title`：改小说名、卷名、章名。
-- `update_scene_summary`：改场景总结。要把 `run_llm` 的模型回复直接写入时，用 `source: { mdPath, index }` 代替 `summary`，服务端会直接读取，不要重新打字。
+- 改场景摘要或卷摘要不在本技能，走 `edit-summary` 技能（`update_scene_summary` / `update_act_summary`）。
 
 ## edit_scene_content — 修改场景正文
 

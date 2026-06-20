@@ -5,17 +5,17 @@
     "presetId": "preset-50l0ku",
     "name": "预设-通用续写",
     "description": "场景续写，通过总结提取前文的信息，可在额外信息里插入额外的章节或者片段内容",
-    "revision": 1,
-    "exportedAt": "2026-05-20T21:37:03.207Z"
+    "revision": 1.2,
+    "exportedAt": "2026-06-20T07:34:38.849Z"
   },
   "bundle": {
     "schema": "open-novel-writer/prompt-bundle",
     "version": 1,
-    "exportedAt": "2026-05-20T21:37:03.207Z",
-    "entryName": "通用续写",
+    "exportedAt": "2026-06-20T07:34:38.849Z",
+    "entryName": "预设-通用续写",
     "prompts": [
       {
-        "name": "通用续写",
+        "name": "预设-通用续写",
         "category": "scene_continuation",
         "description": null,
         "messages": [
@@ -158,7 +158,7 @@
         "modelGroupIds": [],
         "modelSetIds": [],
         "allowLlmCall": true,
-        "allowAgentCall": false,
+        "allowAgentCall": true,
         "agentCallMode": "generate_then_agent"
       },
       {

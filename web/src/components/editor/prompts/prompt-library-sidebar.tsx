@@ -49,9 +49,11 @@ export function PromptLibrarySidebar({
     builtinPresetsLoading,
     builtinPresetsError,
     cloningPresetId,
+    cloningAllPresets,
     cloneConflictNames,
     cloneOverwriteConfirmOpen,
     onClonePreset,
+    onCloneAllPresets,
     onCloneOverwriteConfirmOpenChange,
     onConfirmCloneOverwrite,
 }: {
@@ -77,9 +79,11 @@ export function PromptLibrarySidebar({
     builtinPresetsLoading: boolean
     builtinPresetsError: string | null
     cloningPresetId: string | null
+    cloningAllPresets: boolean
     cloneConflictNames: string[]
     cloneOverwriteConfirmOpen: boolean
     onClonePreset: (presetId: string, overwriteExisting?: boolean) => void | Promise<void>
+    onCloneAllPresets: () => void | Promise<void>
     onCloneOverwriteConfirmOpenChange: (open: boolean) => void
     onConfirmCloneOverwrite: () => void | Promise<void>
 }) {
@@ -144,9 +148,11 @@ export function PromptLibrarySidebar({
                 loading={builtinPresetsLoading}
                 error={builtinPresetsError}
                 cloningPresetId={cloningPresetId}
+                cloningAll={cloningAllPresets}
                 cloneConflictNames={cloneConflictNames}
                 cloneOverwriteConfirmOpen={cloneOverwriteConfirmOpen}
                 onClonePreset={onClonePreset}
+                onCloneAllPresets={onCloneAllPresets}
                 onCloneOverwriteConfirmOpenChange={onCloneOverwriteConfirmOpenChange}
                 onConfirmCloneOverwrite={onConfirmCloneOverwrite}
             />
@@ -231,7 +237,12 @@ export function PromptLibrarySidebar({
                                                             <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors">
                                                                 <Icon className="h-4 w-4" />
                                                             </span>
-                                                            <span className="flex-1 truncate text-sm">
+                                                            <span
+                                                                className={cn(
+                                                                    'flex-1 truncate text-sm',
+                                                                    prompt.sourcePresetId && 'italic text-muted-foreground'
+                                                                )}
+                                                            >
                                                                 {prompt.name?.trim() ? prompt.name : t('library.untitled')}
                                                             </span>
                                                             <div className="shrink-0 flex items-center gap-1">

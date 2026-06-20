@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
-import { actApi, Novel, novelApi, sceneApi, snippetApi, termsApi, chapterApi } from '@/lib/api'
+import { actApi, Novel, novelApi, sceneApi, snippetApi, termsApi, chapterApi, uploadApi } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
 import { NovelCard } from '@/components/novel-card'
 import { NovelFormDialog } from '@/components/novel-form-dialog'
@@ -24,8 +24,15 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { importNovelCrafterProject } from '@/lib/novelcrafter-import'
+import {
+    parseSillyTavernCard,
+    buildSillyTavernImport,
+    type ParsedTavernCard,
+    type TavernMacroOptions,
+} from '@/lib/sillytavern-import'
 import { Plus, LogOut, BookOpen, Settings, ChevronDown, Import, Loader2 } from 'lucide-react'
 import { SettingsDialog } from '@/components/settings-dialog'
+import { TavernImportDialog } from '@/components/tavern-import-dialog'
 
 export default function BookshelfPage() {
     const router = useRouter()
@@ -46,6 +53,10 @@ export default function BookshelfPage() {
     // Settings dialog state
     const [settingsOpen, setSettingsOpen] = useState(false)
     const importInputRef = useRef<HTMLInputElement | null>(null)
+    const tavernImportInputRef = useRef<HTMLInputElement | null>(null)
+    const [tavernCard, setTavernCard] = useState<ParsedTavernCard | null>(null)
+    const [tavernDialogOpen, setTavernDialogOpen] = useState(false)
+    const [tavernCardSeq, setTavernCardSeq] = useState(0)
     const directoryPickerProps: Record<string, string> = {
         webkitdirectory: '',
         directory: '',
@@ -224,6 +235,125 @@ export default function BookshelfPage() {
         }
     }
 
+    const handleImportTavernCard = () => {
+        if (importing) return
+        setImportError(null)
+        if (tavernImportInputRef.current) {
+            tavernImportInputRef.current.value = ''
+            tavernImportInputRef.current.click()
+        }
+    }
+
+    const runTavernImport = async (card: ParsedTavernCard, options: TavernMacroOptions) => {
+        setImporting(true)
+        setImportError(null)
+
+        let createdNovel: Novel | null = null
+
+        try {
+            const imported = buildSillyTavernImport(card, options, {
+                firstChapterTitle: t('tavernImport.firstChapterTitle'),
+                characterProfileTitle: t('tavernImport.characterProfileTitle'),
+                descriptionLabel: t('tavernImport.descriptionLabel'),
+                personalityLabel: t('tavernImport.personalityLabel'),
+                scenarioLabel: t('tavernImport.scenarioLabel'),
+                loreFallbackTitle: t('tavernImport.loreFallbackTitle'),
+            })
+
+            // The card image is the cover. Cover upload failures are non-fatal.
+            let coverImage: string | undefined
+            try {
+                const uploaded = await uploadApi.image(card.coverFile)
+                coverImage = uploaded.url
+            } catch (coverError) {
+                console.error('Failed to upload tavern card cover:', coverError)
+            }
+
+            const novel = await novelApi.create({
+                title: imported.novelTitle,
+                language: defaultNovelLanguage,
+                coverImage,
+            })
+            createdNovel = novel
+
+            if (imported.termState.entries.length > 0) {
+                await termsApi.saveState(novel.id, imported.termState)
+            }
+
+            if (imported.snippet) {
+                await snippetApi.create(novel.id, {
+                    title: imported.snippet.title,
+                    content: imported.snippet.content,
+                    pinned: true,
+                })
+            }
+
+            const createdChapter = await chapterApi.create(novel.id, {
+                title: imported.firstChapter.title,
+                actNumber: 1,
+                order: 1,
+                content: imported.firstChapter.contentHtml,
+            })
+            const defaultScene = createdChapter.scenes?.[0]
+            if (defaultScene) {
+                await sceneApi.update(defaultScene.id, {
+                    content: imported.firstChapter.contentHtml,
+                })
+            }
+
+            setNovels((prev) => [novel, ...prev])
+        } catch (error) {
+            if (createdNovel) {
+                try {
+                    await novelApi.delete(createdNovel.id)
+                } catch (cleanupError) {
+                    console.error('Failed to rollback imported tavern novel:', cleanupError)
+                }
+            }
+            console.error('Failed to import tavern card:', error)
+            setImportError(error instanceof Error ? error.message : tCommon('operationFailed'))
+        } finally {
+            setImporting(false)
+        }
+    }
+
+    const handleTavernInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (!file) return
+
+        setImportError(null)
+
+        let card: ParsedTavernCard
+        try {
+            card = await parseSillyTavernCard(file, {
+                invalidCard: t('importErrors.invalidTavernCard'),
+            })
+        } catch (error) {
+            console.error('Failed to parse tavern card:', error)
+            setImportError(error instanceof Error ? error.message : tCommon('operationFailed'))
+            return
+        }
+
+        if (card.hasCharMacro || card.hasUserMacro) {
+            setTavernCard(card)
+            setTavernCardSeq((seq) => seq + 1)
+            setTavernDialogOpen(true)
+            return
+        }
+
+        await runTavernImport(card, { char: 'keep', user: 'keep' })
+    }
+
+    const handleTavernDialogConfirm = async (options: TavernMacroOptions) => {
+        const card = tavernCard
+        setTavernDialogOpen(false)
+        setTavernCard(null)
+        if (card) {
+            await runTavernImport(card, options)
+        }
+    }
+
     const renderPrimaryActions = () => (
         <div className="flex items-center gap-3">
             <DropdownMenu>
@@ -237,6 +367,9 @@ export default function BookshelfPage() {
                 <DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={handleImportNovelCrafter} disabled={importing}>
                         {t('importOptions.fromNovelCrafter')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={handleImportTavernCard} disabled={importing}>
+                        {t('importOptions.fromTavernCard')}
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
@@ -300,6 +433,14 @@ export default function BookshelfPage() {
                     className="hidden"
                     onChange={handleImportInputChange}
                     {...directoryPickerProps}
+                />
+
+                <input
+                    ref={tavernImportInputRef}
+                    type="file"
+                    accept="image/png"
+                    className="hidden"
+                    onChange={handleTavernInputChange}
                 />
 
                 {importError && (
@@ -371,6 +512,22 @@ export default function BookshelfPage() {
 
             {/* Settings Dialog */}
             <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+
+            {/* Tavern card macro options */}
+            <TavernImportDialog
+                key={tavernCardSeq}
+                open={tavernDialogOpen}
+                cardName={tavernCard?.data.name?.trim() || ''}
+                hasCharMacro={Boolean(tavernCard?.hasCharMacro)}
+                hasUserMacro={Boolean(tavernCard?.hasUserMacro)}
+                onConfirm={handleTavernDialogConfirm}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setTavernDialogOpen(false)
+                        setTavernCard(null)
+                    }
+                }}
+            />
         </div>
     )
 }

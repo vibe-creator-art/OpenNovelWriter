@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import {
     ArrowUp,
     BookMarked,
+    BookText,
     Bot,
     Check,
     ChevronDown,
@@ -17,6 +18,7 @@ import {
     Download,
     ImageIcon,
     ImagePlus,
+    Layers,
     ListChecks,
     Pin,
     Plus,
@@ -73,7 +75,7 @@ import { cn } from '@/lib/utils'
 import { renderSimpleMarkdown } from '@/lib/simple-markdown'
 import { plainTextToSnippetHtml } from '@/lib/snippet-html'
 import { type WriteNavTarget } from '@/components/editor/plan-view'
-import { sceneEditApi, skillApi, snippetApi, type Skill, type Snippet } from '@/lib/api'
+import { actApi, chapterApi, sceneEditApi, skillApi, snippetApi, type Act, type Chapter, type Skill, type Snippet } from '@/lib/api'
 import { normalizeSkillCategory } from '@/lib/skills'
 import { useStoredTermEntries } from '@/components/editor/terms/use-stored-term-entries'
 import type { TermEntry } from '@/components/editor/terms/types'
@@ -280,17 +282,111 @@ function expandSnippetMentions(text: string, snippets: SnippetMention[]): string
     return result
 }
 
+type ActMention = { actNumber: number; title: string; label: string }
+type ChapterMention = { chapterId: string; number: number; title: string; label: string }
+
+// A title counts as a placeholder when it's just the auto-generated "第 N 卷 / 卷 N / Act N" (or the
+// chapter equivalent). For those the mention label shows only the number, with no redundant title.
+function isPlaceholderActTitle(title: string): boolean {
+    const trimmed = title.trim()
+    return !trimmed || /^第\s*\d+\s*卷$/.test(trimmed) || /^卷\s*\d+$/.test(trimmed) || /^Act\s+\d+$/i.test(trimmed)
+}
+
+function isPlaceholderChapterTitle(title: string): boolean {
+    const trimmed = title.trim()
+    return !trimmed || /^第\s*\d+\s*章$/.test(trimmed) || /^章\s*\d+$/.test(trimmed) || /^Chapter\s+\d+$/i.test(trimmed)
+}
+
+function formatActMentionLabel(actNumber: number, title: string): string {
+    return isPlaceholderActTitle(title) ? `第 ${actNumber} 卷` : `第 ${actNumber} 卷 ${title.trim()}`
+}
+
+function formatChapterMentionLabel(chapterNumber: number, title: string): string {
+    return isPlaceholderChapterTitle(title) ? `第 ${chapterNumber} 章` : `第 ${chapterNumber} 章 ${title.trim()}`
+}
+
+/** Build the `@`-mention list for volumes (acts). Act numbers are unioned from the act rows and the
+ * chapters' actNumbers (a volume can exist implicitly via its chapters) and sorted ascending, matching
+ * the manuscript outline. The display number is the act number itself. */
+function buildActMentionList(acts: Act[], chapters: Chapter[]): ActMention[] {
+    const titleByNumber = new Map<number, string>()
+    for (const act of acts) titleByNumber.set(act.number, act.title ?? '')
+    const numbers = new Set<number>()
+    for (const act of acts) numbers.add(act.number)
+    for (const chapter of chapters) numbers.add(chapter.actNumber)
+    return [...numbers]
+        .sort((a, b) => a - b)
+        .map((actNumber) => {
+            const title = titleByNumber.get(actNumber) ?? ''
+            return { actNumber, title, label: formatActMentionLabel(actNumber, title) }
+        })
+}
+
+/** Build the `@`-mention list for chapters, numbered by global chapter index (chapters sorted by
+ * actNumber then order) — the same numbering shown in the editor's table of contents. */
+function buildChapterMentionList(chapters: Chapter[]): ChapterMention[] {
+    const sorted = [...chapters].sort((a, b) => {
+        if (a.actNumber !== b.actNumber) return a.actNumber - b.actNumber
+        return a.order - b.order
+    })
+    return sorted.map((chapter, index) => {
+        const number = index + 1
+        const title = chapter.title ?? ''
+        return { chapterId: chapter.id, number, title, label: formatChapterMentionLabel(number, title) }
+    })
+}
+
+/**
+ * Convert `@<volume label>` mentions into `[label](act:ACT_NUMBER)` tokens. The server rewrites these
+ * into an instruction pointing Codex at the volume's section in novel/outline.md. Longer labels match
+ * first to avoid prefix shadowing. Runs after snippet expansion.
+ */
+function expandActMentions(text: string, acts: ActMention[]): string {
+    if (!text.includes('@') || acts.length === 0) return text
+    const sorted = [...acts].sort((a, b) => b.label.length - a.label.length)
+    let result = text
+    for (const { actNumber, label } of sorted) {
+        if (!label) continue
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const regex = new RegExp(`(^|\\s)@${escaped}(?=$|\\s|[，。、,.!?;:；])`, 'g')
+        result = result.replace(regex, (_match, prefix) => `${prefix}[${label}](act:${actNumber})`)
+    }
+    return result
+}
+
+/**
+ * Convert `@<chapter label>` mentions into `[label](chapter:CHAPTER_ID)` tokens. The server rewrites
+ * these into an instruction pointing Codex at novel/chapters/<id>.md. Longer labels match first to
+ * avoid prefix shadowing. Runs after volume expansion.
+ */
+function expandChapterMentions(text: string, chapters: ChapterMention[]): string {
+    if (!text.includes('@') || chapters.length === 0) return text
+    const sorted = [...chapters].sort((a, b) => b.label.length - a.label.length)
+    let result = text
+    for (const { chapterId, label } of sorted) {
+        if (!label) continue
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const regex = new RegExp(`(^|\\s)@${escaped}(?=$|\\s|[，。、,.!?;:；])`, 'g')
+        result = result.replace(regex, (_match, prefix) => `${prefix}[${label}](chapter:${chapterId})`)
+    }
+    return result
+}
+
 type MentionItem =
     | { kind: 'model'; group: ModelGroup }
     | { kind: 'skill'; skill: Skill }
     | { kind: 'term'; term: TermEntry }
     | { kind: 'snippet'; snippet: SnippetMention }
+    | { kind: 'act'; act: ActMention }
+    | { kind: 'chapter'; chapter: ChapterMention }
 
 function mentionItemName(item: MentionItem) {
     if (item.kind === 'model') return item.group.name
     if (item.kind === 'skill') return item.skill.name
     if (item.kind === 'term') return item.term.title
-    return item.snippet.label
+    if (item.kind === 'snippet') return item.snippet.label
+    if (item.kind === 'act') return item.act.label
+    return item.chapter.label
 }
 
 type ComposerSegment = { type: 'text' | 'mention'; text: string }
@@ -359,6 +455,32 @@ function detectMentionAtCaret(value: string, caret: number): { start: number; qu
         }
         if (/\s/.test(char)) return null
         index -= 1
+    }
+    return null
+}
+
+/**
+ * When the caret sits right after a completed `@mention` (or right after the single space that was
+ * auto-inserted with it), return the range to delete so Backspace removes the whole token at once
+ * instead of nibbling one character at a time. Returns null when the caret is not at a mention edge.
+ */
+function findMentionTokenToDeleteBeforeCaret(
+    value: string,
+    caret: number,
+    mentionNames: string[]
+): { start: number; end: number } | null {
+    if (caret <= 0 || mentionNames.length === 0) return null
+    const segments = buildComposerSegments(value, mentionNames)
+    let offset = 0
+    for (const segment of segments) {
+        const start = offset
+        const end = offset + segment.text.length
+        if (segment.type === 'mention') {
+            if (caret === end) return { start, end: caret }
+            // Caret just past the token's single trailing space — drop the token and that space.
+            if (caret === end + 1 && value[end] === ' ') return { start, end: caret }
+        }
+        offset = end
     }
     return null
 }
@@ -781,6 +903,26 @@ function UserMessageContent({ content }: { content: string }) {
                         @{label}
                     </span>
                 )
+            } else if (kind === 'act' || kind === 'chapter') {
+                // Volume/chapter mentions from the composer render as a pill (like terms/snippets) but
+                // stay clickable, so the author can jump to the referenced volume/chapter.
+                const navTarget = resolveNavTarget(kind, target)
+                const clickable = Boolean(onNavigate && navTarget)
+                out.push(
+                    <span
+                        key={`mention-${key++}`}
+                        role={clickable ? 'button' : undefined}
+                        tabIndex={clickable ? 0 : undefined}
+                        className={cn(
+                            'inline-flex items-center gap-1 rounded-md bg-primary-foreground/20 px-1.5 py-0.5 text-[0.85em] font-medium',
+                            clickable ? 'cursor-pointer hover:bg-primary-foreground/30' : ''
+                        )}
+                        onClick={clickable && navTarget ? () => onNavigate?.(navTarget) : undefined}
+                    >
+                        {kind === 'act' ? <Layers className="h-3 w-3 shrink-0" /> : <BookText className="h-3 w-3 shrink-0" />}
+                        @{label}
+                    </span>
+                )
             } else {
                 const navTarget = resolveNavTarget(kind, target)
                 out.push(
@@ -825,12 +967,14 @@ function CodexMentionMenu({
     const firstSkillIndex = items.findIndex((item) => item.kind === 'skill')
     const firstTermIndex = items.findIndex((item) => item.kind === 'term')
     const firstSnippetIndex = items.findIndex((item) => item.kind === 'snippet')
+    const firstActIndex = items.findIndex((item) => item.kind === 'act')
+    const firstChapterIndex = items.findIndex((item) => item.kind === 'chapter')
     return (
         <div className="absolute bottom-full left-2 right-2 z-50 mb-2 overflow-hidden rounded-xl border bg-popover shadow-lg">
             <div className="max-h-60 overflow-y-auto pb-1">
                 {loading && <div className="px-3 py-2 text-sm text-muted-foreground">加载中…</div>}
                 {!loading && items.length === 0 && (
-                    <div className="px-3 py-2 text-sm text-muted-foreground">没有匹配的模型组、技能、词条或片段</div>
+                    <div className="px-3 py-2 text-sm text-muted-foreground">没有匹配的模型组、技能、词条、片段、卷或章</div>
                 )}
                 {items.map((item, index) => {
                     const isModel = item.kind === 'model'
@@ -838,6 +982,8 @@ function CodexMentionMenu({
                     const showSkillHeader = index === firstSkillIndex && item.kind === 'skill'
                     const showTermHeader = index === firstTermIndex && item.kind === 'term'
                     const showSnippetHeader = index === firstSnippetIndex && item.kind === 'snippet'
+                    const showActHeader = index === firstActIndex && item.kind === 'act'
+                    const showChapterHeader = index === firstChapterIndex && item.kind === 'chapter'
                     const key =
                         item.kind === 'model'
                             ? `model:${item.group.id}`
@@ -845,7 +991,11 @@ function CodexMentionMenu({
                                 ? `skill:${item.skill.id}`
                                 : item.kind === 'term'
                                     ? `term:${item.term.id}`
-                                    : `snippet:${item.snippet.id}`
+                                    : item.kind === 'snippet'
+                                        ? `snippet:${item.snippet.id}`
+                                        : item.kind === 'act'
+                                            ? `act:${item.act.actNumber}`
+                                            : `chapter:${item.chapter.chapterId}`
                     return (
                         <Fragment key={key}>
                             {showLlmHeader && (
@@ -868,6 +1018,16 @@ function CodexMentionMenu({
                                     Snippets
                                 </div>
                             )}
+                            {showActHeader && (
+                                <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Volumes
+                                </div>
+                            )}
+                            {showChapterHeader && (
+                                <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Chapters
+                                </div>
+                            )}
                             <button
                                 type="button"
                                 className={cn(
@@ -886,8 +1046,12 @@ function CodexMentionMenu({
                                     <Sparkles className="h-5 w-5 shrink-0 text-muted-foreground" />
                                 ) : item.kind === 'term' ? (
                                     <BookMarked className="h-5 w-5 shrink-0 text-muted-foreground" />
-                                ) : (
+                                ) : item.kind === 'snippet' ? (
                                     <StickyNote className="h-5 w-5 shrink-0 text-muted-foreground" />
+                                ) : item.kind === 'act' ? (
+                                    <Layers className="h-5 w-5 shrink-0 text-muted-foreground" />
+                                ) : (
+                                    <BookText className="h-5 w-5 shrink-0 text-muted-foreground" />
                                 )}
                                 <span className="min-w-0 flex-1 truncate">{mentionItemName(item)}</span>
                             </button>
@@ -2118,6 +2282,10 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const termEntries = useStoredTermEntries(novelId)
     // Snippets are `@`-mentionable too, pointing Codex at `novel/snippets/<id>.md`.
     const [snippets, setSnippets] = useState<Snippet[] | null>(null)
+    // Volumes (acts) and chapters are `@`-mentionable so the author can point Codex at a whole volume
+    // (its outline section) or a chapter's projected file. They can be matched by title or by number.
+    const [acts, setActs] = useState<Act[] | null>(null)
+    const [chapters, setChapters] = useState<Chapter[] | null>(null)
     // When an `@`-mentioned ai_chat skill has a bound prompt, a Tweak dialog lets the author fill it
     // (auto-injecting overview + terms) and ship the resolved blocks as the message's artifact.
     const [tweakOpen, setTweakOpen] = useState(false)
@@ -2181,30 +2349,86 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                     if (!cancelled) setSnippets([])
                 })
         }
+        if (acts === null && novelId) {
+            void actApi.list(novelId)
+                .then((list) => {
+                    if (!cancelled) setActs(Array.isArray(list) ? list : [])
+                })
+                .catch(() => {
+                    if (!cancelled) setActs([])
+                })
+        }
+        if (chapters === null && novelId) {
+            void chapterApi.list(novelId)
+                .then((list) => {
+                    if (!cancelled) setChapters(Array.isArray(list) ? list : [])
+                })
+                .catch(() => {
+                    if (!cancelled) setChapters([])
+                })
+        }
         return () => {
             cancelled = true
         }
-    }, [mention, modelGroups, skills, snippets, novelId])
+    }, [mention, modelGroups, skills, snippets, acts, chapters, novelId])
 
     const snippetMentions = useMemo(() => buildSnippetMentionList(snippets ?? []), [snippets])
+    const actMentions = useMemo(() => buildActMentionList(acts ?? [], chapters ?? []), [acts, chapters])
+    const chapterMentions = useMemo(() => buildChapterMentionList(chapters ?? []), [chapters])
 
     const mentionMatches = useMemo<MentionItem[]>(() => {
         if (mention === null) return []
-        const query = mention.query.toLocaleLowerCase()
-        const groupItems: MentionItem[] = (modelGroups ?? [])
+        const rawQuery = mention.query
+        const query = rawQuery.toLocaleLowerCase()
+        const isNumericQuery = /^\d+$/.test(rawQuery)
+        const target = isNumericQuery ? Number(rawQuery) : NaN
+
+        // A bare number is meant for volume/chapter lookup, so skip the name-matched categories — a
+        // model like "gemini-3-1-pro" would otherwise match "@1" and crowd the volumes/chapters out.
+        const groupItems: MentionItem[] = isNumericQuery ? [] : (modelGroups ?? [])
             .filter((group) => !query || group.name.toLocaleLowerCase().includes(query))
             .map((group) => ({ kind: 'model', group }))
-        const skillItems: MentionItem[] = (skills ?? [])
+        const skillItems: MentionItem[] = isNumericQuery ? [] : (skills ?? [])
             .filter((skill) => !query || skill.name.toLocaleLowerCase().includes(query))
             .map((skill) => ({ kind: 'skill', skill }))
-        const termItems: MentionItem[] = termEntries
+        const termItems: MentionItem[] = isNumericQuery ? [] : termEntries
             .filter((term) => term.title.trim() && (!query || term.title.toLocaleLowerCase().includes(query)))
             .map((term) => ({ kind: 'term', term }))
-        const snippetItems: MentionItem[] = snippetMentions
+        const snippetItems: MentionItem[] = isNumericQuery ? [] : snippetMentions
             .filter((snippet) => !query || snippet.label.toLocaleLowerCase().includes(query))
             .map((snippet) => ({ kind: 'snippet', snippet }))
-        return [...groupItems, ...skillItems, ...termItems, ...snippetItems].slice(0, 10)
-    }, [mention, modelGroups, skills, termEntries, snippetMentions])
+
+        // Volumes/chapters match by number prefix for a numeric query (with the exact number first),
+        // otherwise by title.
+        const actItems: MentionItem[] = actMentions
+            .filter((act) => {
+                if (!query) return true
+                if (isNumericQuery) return String(act.actNumber).startsWith(rawQuery)
+                return act.title.toLocaleLowerCase().includes(query)
+            })
+            .sort((a, b) => {
+                if (!isNumericQuery) return 0
+                const aExact = a.actNumber === target ? 0 : 1
+                const bExact = b.actNumber === target ? 0 : 1
+                return aExact !== bExact ? aExact - bExact : a.actNumber - b.actNumber
+            })
+            .map((act) => ({ kind: 'act', act }))
+        const chapterItems: MentionItem[] = chapterMentions
+            .filter((chapter) => {
+                if (!query) return true
+                if (isNumericQuery) return String(chapter.number).startsWith(rawQuery)
+                return chapter.title.toLocaleLowerCase().includes(query)
+            })
+            .sort((a, b) => {
+                if (!isNumericQuery) return 0
+                const aExact = a.number === target ? 0 : 1
+                const bExact = b.number === target ? 0 : 1
+                return aExact !== bExact ? aExact - bExact : a.number - b.number
+            })
+            .map((chapter) => ({ kind: 'chapter', chapter }))
+
+        return [...groupItems, ...skillItems, ...termItems, ...snippetItems, ...actItems, ...chapterItems].slice(0, 10)
+    }, [mention, modelGroups, skills, termEntries, snippetMentions, actMentions, chapterMentions])
 
     useEffect(() => {
         setMentionIndex(0)
@@ -2255,12 +2479,42 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         }
     }
 
+    const ensureActs = async (): Promise<Act[]> => {
+        if (acts) return acts
+        if (!novelId) return []
+        try {
+            const list = await actApi.list(novelId)
+            const next = Array.isArray(list) ? list : []
+            setActs(next)
+            return next
+        } catch {
+            setActs([])
+            return []
+        }
+    }
+
+    const ensureChapters = async (): Promise<Chapter[]> => {
+        if (chapters) return chapters
+        if (!novelId) return []
+        try {
+            const list = await chapterApi.list(novelId)
+            const next = Array.isArray(list) ? list : []
+            setChapters(next)
+            return next
+        } catch {
+            setChapters([])
+            return []
+        }
+    }
+
     const handleComposerChange = (value: string, caret: number) => {
         setMention(detectMentionAtCaret(value, caret))
         if (value.includes('@')) {
             if (modelGroups === null) void ensureModelGroups()
             if (skills === null) void ensureSkills()
             if (snippets === null) void ensureSnippets()
+            if (acts === null) void ensureActs()
+            if (chapters === null) void ensureChapters()
         }
     }
 
@@ -2325,17 +2579,26 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         if (modelGroups === null) void ensureModelGroups()
         if (skills === null) void ensureSkills()
         if (snippets === null) void ensureSnippets()
+        if (acts === null) void ensureActs()
+        if (chapters === null) void ensureChapters()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [draft, modelGroups, skills, snippets])
+    }, [draft, modelGroups, skills, snippets, acts, chapters])
 
-    const composerSegments = useMemo(
-        () => buildComposerSegments(draft, [
+    const mentionNames = useMemo(
+        () => [
             ...(modelGroups ?? []).map((group) => group.name),
             ...(skills ?? []).map((skill) => skill.name),
             ...termEntries.map((term) => term.title).filter(Boolean),
             ...snippetMentions.map((snippet) => snippet.label),
-        ]),
-        [draft, modelGroups, skills, termEntries, snippetMentions]
+            ...actMentions.map((act) => act.label),
+            ...chapterMentions.map((chapter) => chapter.label),
+        ],
+        [modelGroups, skills, termEntries, snippetMentions, actMentions, chapterMentions]
+    )
+
+    const composerSegments = useMemo(
+        () => buildComposerSegments(draft, mentionNames),
+        [draft, mentionNames]
     )
 
     // The first `@`-mentioned ai_chat skill that carries a bound prompt — it gets a Tweak dialog.
@@ -2656,10 +2919,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             const groups = hasMention ? await ensureModelGroups() : []
             const skillList = hasMention ? await ensureSkills() : []
             const snippetList = hasMention ? await ensureSnippets() : []
+            const actList = hasMention ? await ensureActs() : []
+            const chapterList = hasMention ? await ensureChapters() : []
             const expandedModels = expandModelMentions(draft, groups)
             const { text: expandedSkills, skillIds } = expandSkillMentions(expandedModels, skillList)
             const expandedTerms = expandTermMentions(expandedSkills, hasMention ? termEntries : [])
-            const expandedText = expandSnippetMentions(expandedTerms, hasMention ? buildSnippetMentionList(snippetList) : [])
+            const expandedSnippets = expandSnippetMentions(expandedTerms, hasMention ? buildSnippetMentionList(snippetList) : [])
+            const expandedActs = expandActMentions(expandedSnippets, hasMention ? buildActMentionList(actList, chapterList) : [])
+            const expandedText = expandChapterMentions(expandedActs, hasMention ? buildChapterMentionList(chapterList) : [])
             const content = expandedText.trim()
             if (!content) return
             const attachments = imageAttachments.readyUrls
@@ -3105,6 +3372,36 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                     event.preventDefault()
                                     closeMention()
                                     return
+                                }
+                            }
+                            // Backspace at a mention edge deletes the whole `@mention` token at once.
+                            if (event.key === 'Backspace' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+                                const { selectionStart, selectionEnd } = event.currentTarget
+                                if (selectionStart !== null && selectionStart === selectionEnd) {
+                                    const removal = findMentionTokenToDeleteBeforeCaret(draft, selectionStart, mentionNames)
+                                    if (removal) {
+                                        event.preventDefault()
+                                        const nextValue = draft.slice(0, removal.start) + draft.slice(removal.end)
+                                        const caret = removal.start
+                                        setMention(detectMentionAtCaret(nextValue, caret))
+                                        const applyCaret = () => requestAnimationFrame(() => {
+                                            const textarea = composerRef.current
+                                            if (!textarea) return
+                                            textarea.focus()
+                                            textarea.setSelectionRange(caret, caret)
+                                        })
+                                        if (selectedSession) {
+                                            updateDraft(novelId, selectedSession.id, nextValue)
+                                            applyCaret()
+                                        } else {
+                                            void (async () => {
+                                                const sessionId = await ensureSession()
+                                                if (sessionId) updateDraft(novelId, sessionId, nextValue)
+                                                applyCaret()
+                                            })()
+                                        }
+                                        return
+                                    }
                                 }
                             }
                             if (event.key === 'Enter' && !event.shiftKey) {

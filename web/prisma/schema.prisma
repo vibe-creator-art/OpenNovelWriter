@@ -300,6 +300,8 @@ model Prompt {
   historyJson String  @default("[]")
   isNsfw    Boolean  @default(false)
   sortOrder Int      @default(0)
+  sourcePresetId String?
+  sourcePresetRevision Float?
   ownerId   String
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   defaults  PromptDefault[]

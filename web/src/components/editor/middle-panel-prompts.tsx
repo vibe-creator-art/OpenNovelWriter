@@ -80,6 +80,7 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
     const [builtinPresetsError, setBuiltinPresetsError] = useState<string | null>(null)
     const [presetAuthoringEnabled, setPresetAuthoringEnabled] = useState(false)
     const [cloningPresetId, setCloningPresetId] = useState<string | null>(null)
+    const [cloningAllPresets, setCloningAllPresets] = useState(false)
     const [cloneOverwritePresetId, setCloneOverwritePresetId] = useState<string | null>(null)
     const [cloneConflictNames, setCloneConflictNames] = useState<string[]>([])
     const [cloneOverwriteConfirmOpen, setCloneOverwriteConfirmOpen] = useState(false)
@@ -240,6 +241,13 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
         }
     }, [])
 
+    // A prompt cloned from an official preset is read-only unless the user is in preset-authoring mode.
+    // Editing requires cloning it first (which yields an unmarked, editable copy).
+    const editorReadOnly = useMemo(() => {
+        const current = prompts.find((prompt) => prompt.id === selectedPromptId) ?? null
+        return Boolean(current?.sourcePresetId) && !presetAuthoringEnabled
+    }, [presetAuthoringEnabled, prompts, selectedPromptId])
+
     const {
         draft,
         saveState,
@@ -280,6 +288,7 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
         setActiveCategory,
         setEditorTab,
         onPromptChanged: dispatchPromptsChangedEvent,
+        readOnly: editorReadOnly,
         t,
     })
 
@@ -287,6 +296,16 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
         () => prompts.find((prompt) => prompt.id === selectedPromptId) ?? null,
         [prompts, selectedPromptId]
     )
+
+    // For a preset-sourced prompt: the cloned revision and whether the official preset is now newer.
+    const presetUpdate = useMemo(() => {
+        const sourceId = selectedPrompt?.sourcePresetId ?? null
+        const clonedRevision = selectedPrompt?.sourcePresetRevision ?? null
+        if (!sourceId) return { sourceId: null as string | null, clonedRevision: null as number | null, updateAvailable: false }
+        const current = builtinPresets.find((preset) => preset.presetId === sourceId) ?? null
+        const updateAvailable = current != null && clonedRevision != null && current.revision > clonedRevision
+        return { sourceId, clonedRevision, updateAvailable }
+    }, [builtinPresets, selectedPrompt?.sourcePresetId, selectedPrompt?.sourcePresetRevision])
 
     useEffect(() => {
         setHistoryOpen(false)
@@ -337,7 +356,6 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
         const result: Record<DefaultPromptSelectionCategory, Prompt[]> = {
             scene_continuation: [],
             scene_action: [],
-            text_replacement: [],
             ai_chat: [],
         }
 
@@ -531,6 +549,30 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
         await handleClonePreset(cloneOverwritePresetId, true)
     }, [cloneOverwritePresetId, handleClonePreset])
 
+    const handleCloneAllPresets = useCallback(async () => {
+        setCloningAllPresets(true)
+        setBuiltinPresetsError(null)
+        try {
+            const allImported: Prompt[] = []
+            for (const preset of builtinPresets) {
+                // Overwrite existing clones so "clone all" updates everything to the latest official version.
+                const { prompts: importedPrompts } = await presetApi.clone(preset.presetId, { overwriteExisting: true })
+                allImported.push(...importedPrompts)
+            }
+            if (allImported.length > 0) {
+                const importedIds = new Set(allImported.map((prompt) => prompt.id))
+                setPrompts((prev) => [...allImported, ...prev.filter((prompt) => !importedIds.has(prompt.id))])
+                dispatchPromptsChangedEvent()
+            }
+        } catch (err) {
+            console.error(err)
+            const detail = err instanceof Error ? err.message : ''
+            setBuiltinPresetsError(detail || t('presets.errors.cloneFailed'))
+        } finally {
+            setCloningAllPresets(false)
+        }
+    }, [builtinPresets, t])
+
     const handleOpenPublishDialog = useCallback((mode: 'create' | 'overwrite') => {
         if (!draft) return
 
@@ -702,9 +744,11 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
                     builtinPresetsLoading={builtinPresetsLoading}
                     builtinPresetsError={builtinPresetsError}
                     cloningPresetId={cloningPresetId}
+                    cloningAllPresets={cloningAllPresets}
                     cloneConflictNames={cloneConflictNames}
                     cloneOverwriteConfirmOpen={cloneOverwriteConfirmOpen}
                     onClonePreset={(presetId, overwriteExisting) => void handleClonePreset(presetId, overwriteExisting)}
+                    onCloneAllPresets={() => void handleCloneAllPresets()}
                     onCloneOverwriteConfirmOpenChange={setCloneOverwriteConfirmOpen}
                     onConfirmCloneOverwrite={() => void handleConfirmCloneOverwrite()}
                 />
@@ -843,6 +887,12 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
                         onExportPromptToJson={() => void handleExportPromptToJson()}
                         canPublishPresets={presetAuthoringEnabled}
                         onOpenPublishDialog={(mode) => void handleOpenPublishDialog(mode)}
+                        readOnly={editorReadOnly}
+                        presetSourceRevision={presetUpdate.clonedRevision}
+                        presetUpdateAvailable={presetUpdate.updateAvailable}
+                        onClonePresetUpdate={() => {
+                            if (presetUpdate.sourceId) void handleClonePreset(presetUpdate.sourceId, true)
+                        }}
                         onStartDraftNameEditing={handleStartDraftNameEditing}
                         onEndDraftNameEditing={handleEndDraftNameEditing}
                         onUpdateDraftName={handleUpdateDraftName}

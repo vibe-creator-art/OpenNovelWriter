@@ -103,6 +103,21 @@ const tools = [
         },
     },
     {
+        name: 'update_act_summary',
+        description: 'Update the summary of an act/volume in an OpenNovelWriter novel. The summary stands in for the whole volume in memory recall. Provide exactly one of `summary` (a literal string) or `source` (a reference to a run_llm reply, which is read server-side so you do not retype it).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                actNumber: { type: 'number', description: 'The act/volume number shown in outline.md.' },
+                summary: { type: 'string', description: 'The new act/volume summary as a literal string. Use an empty string to clear it. Omit this when using `source`.' },
+                source: LLM_REPLY_SOURCE_SCHEMA,
+            },
+            required: ['novelId', 'actNumber'],
+            additionalProperties: false,
+        },
+    },
+    {
         name: 'edit_scene_content',
         description: 'Edit the prose body of a scene with one or more search/replace hunks. Each hunk replaces an exact run of existing scene text (old_text) with new_text. Edits apply immediately but stay pending until the author accepts or rejects them in the app. Use this only for the scene Content/正文 (not summaries or titles). Read the scene from novel/chapters/<chapter_id>.md first and copy old_text exactly. Keep each hunk small and locally unique; split unrelated changes into separate hunks so the author can review them one by one. To insert a long model-written passage (e.g. a scene continuation), use an empty old_text plus `source` so the prose comes straight from the run_llm artifact instead of being retyped; blank-line-separated paragraphs in the reply become separate paragraphs in the scene.',
         inputSchema: {
@@ -428,6 +443,8 @@ async function callTool(params) {
                 return toolResult(await updateChapterTitle(args))
             case 'update_scene_summary':
                 return toolResult(await updateSceneSummary(args))
+            case 'update_act_summary':
+                return toolResult(await updateActSummary(args))
             case 'edit_scene_content':
                 return toolResult(await editSceneContent(args))
             case 'create_snippet':
@@ -543,6 +560,27 @@ async function updateSceneSummary(args) {
         syncNovelWorkspaceChapter(novelId, scene.chapterId),
     ])
     return { ok: true, scene: updated }
+}
+
+async function updateActSummary(args) {
+    const novelId = requireString(args.novelId, 'novelId')
+    const actNumber = requirePositiveInteger(args.actNumber, 'actNumber')
+    const summary = (await resolveTextOrSource(args, 'summary')).trim()
+    await requireOwnedNovel(novelId)
+
+    const act = await prisma.act.findUnique({
+        where: { novelId_number: { novelId, number: actNumber } },
+        select: { id: true },
+    })
+    if (!act) throw new Error(`Act ${actNumber} was not found in novel ${novelId}.`)
+
+    const updated = await prisma.act.update({
+        where: { id: act.id },
+        data: { summary: summary || null },
+        select: { id: true, number: true, summary: true },
+    })
+    await syncNovelWorkspaceOutline(novelId)
+    return { ok: true, act: updated }
 }
 
 async function editSceneContent(args) {
