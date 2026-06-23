@@ -682,7 +682,7 @@ function renderList(list: MarkdownList, key: string): ReactNode {
 function renderTable(table: MarkdownTable, key: string): ReactNode {
     return createElement(
         'div',
-        { key, className: 'my-3 max-w-full overflow-x-auto' },
+        { key, className: 'onw-table-scroll my-3 max-w-full overflow-x-auto' },
         createElement(
             'table',
             { className: 'w-full min-w-max border-collapse text-sm' },

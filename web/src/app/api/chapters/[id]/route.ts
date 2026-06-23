@@ -5,6 +5,7 @@ import {
     removeNovelWorkspaceChapter,
     syncNovelWorkspaceChapter,
     syncNovelWorkspaceOutline,
+    syncNovelWorkspaceDetailedOutlines,
 } from '@/lib/server/novel-workspace'
 import { cascadeDeleteContinuationDraftsForScenes } from '@/lib/server/continuation-draft'
 
@@ -133,6 +134,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         await Promise.all([
             syncNovelWorkspaceOutline(user.userId, existing.novelId),
             removeNovelWorkspaceChapter(user.userId, existing.novelId, existing.id),
+            syncNovelWorkspaceDetailedOutlines(user.userId, existing.novelId),
         ])
 
         return NextResponse.json({ message: 'Chapter deleted successfully' })

@@ -11,6 +11,8 @@ export type PromptTemplateRenderContext = {
     sceneContinueFollowText?: string | null
     sceneContinueHasPreviousText?: boolean | null
     sceneContinueHasFollowText?: boolean | null
+    sceneChapterOutline?: string | null
+    sceneActOutline?: string | null
     instructionText?: string | null
     instructionTerms?: string[] | null
     chatUserInput?: string | null
@@ -49,6 +51,8 @@ export type PromptTemplateRenderResolvers = {
     resolveInputActs?: (name: string) => PromptTemplateRenderListItem[] | null | undefined
     resolveInputChapters?: (name: string) => PromptTemplateRenderListItem[] | null | undefined
     resolveInputScenes?: (name: string) => PromptTemplateRenderListItem[] | null | undefined
+    resolveInputActOutlines?: (name: string) => PromptTemplateRenderListItem[] | null | undefined
+    resolveInputChapterOutlines?: (name: string) => PromptTemplateRenderListItem[] | null | undefined
     resolveTermText?: (termId: string) => string | null | undefined
     resolveTermValue?: (termId: string) => string | null | undefined
 }
@@ -74,6 +78,8 @@ type TemplateInputValue = {
     act: TemplateListValue
     chapter: TemplateListValue
     scene: TemplateListValue
+    actOutline: TemplateListValue
+    chapterOutline: TemplateListValue
 }
 
 type TemplateStringValue = {
@@ -331,6 +337,8 @@ function buildInputsContext(inputNames: Iterable<string>, resolvers: PromptTempl
             act: createTemplateListValue(resolvers.resolveInputActs?.(name)),
             chapter: createTemplateListValue(resolvers.resolveInputChapters?.(name)),
             scene: createTemplateListValue(resolvers.resolveInputScenes?.(name)),
+            actOutline: createTemplateListValue(resolvers.resolveInputActOutlines?.(name)),
+            chapterOutline: createTemplateListValue(resolvers.resolveInputChapterOutlines?.(name)),
         }
     }
 
@@ -352,6 +360,10 @@ function buildTemplateContext(context: PromptTemplateRenderContext, inputs: Reco
             followText: context.sceneContinueFollowText ?? '',
             hasPreviousText: !!context.sceneContinueHasPreviousText,
             hasFollowText: !!context.sceneContinueHasFollowText,
+            chapterOutline: context.sceneChapterOutline ?? '',
+            actOutline: context.sceneActOutline ?? '',
+            hasChapterOutline: !!(context.sceneChapterOutline ?? '').trim(),
+            hasActOutline: !!(context.sceneActOutline ?? '').trim(),
         },
         instruction: {
             text: context.instructionText ?? '',

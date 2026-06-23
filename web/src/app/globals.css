@@ -161,6 +161,45 @@
     background: rgb(255 255 255 / 0.32);
   }
 
+  /* Horizontal scroll affordance for markdown tables: keep the bottom bar
+     always visible (when the table overflows) and draggable, so the table is
+     not silently clipped under macOS overlay scrollbars. Scoped to tables only. */
+  .onw-table-scroll {
+    --onw-scrollbar-size: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: rgb(0 0 0 / 0.28) transparent;
+  }
+
+  .dark .onw-table-scroll {
+    scrollbar-color: rgb(255 255 255 / 0.22) transparent;
+  }
+
+  .onw-table-scroll::-webkit-scrollbar {
+    height: var(--onw-scrollbar-size);
+    width: var(--onw-scrollbar-size);
+  }
+
+  .onw-table-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .onw-table-scroll::-webkit-scrollbar-thumb {
+    background: rgb(0 0 0 / 0.28);
+    border-radius: 9999px;
+  }
+
+  .onw-table-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(0 0 0 / 0.4);
+  }
+
+  .dark .onw-table-scroll::-webkit-scrollbar-thumb {
+    background: rgb(255 255 255 / 0.22);
+  }
+
+  .dark .onw-table-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(255 255 255 / 0.32);
+  }
+
   .onw-middle-panel-write {
     --onw-write-font-family: var(--font-sans);
     --onw-write-font-size: 1rem;

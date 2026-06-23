@@ -4,7 +4,8 @@ const TEMPLATE_BLOCK_RE = /\{[{%#]-?[\s\S]*?-?[}%#]\}/g
 const VARIABLE_TAG_RE = /\{\{(-)?([\s\S]*?)(-)?\}\}/g
 const INCLUDE_TAG_RE = /\{%-?\s*include\s+(['"])([\s\S]*?)\1[\s\S]*?-?%\}/g
 const INPUT_REF_RE = /\binputs\s*(?:\[\s*(['"])([\s\S]*?)\1\s*\]|\.\s*([A-Za-z_][A-Za-z0-9_]*))/g
-const SCENE_REF_RE = /\bscene\s*\.\s*(text|previousText|followText|hasPreviousText|hasFollowText)\b/g
+const SCENE_REF_RE =
+    /\bscene\s*\.\s*(text|previousText|followText|hasPreviousText|hasFollowText|chapterOutline|actOutline|hasChapterOutline|hasActOutline)\b/g
 const INSTRUCTION_REF_RE = /\binstruction\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\b/g
 const NOVEL_LANGUAGE_RE = /\bnovel\s*\.\s*language\b/g
 const NOVEL_OUTLINE_RE = /\bnovel\s*\.\s*outline(?:\s*\.\s*(full|storysofar))?\b/g

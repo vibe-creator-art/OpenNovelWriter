@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { recordRevisionHistory, safeParseRevisionHistoryJson } from '@/lib/revision-history'
+import { syncNovelWorkspaceDetailedOutlines } from '@/lib/server/novel-workspace'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -133,6 +134,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             data,
         })
 
+        if (nextContent !== undefined && nextContent !== existing.content) {
+            await syncNovelWorkspaceDetailedOutlines(user.userId, existing.novelId)
+        }
+
         return NextResponse.json(toOutlineResponse(outline))
     } catch (error) {
         console.error('Update outline error:', error)
@@ -160,6 +165,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         }
 
         await prisma.outline.delete({ where: { id } })
+        await syncNovelWorkspaceDetailedOutlines(user.userId, existing.novelId)
 
         return NextResponse.json({ message: 'Outline deleted successfully' })
     } catch (error) {

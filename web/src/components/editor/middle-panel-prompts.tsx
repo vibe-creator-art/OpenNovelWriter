@@ -553,14 +553,17 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
         setCloningAllPresets(true)
         setBuiltinPresetsError(null)
         try {
-            const allImported: Prompt[] = []
+            // Shared components are reused across presets, so cloning multiple presets returns the same
+            // DB record more than once. Dedupe by id (keeping the latest write) to avoid duplicate React keys.
+            const importedById = new Map<string, Prompt>()
             for (const preset of builtinPresets) {
                 // Overwrite existing clones so "clone all" updates everything to the latest official version.
                 const { prompts: importedPrompts } = await presetApi.clone(preset.presetId, { overwriteExisting: true })
-                allImported.push(...importedPrompts)
+                for (const prompt of importedPrompts) importedById.set(prompt.id, prompt)
             }
-            if (allImported.length > 0) {
-                const importedIds = new Set(allImported.map((prompt) => prompt.id))
+            if (importedById.size > 0) {
+                const allImported = [...importedById.values()]
+                const importedIds = new Set(importedById.keys())
                 setPrompts((prev) => [...allImported, ...prev.filter((prompt) => !importedIds.has(prompt.id))])
                 dispatchPromptsChangedEvent()
             }

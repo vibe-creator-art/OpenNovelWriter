@@ -10,6 +10,7 @@
 
 - 改小说名、卷名、章名、场景正文 → `edit-manuscript`
 - 改场景摘要、卷（act）摘要 → `edit-summary`
+- 创建、修改、删除章/卷的细纲（DetailedOutline，章纲/卷纲）→ `edit-outlines`
 - 创建、修改、删除片段（snippet）→ `edit-snippets`
 - 创建、修改、删除词条（角色/地点/物品等设定卡，含经历时间线）→ `edit-terms`
 

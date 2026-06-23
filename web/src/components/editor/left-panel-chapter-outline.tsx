@@ -26,6 +26,10 @@ import { TermMentionPreviewPopover } from '@/components/editor/terms/term-mentio
 import type { AnchorRect } from '@/components/editor/terms/types'
 import { countWords, getAnchorRect } from '@/components/editor/terms/utils'
 import { RevisionHistoryDialog } from '@/components/editor/history/revision-history-dialog'
+import {
+    NOVEL_REFRESH_REQUESTED_EVENT,
+    type NovelRefreshRequestedEventDetail,
+} from '@/lib/novel-refresh-events'
 import { ChevronDown, ChevronRight, ClipboardList, Copy, History, Loader2, Search, Trash2, X } from 'lucide-react'
 
 type OutlineTarget =
@@ -184,6 +188,18 @@ export function LeftPanelChapterOutline({
     useEffect(() => {
         if (!novelId) return
         reloadOutlines()
+    }, [novelId, reloadOutlines])
+
+    useEffect(() => {
+        if (!novelId) return
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<NovelRefreshRequestedEventDetail>).detail
+            if (!detail || detail.novelId !== novelId) return
+            void reloadOutlines()
+        }
+
+        window.addEventListener(NOVEL_REFRESH_REQUESTED_EVENT, handler as EventListener)
+        return () => window.removeEventListener(NOVEL_REFRESH_REQUESTED_EVENT, handler as EventListener)
     }, [novelId, reloadOutlines])
 
     useEffect(() => {

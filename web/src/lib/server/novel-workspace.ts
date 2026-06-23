@@ -15,11 +15,15 @@ const {
     buildNovelWorkspaceChapterMarkdown,
     buildNovelWorkspaceSnippetIndexMarkdown,
     buildNovelWorkspaceSnippetMarkdown,
+    buildNovelWorkspaceDetailedOutlineMarkdown,
+    htmlToProjectionText,
 } = require('./novel-workspace-projection.cjs') as {
     buildNovelWorkspaceOutlineMarkdown: (novel: NovelWorkspaceOutlineInput) => string
     buildNovelWorkspaceChapterMarkdown: (chapter: NovelWorkspaceChapterInput) => string
     buildNovelWorkspaceSnippetIndexMarkdown: (novel: NovelWorkspaceSnippetIndexInput) => string
     buildNovelWorkspaceSnippetMarkdown: (snippet: NovelWorkspaceSnippetProjectionInput) => string
+    buildNovelWorkspaceDetailedOutlineMarkdown: (input: NovelWorkspaceDetailedOutlineInput) => string
+    htmlToProjectionText: (html: string) => string
 }
 const {
     getNovelWorkspaceTermFileName,
@@ -49,6 +53,9 @@ const SNIPPET_INDEX_FILE_NAME = 'snippet.md'
 const CHAPTERS_DIR_NAME = 'chapters'
 const TERMS_DIR_NAME = 'terms'
 const SNIPPETS_DIR_NAME = 'snippets'
+const DETAILED_OUTLINE_DIR_NAME = 'DetailedOutline'
+const DETAILED_OUTLINE_CHAPTERS_DIR_NAME = 'chapters'
+const DETAILED_OUTLINE_ACTS_DIR_NAME = 'acts'
 
 type NovelWorkspaceOutlineInput = {
     id: string
@@ -106,6 +113,18 @@ type NovelWorkspaceSnippetProjectionInput = {
     snippet: NovelWorkspaceSnippetInput
 }
 
+type NovelWorkspaceDetailedOutlineInput = {
+    novelId: string
+    language: string | null
+    kind: 'chapter' | 'act'
+    outlineId: string
+    chapterId?: string
+    actNumber?: number
+    chapterNumber?: number
+    title: string | null
+    content: string
+}
+
 export function getNovelWorkspacesRoot() {
     return path.join(getOpenNovelWriterDataDir(), 'codex', 'novels')
 }
@@ -144,6 +163,18 @@ export function getNovelWorkspaceSnippetPath(ownerId: string, novelId: string, s
 
 export function getNovelWorkspaceTermPath(ownerId: string, novelId: string, title: string) {
     return getNovelWorkspaceProjectionPath(ownerId, novelId, TERMS_DIR_NAME, getNovelWorkspaceTermFileName(title))
+}
+
+export function getNovelWorkspaceDetailedOutlinesPath(ownerId: string, novelId: string) {
+    return getNovelWorkspaceProjectionPath(ownerId, novelId, DETAILED_OUTLINE_DIR_NAME)
+}
+
+export function getNovelWorkspaceDetailedOutlineChapterPath(ownerId: string, novelId: string, chapterId: string) {
+    return getNovelWorkspaceProjectionPath(ownerId, novelId, DETAILED_OUTLINE_DIR_NAME, DETAILED_OUTLINE_CHAPTERS_DIR_NAME, `${chapterId}.md`)
+}
+
+export function getNovelWorkspaceDetailedOutlineActPath(ownerId: string, novelId: string, actNumber: number) {
+    return getNovelWorkspaceProjectionPath(ownerId, novelId, DETAILED_OUTLINE_DIR_NAME, DETAILED_OUTLINE_ACTS_DIR_NAME, `${actNumber}.md`)
 }
 
 /**
@@ -188,6 +219,7 @@ export async function ensureNovelWorkspace(ownerId: string, novelId: string) {
         removeNovelWorkspaceAgent(ownerId, novelId),
         syncNovelWorkspaceOutline(ownerId, novelId),
         syncNovelWorkspaceSnippets(ownerId, novelId),
+        syncNovelWorkspaceDetailedOutlines(ownerId, novelId),
     ])
 
     const chaptersPath = getNovelWorkspaceChaptersPath(ownerId, novelId)
@@ -212,6 +244,7 @@ export async function ensureNovelWorkspaces(ownerId: string, novelIds: string[])
         await Promise.all([
             syncNovelWorkspaceOutline(ownerId, novelId),
             syncNovelWorkspaceSnippets(ownerId, novelId),
+            syncNovelWorkspaceDetailedOutlines(ownerId, novelId),
         ])
         const chaptersPath = getNovelWorkspaceChaptersPath(ownerId, novelId)
         if (!(await hasMarkdownFiles(chaptersPath))) {
@@ -263,6 +296,78 @@ export async function syncNovelWorkspaceOutline(ownerId: string, novelId: string
     await writeReadonlyProjectionFile(outlinePath, buildNovelWorkspaceOutlineMarkdown(novel))
 
     return outlinePath
+}
+
+/**
+ * Materialize each chapter/act detailed outline (细纲) as a read-only Markdown file under
+ * `novel/DetailedOutline/{chapters,acts}/`. Only outlines with non-empty content get a file.
+ * Full rebuild: the folder is wiped first, so emptied/deleted outlines disappear automatically.
+ */
+export async function syncNovelWorkspaceDetailedOutlines(ownerId: string, novelId: string) {
+    const workspacePath = await ensureNovelWorkspaceDirectory(ownerId, novelId)
+    const novel = await prisma.novel.findFirst({
+        where: { id: novelId, ownerId },
+        select: {
+            id: true,
+            language: true,
+            acts: { select: { number: true, title: true } },
+            chapters: { select: { id: true, title: true, actNumber: true, order: true } },
+            outlines: { select: { id: true, type: true, actNumber: true, chapterId: true, content: true } },
+        },
+    })
+    if (!novel) return null
+
+    const rootPath = path.join(workspacePath, DETAILED_OUTLINE_DIR_NAME)
+    await fs.rm(rootPath, { recursive: true, force: true })
+
+    const sortedChapters = [...novel.chapters].sort((left, right) => {
+        if (left.actNumber !== right.actNumber) return left.actNumber - right.actNumber
+        if (left.order !== right.order) return left.order - right.order
+        return left.id.localeCompare(right.id)
+    })
+    const chapterNumberById = new Map<string, number>()
+    sortedChapters.forEach((chapter, index) => chapterNumberById.set(chapter.id, index + 1))
+    const chapterById = new Map(novel.chapters.map((chapter) => [chapter.id, chapter]))
+    const actTitleByNumber = new Map<number, string | null>()
+    for (const act of novel.acts) actTitleByNumber.set(act.number, act.title)
+
+    const written: string[] = []
+    for (const outline of novel.outlines) {
+        if (!htmlToProjectionText(outline.content).trim()) continue
+
+        if (outline.type === 'CHAPTER') {
+            if (!outline.chapterId) continue
+            const chapter = chapterById.get(outline.chapterId)
+            if (!chapter) continue
+            const filePath = path.join(rootPath, DETAILED_OUTLINE_CHAPTERS_DIR_NAME, `${chapter.id}.md`)
+            await writeReadonlyProjectionFile(filePath, buildNovelWorkspaceDetailedOutlineMarkdown({
+                novelId: novel.id,
+                language: novel.language,
+                kind: 'chapter',
+                outlineId: outline.id,
+                chapterId: chapter.id,
+                chapterNumber: chapterNumberById.get(chapter.id) ?? chapter.order,
+                title: chapter.title,
+                content: outline.content,
+            }))
+            written.push(filePath)
+        } else if (outline.type === 'ACT') {
+            if (outline.actNumber == null) continue
+            const filePath = path.join(rootPath, DETAILED_OUTLINE_ACTS_DIR_NAME, `${outline.actNumber}.md`)
+            await writeReadonlyProjectionFile(filePath, buildNovelWorkspaceDetailedOutlineMarkdown({
+                novelId: novel.id,
+                language: novel.language,
+                kind: 'act',
+                outlineId: outline.id,
+                actNumber: outline.actNumber,
+                title: actTitleByNumber.get(outline.actNumber) ?? null,
+                content: outline.content,
+            }))
+            written.push(filePath)
+        }
+    }
+
+    return { rootPath, written }
 }
 
 export async function syncNovelWorkspaceChapter(ownerId: string, novelId: string, chapterId: string) {

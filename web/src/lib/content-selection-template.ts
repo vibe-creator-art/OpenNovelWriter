@@ -28,6 +28,10 @@ export type ContentSelectionTemplateResources = {
     chaptersById: Map<string, TemplateChapter>
     scenesById: Map<string, TemplateScene>
     novelOutlineFull?: string | null
+    /** Resolved detail-outline (细纲) plain text keyed by act number. */
+    outlineTextByActNumber?: Map<number, string>
+    /** Resolved detail-outline (细纲) plain text keyed by chapter id. */
+    outlineTextByChapterId?: Map<string, string>
 }
 
 export type ContentSelectionTemplateListItem = {
@@ -35,7 +39,13 @@ export type ContentSelectionTemplateListItem = {
     value: string
 }
 
-export type ContentSelectionTemplateCollectionKind = 'fullNovel' | 'act' | 'chapter' | 'scene'
+export type ContentSelectionTemplateCollectionKind =
+    | 'fullNovel'
+    | 'act'
+    | 'chapter'
+    | 'scene'
+    | 'actOutline'
+    | 'chapterOutline'
 
 function normalizeLocale(locale: string | null | undefined) {
     return locale?.trim().toLowerCase() ?? ''
@@ -59,6 +69,21 @@ function formatChapterLabel(chapterNumber: number, title: string | null | undefi
     const base = isEnglishLocale(locale) ? `Chapter ${chapterNumber}` : `第 ${chapterNumber} 章`
     const trimmedTitle = title?.trim() ?? ''
     return trimmedTitle ? `${base}: ${trimmedTitle}` : base
+}
+
+function formatActOutlineLabel(actNumber: number, title: string | null | undefined, locale: string | null | undefined) {
+    const base = formatActLabel(actNumber, title, locale)
+    return isEnglishLocale(locale) ? `${base} Outline` : `${base} 细纲`
+}
+
+function formatChapterOutlineLabel(
+    chapterNumber: number,
+    title: string | null | undefined,
+    locale: string | null | undefined
+) {
+    const base = chapterNumber > 0 ? formatChapterLabel(chapterNumber, title, locale) : (title?.trim() ?? '')
+    if (!base) return isEnglishLocale(locale) ? 'Chapter Outline' : '章纲'
+    return isEnglishLocale(locale) ? `${base} Outline` : `${base} 细纲`
 }
 
 function formatSceneLabel(params: {
@@ -297,6 +322,36 @@ export function getContentSelectionTemplateItems(params: {
                 }
             })
             .filter((item) => item.text || item.value)
+    }
+
+    if (params.kind === 'actOutline') {
+        const actByNumber = new Map(params.resources.acts.map((act) => [act.number, act]))
+        const outlineTextByActNumber = params.resources.outlineTextByActNumber ?? new Map<number, string>()
+        return params.selections
+            .filter((selection): selection is Extract<ContentSelectionTarget, { kind: 'act_outline' }> => selection.kind === 'act_outline')
+            .map((selection) => ({
+                text: formatActOutlineLabel(selection.actNumber, actByNumber.get(selection.actNumber)?.title ?? null, params.locale),
+                value: normalizeText(outlineTextByActNumber.get(selection.actNumber)),
+            }))
+            .filter((item) => item.value)
+    }
+
+    if (params.kind === 'chapterOutline') {
+        const outlineTextByChapterId = params.resources.outlineTextByChapterId ?? new Map<string, string>()
+        return params.selections
+            .filter(
+                (selection): selection is Extract<ContentSelectionTarget, { kind: 'chapter_outline' }> =>
+                    selection.kind === 'chapter_outline'
+            )
+            .map((selection) => {
+                const chapter = params.resources.chaptersById.get(selection.chapterId) ?? null
+                const chapterNumber = chapterNumberById.get(selection.chapterId) ?? 0
+                return {
+                    text: formatChapterOutlineLabel(chapterNumber, chapter?.title ?? null, params.locale),
+                    value: normalizeText(outlineTextByChapterId.get(selection.chapterId)),
+                }
+            })
+            .filter((item) => item.value)
     }
 
     const treatAs = params.input.contentSelection.options.scene.treatAs

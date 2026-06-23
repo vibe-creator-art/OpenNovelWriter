@@ -192,6 +192,29 @@ function buildNovelWorkspaceSnippetMarkdown(input) {
     return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`
 }
 
+function buildNovelWorkspaceDetailedOutlineMarkdown(input) {
+    const language = input.language
+    const isAct = input.kind === 'act'
+    const heading = isAct
+        ? formatActHeading(input.actNumber, input.title, language)
+        : formatChapterHeading(input.chapterNumber, input.title, language)
+    const subtitle = isChineseLanguage(language)
+        ? (isAct ? '卷纲' : '章纲')
+        : (isAct ? 'Act Outline' : 'Chapter Outline')
+    const metadata = isAct
+        ? { novel_id: input.novelId, outline_id: input.outlineId, act_number: input.actNumber }
+        : { novel_id: input.novelId, outline_id: input.outlineId, chapter_id: input.chapterId }
+
+    const lines = [
+        buildGeneratedMarkdownHeader({ title: heading, subtitle, language, metadata }),
+        '',
+        `### ${isChineseLanguage(language) ? '细纲' : 'Detailed Outline'}`,
+    ]
+    pushOptionalText(lines, htmlToProjectionText(input.content))
+
+    return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`
+}
+
 function compareSnippets(left, right) {
     if (Boolean(left?.pinned) !== Boolean(right?.pinned)) return left?.pinned ? -1 : 1
     const updatedDiff = toTimestamp(right?.updatedAt) - toTimestamp(left?.updatedAt)
@@ -367,4 +390,6 @@ module.exports = {
     buildNovelWorkspaceTermMarkdown,
     buildNovelWorkspaceSnippetIndexMarkdown,
     buildNovelWorkspaceSnippetMarkdown,
+    buildNovelWorkspaceDetailedOutlineMarkdown,
+    htmlToProjectionText,
 }

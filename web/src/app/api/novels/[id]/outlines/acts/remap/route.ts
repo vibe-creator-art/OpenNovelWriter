@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
+import { syncNovelWorkspaceDetailedOutlines } from '@/lib/server/novel-workspace'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -118,6 +119,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 })
             }
         })
+
+        await syncNovelWorkspaceDetailedOutlines(user.userId, novelId)
 
         return NextResponse.json({ ok: true })
     } catch (error) {

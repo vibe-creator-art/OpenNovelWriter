@@ -20,6 +20,7 @@ import {
     ImagePlus,
     Layers,
     ListChecks,
+    ListTree,
     Pin,
     Plus,
     Pencil,
@@ -75,7 +76,7 @@ import { cn } from '@/lib/utils'
 import { renderSimpleMarkdown } from '@/lib/simple-markdown'
 import { plainTextToSnippetHtml } from '@/lib/snippet-html'
 import { type WriteNavTarget } from '@/components/editor/plan-view'
-import { actApi, chapterApi, sceneEditApi, skillApi, snippetApi, type Act, type Chapter, type Skill, type Snippet } from '@/lib/api'
+import { actApi, chapterApi, outlineApi, sceneEditApi, skillApi, snippetApi, type Act, type Chapter, type OutlineSummary, type Skill, type Snippet } from '@/lib/api'
 import { normalizeSkillCategory } from '@/lib/skills'
 import { useStoredTermEntries } from '@/components/editor/terms/use-stored-term-entries'
 import type { TermEntry } from '@/components/editor/terms/types'
@@ -372,11 +373,69 @@ function expandChapterMentions(text: string, chapters: ChapterMention[]): string
     return result
 }
 
+// A detailed outline (细纲) mention targets the 章纲 of a chapter (by chapterId) or the 卷纲 of a
+// volume (by actNumber). `number` is the chapter's global index / the act number, used for numeric
+// `@5` matching. Only chapters/acts that actually have a non-empty 细纲 become mentions.
+type DetailedOutlineMention =
+    | { targetKind: 'chapter'; chapterId: string; number: number; label: string }
+    | { targetKind: 'act'; actNumber: number; number: number; label: string }
+
+/** Build the `@`-mention list for detailed outlines (细纲). Reuses the chapter/volume numbering and
+ * labels and appends "细纲" to the label so it reads as e.g. "第 5 章 标题 细纲". Lists every chapter/act
+ * that has an outline ROW — matching the 细纲 sidebar, which keys on existence, not content. An empty
+ * (0-word) 细纲 the author created still appears so it can be referenced (the server words an empty
+ * reference as a write target rather than a read). Ordered as `outlines` comes back from the API. */
+function buildDetailedOutlineMentionList(
+    outlines: OutlineSummary[],
+    chapters: Chapter[],
+    acts: Act[]
+): DetailedOutlineMention[] {
+    const chapterById = new Map(buildChapterMentionList(chapters).map((chapter) => [chapter.chapterId, chapter]))
+    const actByNumber = new Map(buildActMentionList(acts, chapters).map((act) => [act.actNumber, act]))
+    const out: DetailedOutlineMention[] = []
+    for (const outline of outlines) {
+        if (outline.type === 'CHAPTER' && outline.chapterId) {
+            const chapter = chapterById.get(outline.chapterId)
+            if (!chapter) continue
+            out.push({ targetKind: 'chapter', chapterId: chapter.chapterId, number: chapter.number, label: `${chapter.label} 细纲` })
+        } else if (outline.type === 'ACT' && outline.actNumber != null) {
+            const act = actByNumber.get(outline.actNumber)
+            const baseLabel = act?.label ?? `第 ${outline.actNumber} 卷`
+            out.push({ targetKind: 'act', actNumber: outline.actNumber, number: outline.actNumber, label: `${baseLabel} 细纲` })
+        }
+    }
+    return out
+}
+
+/**
+ * Convert `@<细纲 label>` mentions into `[label](outlineChapter:CHAPTER_ID)` /
+ * `[label](outlineAct:ACT_NUMBER)` tokens. The server rewrites these into an instruction pointing
+ * Codex at novel/DetailedOutline/{chapters,acts}/<id>.md. Longer labels match first. MUST run before
+ * the act/chapter expansion: a 细纲 label ("第 5 章 标题 细纲") is a superstring of the chapter label
+ * ("第 5 章 标题"), so expanding 细纲 first stops the chapter pass from clipping it.
+ */
+function expandDetailedOutlineMentions(text: string, outlines: DetailedOutlineMention[]): string {
+    if (!text.includes('@') || outlines.length === 0) return text
+    const sorted = [...outlines].sort((a, b) => b.label.length - a.label.length)
+    let result = text
+    for (const outline of sorted) {
+        if (!outline.label) continue
+        const escaped = outline.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const regex = new RegExp(`(^|\\s)@${escaped}(?=$|\\s|[，。、,.!?;:；])`, 'g')
+        const token = outline.targetKind === 'chapter'
+            ? `outlineChapter:${outline.chapterId}`
+            : `outlineAct:${outline.actNumber}`
+        result = result.replace(regex, (_match, prefix) => `${prefix}[${outline.label}](${token})`)
+    }
+    return result
+}
+
 type MentionItem =
     | { kind: 'model'; group: ModelGroup }
     | { kind: 'skill'; skill: Skill }
     | { kind: 'term'; term: TermEntry }
     | { kind: 'snippet'; snippet: SnippetMention }
+    | { kind: 'detailedOutline'; outline: DetailedOutlineMention }
     | { kind: 'act'; act: ActMention }
     | { kind: 'chapter'; chapter: ChapterMention }
 
@@ -385,6 +444,7 @@ function mentionItemName(item: MentionItem) {
     if (item.kind === 'skill') return item.skill.name
     if (item.kind === 'term') return item.term.title
     if (item.kind === 'snippet') return item.snippet.label
+    if (item.kind === 'detailedOutline') return item.outline.label
     if (item.kind === 'act') return item.act.label
     return item.chapter.label
 }
@@ -873,7 +933,7 @@ function CodexLlmArtifactRef({ target }: { target: string; label: string }) {
 
 // Matches the inline tokens that can appear in a user message: model/skill mentions
 // (rendered as pills) and chapter/act/scene jump links (rendered as clickable nav links).
-const USER_MENTION_RE = /\[([^\]]+)\]\((model|skill|term|snippet|chapter|act|scene|continuation):([^)]+)\)/g
+const USER_MENTION_RE = /\[([^\]]+)\]\((model|skill|term|snippet|outlineChapter|outlineAct|chapter|act|scene|continuation):([^)]+)\)/g
 
 function UserMessageContent({ content }: { content: string }) {
     const onNavigate = useContext(CodexNavContext)
@@ -891,7 +951,7 @@ function UserMessageContent({ content }: { content: string }) {
             const label = match[1]
             const kind = match[2]
             const target = match[3]
-            if (kind === 'model' || kind === 'skill' || kind === 'term' || kind === 'snippet') {
+            if (kind === 'model' || kind === 'skill' || kind === 'term' || kind === 'snippet' || kind === 'outlineChapter' || kind === 'outlineAct') {
                 out.push(
                     <span
                         key={`mention-${key++}`}
@@ -900,6 +960,7 @@ function UserMessageContent({ content }: { content: string }) {
                         {kind === 'skill' ? <Sparkles className="h-3 w-3 shrink-0" /> : null}
                         {kind === 'term' ? <BookMarked className="h-3 w-3 shrink-0" /> : null}
                         {kind === 'snippet' ? <StickyNote className="h-3 w-3 shrink-0" /> : null}
+                        {kind === 'outlineChapter' || kind === 'outlineAct' ? <ListTree className="h-3 w-3 shrink-0" /> : null}
                         @{label}
                     </span>
                 )
@@ -967,6 +1028,7 @@ function CodexMentionMenu({
     const firstSkillIndex = items.findIndex((item) => item.kind === 'skill')
     const firstTermIndex = items.findIndex((item) => item.kind === 'term')
     const firstSnippetIndex = items.findIndex((item) => item.kind === 'snippet')
+    const firstDetailedOutlineIndex = items.findIndex((item) => item.kind === 'detailedOutline')
     const firstActIndex = items.findIndex((item) => item.kind === 'act')
     const firstChapterIndex = items.findIndex((item) => item.kind === 'chapter')
     return (
@@ -974,7 +1036,7 @@ function CodexMentionMenu({
             <div className="max-h-60 overflow-y-auto pb-1">
                 {loading && <div className="px-3 py-2 text-sm text-muted-foreground">加载中…</div>}
                 {!loading && items.length === 0 && (
-                    <div className="px-3 py-2 text-sm text-muted-foreground">没有匹配的模型组、技能、词条、片段、卷或章</div>
+                    <div className="px-3 py-2 text-sm text-muted-foreground">没有匹配的模型组、技能、词条、片段、细纲、卷或章</div>
                 )}
                 {items.map((item, index) => {
                     const isModel = item.kind === 'model'
@@ -982,6 +1044,7 @@ function CodexMentionMenu({
                     const showSkillHeader = index === firstSkillIndex && item.kind === 'skill'
                     const showTermHeader = index === firstTermIndex && item.kind === 'term'
                     const showSnippetHeader = index === firstSnippetIndex && item.kind === 'snippet'
+                    const showDetailedOutlineHeader = index === firstDetailedOutlineIndex && item.kind === 'detailedOutline'
                     const showActHeader = index === firstActIndex && item.kind === 'act'
                     const showChapterHeader = index === firstChapterIndex && item.kind === 'chapter'
                     const key =
@@ -993,9 +1056,11 @@ function CodexMentionMenu({
                                     ? `term:${item.term.id}`
                                     : item.kind === 'snippet'
                                         ? `snippet:${item.snippet.id}`
-                                        : item.kind === 'act'
-                                            ? `act:${item.act.actNumber}`
-                                            : `chapter:${item.chapter.chapterId}`
+                                        : item.kind === 'detailedOutline'
+                                            ? `detailedOutline:${item.outline.targetKind === 'chapter' ? `c:${item.outline.chapterId}` : `a:${item.outline.actNumber}`}`
+                                            : item.kind === 'act'
+                                                ? `act:${item.act.actNumber}`
+                                                : `chapter:${item.chapter.chapterId}`
                     return (
                         <Fragment key={key}>
                             {showLlmHeader && (
@@ -1016,6 +1081,11 @@ function CodexMentionMenu({
                             {showSnippetHeader && (
                                 <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                                     Snippets
+                                </div>
+                            )}
+                            {showDetailedOutlineHeader && (
+                                <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    细纲
                                 </div>
                             )}
                             {showActHeader && (
@@ -1048,6 +1118,8 @@ function CodexMentionMenu({
                                     <BookMarked className="h-5 w-5 shrink-0 text-muted-foreground" />
                                 ) : item.kind === 'snippet' ? (
                                     <StickyNote className="h-5 w-5 shrink-0 text-muted-foreground" />
+                                ) : item.kind === 'detailedOutline' ? (
+                                    <ListTree className="h-5 w-5 shrink-0 text-muted-foreground" />
                                 ) : item.kind === 'act' ? (
                                     <Layers className="h-5 w-5 shrink-0 text-muted-foreground" />
                                 ) : (
@@ -2286,6 +2358,9 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     // (its outline section) or a chapter's projected file. They can be matched by title or by number.
     const [acts, setActs] = useState<Act[] | null>(null)
     const [chapters, setChapters] = useState<Chapter[] | null>(null)
+    // Detailed outlines (细纲) are `@`-mentionable too: the author can point Codex at a chapter's 章纲
+    // or a volume's 卷纲. Only chapters/acts that have a non-empty 细纲 surface as mentions.
+    const [outlines, setOutlines] = useState<OutlineSummary[] | null>(null)
     // When an `@`-mentioned ai_chat skill has a bound prompt, a Tweak dialog lets the author fill it
     // (auto-injecting overview + terms) and ship the resolved blocks as the message's artifact.
     const [tweakOpen, setTweakOpen] = useState(false)
@@ -2367,14 +2442,27 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                     if (!cancelled) setChapters([])
                 })
         }
+        if (outlines === null && novelId) {
+            void outlineApi.list(novelId)
+                .then((list) => {
+                    if (!cancelled) setOutlines(Array.isArray(list) ? list : [])
+                })
+                .catch(() => {
+                    if (!cancelled) setOutlines([])
+                })
+        }
         return () => {
             cancelled = true
         }
-    }, [mention, modelGroups, skills, snippets, acts, chapters, novelId])
+    }, [mention, modelGroups, skills, snippets, acts, chapters, outlines, novelId])
 
     const snippetMentions = useMemo(() => buildSnippetMentionList(snippets ?? []), [snippets])
     const actMentions = useMemo(() => buildActMentionList(acts ?? [], chapters ?? []), [acts, chapters])
     const chapterMentions = useMemo(() => buildChapterMentionList(chapters ?? []), [chapters])
+    const detailedOutlineMentions = useMemo(
+        () => buildDetailedOutlineMentionList(outlines ?? [], chapters ?? [], acts ?? []),
+        [outlines, chapters, acts]
+    )
 
     const mentionMatches = useMemo<MentionItem[]>(() => {
         if (mention === null) return []
@@ -2397,6 +2485,21 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         const snippetItems: MentionItem[] = isNumericQuery ? [] : snippetMentions
             .filter((snippet) => !query || snippet.label.toLocaleLowerCase().includes(query))
             .map((snippet) => ({ kind: 'snippet', snippet }))
+        // Detailed outlines match by the chapter/act number for a numeric query (exact match first),
+        // otherwise by label — same behavior as the chapter/volume mentions they mirror.
+        const detailedOutlineItems: MentionItem[] = detailedOutlineMentions
+            .filter((outline) => {
+                if (!query) return true
+                if (isNumericQuery) return String(outline.number).startsWith(rawQuery)
+                return outline.label.toLocaleLowerCase().includes(query)
+            })
+            .sort((a, b) => {
+                if (!isNumericQuery) return 0
+                const aExact = a.number === target ? 0 : 1
+                const bExact = b.number === target ? 0 : 1
+                return aExact !== bExact ? aExact - bExact : a.number - b.number
+            })
+            .map((outline) => ({ kind: 'detailedOutline', outline }))
 
         // Volumes/chapters match by number prefix for a numeric query (with the exact number first),
         // otherwise by title.
@@ -2427,8 +2530,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             })
             .map((chapter) => ({ kind: 'chapter', chapter }))
 
-        return [...groupItems, ...skillItems, ...termItems, ...snippetItems, ...actItems, ...chapterItems].slice(0, 10)
-    }, [mention, modelGroups, skills, termEntries, snippetMentions, actMentions, chapterMentions])
+        return [...groupItems, ...skillItems, ...termItems, ...snippetItems, ...detailedOutlineItems, ...actItems, ...chapterItems].slice(0, 10)
+    }, [mention, modelGroups, skills, termEntries, snippetMentions, detailedOutlineMentions, actMentions, chapterMentions])
 
     useEffect(() => {
         setMentionIndex(0)
@@ -2507,6 +2610,20 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         }
     }
 
+    const ensureOutlines = async (): Promise<OutlineSummary[]> => {
+        if (outlines) return outlines
+        if (!novelId) return []
+        try {
+            const list = await outlineApi.list(novelId)
+            const next = Array.isArray(list) ? list : []
+            setOutlines(next)
+            return next
+        } catch {
+            setOutlines([])
+            return []
+        }
+    }
+
     const handleComposerChange = (value: string, caret: number) => {
         setMention(detectMentionAtCaret(value, caret))
         if (value.includes('@')) {
@@ -2515,6 +2632,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             if (snippets === null) void ensureSnippets()
             if (acts === null) void ensureActs()
             if (chapters === null) void ensureChapters()
+            if (outlines === null) void ensureOutlines()
         }
     }
 
@@ -2581,8 +2699,9 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         if (snippets === null) void ensureSnippets()
         if (acts === null) void ensureActs()
         if (chapters === null) void ensureChapters()
+        if (outlines === null) void ensureOutlines()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [draft, modelGroups, skills, snippets, acts, chapters])
+    }, [draft, modelGroups, skills, snippets, acts, chapters, outlines])
 
     const mentionNames = useMemo(
         () => [
@@ -2590,10 +2709,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             ...(skills ?? []).map((skill) => skill.name),
             ...termEntries.map((term) => term.title).filter(Boolean),
             ...snippetMentions.map((snippet) => snippet.label),
+            ...detailedOutlineMentions.map((outline) => outline.label),
             ...actMentions.map((act) => act.label),
             ...chapterMentions.map((chapter) => chapter.label),
         ],
-        [modelGroups, skills, termEntries, snippetMentions, actMentions, chapterMentions]
+        [modelGroups, skills, termEntries, snippetMentions, detailedOutlineMentions, actMentions, chapterMentions]
     )
 
     const composerSegments = useMemo(
@@ -2921,11 +3041,15 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             const snippetList = hasMention ? await ensureSnippets() : []
             const actList = hasMention ? await ensureActs() : []
             const chapterList = hasMention ? await ensureChapters() : []
+            const outlineList = hasMention ? await ensureOutlines() : []
             const expandedModels = expandModelMentions(draft, groups)
             const { text: expandedSkills, skillIds } = expandSkillMentions(expandedModels, skillList)
             const expandedTerms = expandTermMentions(expandedSkills, hasMention ? termEntries : [])
             const expandedSnippets = expandSnippetMentions(expandedTerms, hasMention ? buildSnippetMentionList(snippetList) : [])
-            const expandedActs = expandActMentions(expandedSnippets, hasMention ? buildActMentionList(actList, chapterList) : [])
+            // 细纲 must expand before volumes/chapters: its label is a superstring of the chapter label,
+            // so doing it first stops the chapter/volume passes from clipping "第 5 章 标题 细纲".
+            const expandedOutlines = expandDetailedOutlineMentions(expandedSnippets, hasMention ? buildDetailedOutlineMentionList(outlineList, chapterList, actList) : [])
+            const expandedActs = expandActMentions(expandedOutlines, hasMention ? buildActMentionList(actList, chapterList) : [])
             const expandedText = expandChapterMentions(expandedActs, hasMention ? buildChapterMentionList(chapterList) : [])
             const content = expandedText.trim()
             if (!content) return

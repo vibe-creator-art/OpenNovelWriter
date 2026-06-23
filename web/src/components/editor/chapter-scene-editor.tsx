@@ -509,9 +509,21 @@ export function ChapterSceneEditor({
     // Delete scene
     const handleDeleteScene = useCallback(async (sceneId: string) => {
         if (scenes.length <= 1) return // Don't delete last scene
+        // Cancel any pending debounced content save so it doesn't fire after
+        // the scene is gone and hit the API with a stale "Scene not found".
+        if (saveTimersRef.current[sceneId]) {
+            clearTimeout(saveTimersRef.current[sceneId])
+            delete saveTimersRef.current[sceneId]
+        }
         try {
             await sceneApi.delete(sceneId)
             onScenesChange(scenes.filter(s => s.id !== sceneId))
+            setLocalEdits(prev => {
+                if (!(sceneId in prev)) return prev
+                const next = { ...prev }
+                delete next[sceneId]
+                return next
+            })
         } catch (error) {
             console.error('Failed to delete scene:', error)
         }

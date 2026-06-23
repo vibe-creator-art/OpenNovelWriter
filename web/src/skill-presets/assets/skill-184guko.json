@@ -1,0 +1,26 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-184guko",
+    "name": "预设-剧情规划",
+    "description": "规划剧情并写入细纲",
+    "revision": 1.1,
+    "exportedAt": "2026-06-23T00:03:58.067Z"
+  },
+  "bundle": {
+    "schema": "open-novel-writer/skill-bundle",
+    "version": 1,
+    "exportedAt": "2026-06-23T00:03:58.067Z",
+    "entryName": "预设-剧情规划",
+    "skills": [
+      {
+        "name": "预设-剧情规划",
+        "description": "规划剧情并写入细纲",
+        "category": "ai_chat",
+        "prompt": null,
+        "content": "---\nname: \"预设-剧情规划\"\ndescription: \"规划剧情并写入细纲\"\ncategory: ai_chat\nprompt: \"\"\n---\n## Purpose\n帮助用户规划卷的剧情\n\n## Instructions\n当用户指定你使用这个技能时，你需要分清是规划下一卷的内容或者当前卷的内容，你可以通过读outline.md判断，也可以问询问。你可以说出你的剧情规划和用户讨论，并征询用户意见是否需要使用create_outline写入剧情细纲。如果用户同意，你可以去这么做，注意，细纲是绑定卷和章的，并不独立存在，如果用户建立了空章或者空卷，你可以为那些章或者卷创建细纲，如果用户没有，你可以一并询问用户你想创建卷/章的数量并写入细纲。在创建卷和章的时候，也对应的取符合剧情flow的标题。\n\n## Output\n- Describe the expected result or response format.\n"
+      }
+    ]
+  }
+}

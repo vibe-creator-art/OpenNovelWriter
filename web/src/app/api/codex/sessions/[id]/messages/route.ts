@@ -172,6 +172,43 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         ? await getNovelWorkspaceTermFileMap(user.userId, existing.novelId)
         : new Map<string, { title: string; fileName: string }>()
 
+    // Detailed-outline (细纲) mentions are offered for every chapter/act that has an outline ROW,
+    // including ones the author created but left blank. Only non-blank outlines are projected to a
+    // file, so look up which referenced outlines are empty and word those as a write target instead
+    // of a (dangling) read instruction.
+    const refOutlineChapterIds: string[] = []
+    for (const match of content.matchAll(/\[[^\]]+\]\(outlineChapter:([^)]+)\)/g)) {
+        if (match[1]) refOutlineChapterIds.push(match[1])
+    }
+    const refOutlineActNumbers: number[] = []
+    for (const match of content.matchAll(/\[[^\]]+\]\(outlineAct:([^)]+)\)/g)) {
+        const parsed = Number.parseInt(match[1] ?? '', 10)
+        if (Number.isInteger(parsed)) refOutlineActNumbers.push(parsed)
+    }
+    const emptyOutlineChapterIds = new Set<string>()
+    const emptyOutlineActNumbers = new Set<number>()
+    if (refOutlineChapterIds.length > 0 || refOutlineActNumbers.length > 0) {
+        const rows = await prisma.outline.findMany({
+            where: {
+                novelId: existing.novelId,
+                OR: [
+                    { chapterId: { in: refOutlineChapterIds } },
+                    { type: 'ACT', actNumber: { in: refOutlineActNumbers } },
+                ],
+            },
+            select: { chapterId: true, actNumber: true, type: true, wordCount: true },
+        })
+        const wordCountByChapterId = new Map<string, number>()
+        const wordCountByActNumber = new Map<number, number>()
+        for (const row of rows) {
+            if (row.type === 'CHAPTER' && row.chapterId) wordCountByChapterId.set(row.chapterId, row.wordCount)
+            else if (row.type === 'ACT' && row.actNumber != null) wordCountByActNumber.set(row.actNumber, row.wordCount)
+        }
+        // A referenced outline counts as empty when its row has no words or no longer exists.
+        for (const id of refOutlineChapterIds) if ((wordCountByChapterId.get(id) ?? 0) <= 0) emptyOutlineChapterIds.add(id)
+        for (const num of refOutlineActNumbers) if ((wordCountByActNumber.get(num) ?? 0) <= 0) emptyOutlineActNumbers.add(num)
+    }
+
     const promptText = content
         .replace(/\[([^\]]+)\]\(skill:([^)]+)\)/g, (_full, label: string) => `$${label}`)
         // A continuation panel reference becomes an explicit instruction carrying the panelId,
@@ -193,6 +230,24 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             /\[([^\]]+)\]\(snippet:([^)]+)\)/g,
             (_full, label: string, snippetId: string) =>
                 `${label} (snippet — read its full content in novel/snippets/${snippetId}.md before responding)`
+        )
+        // A chapter detailed-outline (章纲) reference: read the projected file when it has content,
+        // otherwise tell Codex the slot exists but is empty (a write target). Must run before the bare
+        // `chapter:` rewrite — it is a longer, more specific token, but they are textually distinct.
+        .replace(
+            /\[([^\]]+)\]\(outlineChapter:([^)]+)\)/g,
+            (_full, label: string, chapterId: string) =>
+                emptyOutlineChapterIds.has(chapterId)
+                    ? `${label} (章纲 — this chapter's detailed outline exists but is currently empty; if the author asks you to write it, save it with edit_outline (chapterId=${chapterId}))`
+                    : `${label} (章纲 — read this chapter's detailed outline in novel/DetailedOutline/chapters/${chapterId}.md before responding)`
+        )
+        // A volume detailed-outline (卷纲) reference, keyed by act number — same empty-vs-content split.
+        .replace(
+            /\[([^\]]+)\]\(outlineAct:([^)]+)\)/g,
+            (_full, label: string, actNumber: string) =>
+                emptyOutlineActNumbers.has(Number(actNumber))
+                    ? `${label} (卷纲 — this volume's detailed outline exists but is currently empty; if the author asks you to write it, save it with edit_outline (actNumber=${actNumber}))`
+                    : `${label} (卷纲 — read this volume's detailed outline in novel/DetailedOutline/acts/${actNumber}.md before responding)`
         )
         // A chapter reference points Codex at that chapter's projected file (keyed by chapter id).
         .replace(

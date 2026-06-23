@@ -464,6 +464,10 @@ export function useInputsEditorModel({
     const [outlinePickerError, setOutlinePickerError] = useState<string | null>(null)
     const outlinePickerLoadTokenRef = useRef(0)
     const outlinePickerNovelIdRef = useRef<string | null>(null)
+    // On-demand cache of detail-outline (细纲) HTML content keyed by outline id. Only the
+    // outlines actually referenced (current chapter/act + picked selections) are fetched.
+    const [outlineContentById, setOutlineContentById] = useState<Record<string, string>>({})
+    const outlineContentLoadingRef = useRef<Set<string>>(new Set())
     const [termTagPickerQuery, setTermTagPickerQuery] = useState('')
     const currentPreviewState = useMemo(
         () =>
@@ -636,6 +640,34 @@ export function useInputsEditorModel({
         window.addEventListener(NOVEL_OUTLINE_DATA_CHANGED_EVENT, handler as EventListener)
         return () => window.removeEventListener(NOVEL_OUTLINE_DATA_CHANGED_EVENT, handler as EventListener)
     }, [novelId])
+
+    // Eagerly load lightweight outline summaries (no content) so the detail-outline macro and
+    // picked-outline rendering can map chapter/act → outline id without waiting for the picker.
+    // Shares the picker's load token + ref so the lazy `ensureOutlinesLoaded` reuses this data.
+    useEffect(() => {
+        if (!novelId) {
+            outlinePickerLoadTokenRef.current += 1
+            setOutlineContentById({})
+            outlineContentLoadingRef.current.clear()
+            return
+        }
+
+        const token = ++outlinePickerLoadTokenRef.current
+        outlineApi
+            .list(novelId)
+            .then((items) => {
+                if (outlinePickerLoadTokenRef.current !== token) return
+                setOutlinePickerOutlines(items)
+                outlinePickerNovelIdRef.current = novelId
+                // Drop cached content so edited outlines re-fetch on the next render pass.
+                setOutlineContentById({})
+                outlineContentLoadingRef.current.clear()
+            })
+            .catch((e) => {
+                if (outlinePickerLoadTokenRef.current !== token) return
+                console.error('Failed to load outlines for prompt preview:', e)
+            })
+    }, [novelId, novelDataRefreshNonce])
 
     const effectiveNovelLanguage = novelId ? novelLanguage : null
     const isComponentPrompt = useMemo(() => normalizeKey(promptCategory ?? '') === 'component', [promptCategory])
@@ -1500,6 +1532,123 @@ export function useInputsEditorModel({
         }
     }, [previewSceneHtml, previewSceneText, previousPreviewSceneText, sceneContinuationPanelId])
 
+    // The chapter/act the current preview scene belongs to — drives the detail-outline macro.
+    const currentChapterIdForOutline = previewSceneId ? (sceneById.get(previewSceneId)?.chapterId ?? null) : null
+    const currentActNumberForOutline = useMemo(() => {
+        if (!currentChapterIdForOutline) return null
+        return sortedChapters.find((chapter) => chapter.id === currentChapterIdForOutline)?.actNumber ?? null
+    }, [currentChapterIdForOutline, sortedChapters])
+
+    const actOutlineSummaryByNumber = useMemo(() => {
+        const map = new Map<number, OutlineSummary>()
+        for (const summary of outlinePickerOutlines) {
+            if (summary.type !== 'ACT' || summary.actNumber == null) continue
+            if (!map.has(summary.actNumber)) map.set(summary.actNumber, summary)
+        }
+        return map
+    }, [outlinePickerOutlines])
+
+    const chapterOutlineSummaryById = useMemo(() => {
+        const map = new Map<string, OutlineSummary>()
+        for (const summary of outlinePickerOutlines) {
+            if (summary.type !== 'CHAPTER' || !summary.chapterId) continue
+            if (!map.has(summary.chapterId)) map.set(summary.chapterId, summary)
+        }
+        return map
+    }, [outlinePickerOutlines])
+
+    // Detail-outlines explicitly picked inside content-selection inputs (act 卷纲 / chapter 章纲).
+    const selectedOutlineKeys = useMemo(() => {
+        const actNumbers = new Set<number>()
+        const chapterIds = new Set<string>()
+        for (const input of previewInputs) {
+            if (input.type !== 'content_selection') continue
+            const state = contentSelectionPreviewStateByInputId[input.id]
+            const selections = Array.isArray(state?.selections) ? state.selections : []
+            for (const selection of selections) {
+                if (selection.kind === 'act_outline' && typeof selection.actNumber === 'number') {
+                    actNumbers.add(selection.actNumber)
+                } else if (selection.kind === 'chapter_outline' && selection.chapterId) {
+                    chapterIds.add(selection.chapterId)
+                }
+            }
+        }
+        return { actNumbers, chapterIds }
+    }, [contentSelectionPreviewStateByInputId, previewInputs])
+
+    const neededOutlineIds = useMemo(() => {
+        const ids = new Set<string>()
+        const addActOutline = (actNumber: number | null | undefined) => {
+            if (typeof actNumber !== 'number') return
+            const id = actOutlineSummaryByNumber.get(actNumber)?.id
+            if (id) ids.add(id)
+        }
+        const addChapterOutline = (chapterId: string | null | undefined) => {
+            if (!chapterId) return
+            const id = chapterOutlineSummaryById.get(chapterId)?.id
+            if (id) ids.add(id)
+        }
+        addChapterOutline(currentChapterIdForOutline)
+        addActOutline(currentActNumberForOutline)
+        selectedOutlineKeys.actNumbers.forEach(addActOutline)
+        selectedOutlineKeys.chapterIds.forEach(addChapterOutline)
+        return ids
+    }, [
+        actOutlineSummaryByNumber,
+        chapterOutlineSummaryById,
+        currentActNumberForOutline,
+        currentChapterIdForOutline,
+        selectedOutlineKeys,
+    ])
+
+    useEffect(() => {
+        let cancelled = false
+        for (const id of neededOutlineIds) {
+            if (id in outlineContentById) continue
+            if (outlineContentLoadingRef.current.has(id)) continue
+            outlineContentLoadingRef.current.add(id)
+            outlineApi
+                .get(id)
+                .then((outline) => {
+                    if (cancelled) return
+                    setOutlineContentById((prev) => ({ ...prev, [id]: outline.content ?? '' }))
+                })
+                .catch((e) => {
+                    console.error('Failed to load outline content for prompt preview:', e)
+                    if (cancelled) return
+                    setOutlineContentById((prev) => (id in prev ? prev : { ...prev, [id]: '' }))
+                })
+                .finally(() => {
+                    outlineContentLoadingRef.current.delete(id)
+                })
+        }
+        return () => {
+            cancelled = true
+        }
+    }, [neededOutlineIds, outlineContentById])
+
+    const outlineTextByActNumber = useMemo(() => {
+        const map = new Map<number, string>()
+        for (const [actNumber, summary] of actOutlineSummaryByNumber) {
+            const raw = outlineContentById[summary.id]
+            if (raw == null) continue
+            const text = htmlToText(raw, { paragraphSeparator: '\n' }).trim()
+            if (text) map.set(actNumber, text)
+        }
+        return map
+    }, [actOutlineSummaryByNumber, outlineContentById])
+
+    const outlineTextByChapterId = useMemo(() => {
+        const map = new Map<string, string>()
+        for (const [chapterId, summary] of chapterOutlineSummaryById) {
+            const raw = outlineContentById[summary.id]
+            if (raw == null) continue
+            const text = htmlToText(raw, { paragraphSeparator: '\n' }).trim()
+            if (text) map.set(chapterId, text)
+        }
+        return map
+    }, [chapterOutlineSummaryById, outlineContentById])
+
     const sortedActs = useMemo(() => {
         const items = [...(acts ?? [])].sort((a, b) => a.number - b.number)
         if (items.length > 0) return items
@@ -1716,8 +1865,10 @@ export function useInputsEditorModel({
                 )
             ),
             novelOutlineFull: previewNovelOutline.full,
+            outlineTextByActNumber,
+            outlineTextByChapterId,
         }),
-        [effectiveActsForOutline, previewNovelOutline.full, sortedActs, sortedChapters]
+        [effectiveActsForOutline, outlineTextByActNumber, outlineTextByChapterId, previewNovelOutline.full, sortedActs, sortedChapters]
     )
 
     const templateContext = useMemo(
@@ -1730,6 +1881,9 @@ export function useInputsEditorModel({
             sceneContinueFollowText: sceneContinueContext.followText,
             sceneContinueHasPreviousText: sceneContinueContext.hasPreviousText,
             sceneContinueHasFollowText: sceneContinueContext.hasFollowText,
+            sceneChapterOutline: currentChapterIdForOutline ? (outlineTextByChapterId.get(currentChapterIdForOutline) ?? '') : '',
+            sceneActOutline:
+                typeof currentActNumberForOutline === 'number' ? (outlineTextByActNumber.get(currentActNumberForOutline) ?? '') : '',
             instructionText: instructionText ?? '',
             instructionTerms: instructionTerms ?? [],
             chatUserInput: chatUserInput ?? '',
@@ -1742,9 +1896,13 @@ export function useInputsEditorModel({
             chatHistoryText,
             chatUserInput,
             chatUserInputTerms,
+            currentActNumberForOutline,
+            currentChapterIdForOutline,
             effectiveNovelLanguage,
             instructionTerms,
             instructionText,
+            outlineTextByActNumber,
+            outlineTextByChapterId,
             previewNovelOutline.full,
             previewNovelOutline.storysofar,
             previewSceneText,
@@ -2044,7 +2202,7 @@ export function useInputsEditorModel({
     )
 
     const resolveInputContentSelectionItems = useCallback(
-        (name: string, kind: 'fullNovel' | 'act' | 'chapter' | 'scene') => {
+        (name: string, kind: 'fullNovel' | 'act' | 'chapter' | 'scene' | 'actOutline' | 'chapterOutline') => {
             const key = normalizeKey(name)
             if (!key) return null
             const input = inputByNameKey.get(key) ?? null
@@ -2123,6 +2281,8 @@ export function useInputsEditorModel({
                 resolveInputActs: (name) => resolveInputContentSelectionItems(name, 'act'),
                 resolveInputChapters: (name) => resolveInputContentSelectionItems(name, 'chapter'),
                 resolveInputScenes: (name) => resolveInputContentSelectionItems(name, 'scene'),
+                resolveInputActOutlines: (name) => resolveInputContentSelectionItems(name, 'actOutline'),
+                resolveInputChapterOutlines: (name) => resolveInputContentSelectionItems(name, 'chapterOutline'),
                 resolveTermText,
                 resolveTermValue,
             },
@@ -2158,6 +2318,8 @@ export function useInputsEditorModel({
                     resolveInputActs: (name) => resolveInputContentSelectionItems(name, 'act'),
                     resolveInputChapters: (name) => resolveInputContentSelectionItems(name, 'chapter'),
                     resolveInputScenes: (name) => resolveInputContentSelectionItems(name, 'scene'),
+                    resolveInputActOutlines: (name) => resolveInputContentSelectionItems(name, 'actOutline'),
+                    resolveInputChapterOutlines: (name) => resolveInputContentSelectionItems(name, 'chapterOutline'),
                     resolveTermText,
                     resolveTermValue,
                 },
@@ -2195,6 +2357,8 @@ export function useInputsEditorModel({
                     resolveInputActs: (name) => resolveInputContentSelectionItems(name, 'act'),
                     resolveInputChapters: (name) => resolveInputContentSelectionItems(name, 'chapter'),
                     resolveInputScenes: (name) => resolveInputContentSelectionItems(name, 'scene'),
+                    resolveInputActOutlines: (name) => resolveInputContentSelectionItems(name, 'actOutline'),
+                    resolveInputChapterOutlines: (name) => resolveInputContentSelectionItems(name, 'chapterOutline'),
                     resolveTermText,
                     resolveTermValue,
                 },

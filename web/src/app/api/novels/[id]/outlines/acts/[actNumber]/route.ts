@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
+import { syncNovelWorkspaceDetailedOutlines } from '@/lib/server/novel-workspace'
 
 interface RouteParams {
     params: Promise<{ id: string; actNumber: string }>
@@ -33,6 +34,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         await prisma.outline.deleteMany({
             where: { novelId, type: 'ACT', actNumber },
         })
+        await syncNovelWorkspaceDetailedOutlines(user.userId, novelId)
 
         return NextResponse.json({ message: 'Outline deleted successfully' })
     } catch (error) {

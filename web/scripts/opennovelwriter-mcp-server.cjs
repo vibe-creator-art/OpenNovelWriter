@@ -14,6 +14,8 @@ const {
     buildNovelWorkspaceChapterMarkdown,
     buildNovelWorkspaceSnippetIndexMarkdown,
     buildNovelWorkspaceSnippetMarkdown,
+    buildNovelWorkspaceDetailedOutlineMarkdown,
+    htmlToProjectionText,
 } = require('../src/lib/server/novel-workspace-projection.cjs')
 const {
     DEFAULT_TERM_CATEGORY_IDS,
@@ -146,6 +148,95 @@ const tools = [
         },
     },
     {
+        name: 'create_act',
+        description:
+            'Insert a new empty act/volume into an OpenNovelWriter novel and return its act number. Acts are identified by their 1-based number (the `<!-- act_number: N -->` shown in outline.md), not a string id. Pass `afterActNumber` to insert the new act right after that act — every act from there on (its acts, their chapters, and any act outlines/卷纲) shifts up by one. Omit `afterActNumber` to insert at the very front: the new act becomes act 1 and all existing acts shift up; this is also the call to use when the novel has no acts yet (it simply becomes act 1). The new act starts with no chapters. Optionally set `title`/`summary` here, or leave them and use update_act_title / update_act_summary later.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                afterActNumber: { type: 'integer', description: 'Insert the new act right after this existing 1-based act number. Omit to insert before the current first act (new act becomes act 1), or when the novel has no acts yet.' },
+                title: { type: 'string', description: 'Optional title for the new act. Omit to leave it untitled.' },
+                summary: { type: 'string', description: 'Optional summary for the new act.' },
+            },
+            required: ['novelId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'create_chapter',
+        description:
+            'Insert a new chapter into a given act of an OpenNovelWriter novel and return its chapter id. Pass `actNumber` (the 1-based act the chapter belongs to; the act must already exist — create it with create_act first) and optionally `afterChapterId` (a `<!-- chapter_id: ... -->` from outline.md) to insert the new chapter right after that chapter; the chapters after it in the act shift down by one. Omit `afterChapterId` to insert at the front of the act, which is also the call to use when the act has no chapters yet. The new chapter is created with a single empty scene (every chapter keeps at least one scene). Optionally set `title`; when omitted it gets the positional default title ("章 N" / "Chapter N", matching manual chapter creation), and the placeholder titles of the chapters it pushed down are renumbered to stay in order. Returns the new chapterId (and the default sceneId).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                actNumber: { type: 'integer', description: 'The 1-based act number the new chapter belongs to. The act must already exist (has an act row or chapters).' },
+                afterChapterId: { type: 'string', description: 'Insert right after this chapter id (it must belong to actNumber). Omit to insert at the front of the act / when the act has no chapters yet.' },
+                title: { type: 'string', description: 'Optional title for the new chapter. Omit to create it untitled.' },
+            },
+            required: ['novelId', 'actNumber'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'create_scene',
+        description:
+            'Insert a new empty scene into a chapter of an OpenNovelWriter novel and return its scene id. Pass `chapterId` (a `<!-- chapter_id: ... -->` from outline.md) and optionally `afterSceneId` (a `<!-- scene_id: ... -->`) to insert the new scene right after that scene; later scenes in the chapter shift down by one. Omit `afterSceneId` to insert at the front of the chapter. The new scene starts empty — write its prose with edit_scene_content afterwards. Returns the new sceneId.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                chapterId: { type: 'string', description: 'The chapter id the new scene belongs to (from a `<!-- chapter_id: ... -->` comment).' },
+                afterSceneId: { type: 'string', description: 'Insert right after this scene id (it must belong to chapterId). Omit to insert at the front of the chapter.' },
+            },
+            required: ['novelId', 'chapterId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'delete_act',
+        description:
+            'Delete an empty act/volume (no chapters) from an OpenNovelWriter novel, by its 1-based `actNumber`. Fails if the act still has any chapter — move or delete those chapters first. On success the act metadata and its act outline (卷纲) are removed and every later act renumbers down by one so the numbering stays contiguous. This is destructive and cannot be undone: it runs automatically only under the 无需审核 / no-review level; under 用户确认 and 自动审核 it raises a confirmation the author must approve before anything is deleted (if the author declines, nothing is deleted). Call it only when the author clearly asked to delete that act.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                actNumber: { type: 'integer', description: 'The 1-based act number to delete. The act must have no chapters.' },
+            },
+            required: ['novelId', 'actNumber'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'delete_chapter',
+        description:
+            'Delete an empty chapter from an OpenNovelWriter novel, by its `chapterId`. "Empty" means every scene in it has blank prose (no Content); it also fails if the chapter still hosts an inline scene-continuation panel (finish or discard it first). Fails if any scene has text. On success the chapter, its scenes and its chapter outline (章纲) are all removed. This is destructive and cannot be undone: it runs automatically only under the 无需审核 / no-review level; under 用户确认 and 自动审核 it raises a confirmation the author must approve before anything is deleted (if the author declines, nothing is deleted). Call it only when the author clearly asked to delete that chapter.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                chapterId: { type: 'string', description: 'The chapter id to delete (from a `<!-- chapter_id: ... -->` comment). The chapter must be empty.' },
+            },
+            required: ['novelId', 'chapterId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'delete_scene',
+        description:
+            'Delete an empty scene from an OpenNovelWriter novel, by its `sceneId`. "Empty" means the scene has blank prose (no Content); it also fails if the scene still hosts an inline scene-continuation panel (finish or discard it first). Fails if the scene has text, and fails if it is the only scene left in its chapter (a chapter always keeps at least one scene — delete the chapter instead). On success the remaining scenes in the chapter are re-ordered. This is destructive and cannot be undone: it runs automatically only under the 无需审核 / no-review level; under 用户确认 and 自动审核 it raises a confirmation the author must approve before anything is deleted (if the author declines, nothing is deleted). Call it only when the author clearly asked to delete that scene.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                sceneId: { type: 'string', description: 'The scene id to delete (from a `<!-- scene_id: ... -->` comment). The scene must be empty and not the last scene in its chapter.' },
+            },
+            required: ['novelId', 'sceneId'],
+            additionalProperties: false,
+        },
+    },
+    {
         name: 'create_snippet',
         description: 'Create a new OpenNovelWriter snippet by importing a Markdown file from the current Codex session artifacts directory.',
         inputSchema: {
@@ -189,6 +280,55 @@ const tools = [
                 snippetId: { type: 'string', description: 'The snippet id (from novel/snippets/<id>.md).' },
             },
             required: ['snippetId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'create_outline',
+        description:
+            'Create the detailed outline (细纲) for ONE chapter or act that does not have one yet. A 细纲 is bound to an existing chapter (by chapterId) or act (by actNumber) — it is never free-standing; "create" fails if that chapter/act already has a 细纲 (use edit_outline instead). Pass exactly one of `chapterId` (from a `<!-- chapter_id: ... -->` comment in outline.md / chapter files) or `actNumber` (the 1-based act/volume number from outline.md). Provide the body via exactly one of `content` (a literal Markdown string — best for short outlines) or `mdPath` (absolute path to a .md file under this Codex session artifacts directory whose whole body becomes the outline). Content is stored after Markdown→HTML conversion. On success the projection appears at novel/DetailedOutline/chapters/<chapterId>.md or novel/DetailedOutline/acts/<actNumber>.md.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                chapterId: { type: 'string', description: 'Target chapter id (from a `<!-- chapter_id: ... -->` comment). Provide this for a chapter outline (章纲); omit when using actNumber.' },
+                actNumber: { type: 'integer', description: 'Target act/volume number (1-based, from outline.md). Provide this for an act outline (卷纲); omit when using chapterId.' },
+                content: { type: 'string', description: 'Outline body as a literal Markdown string. Omit when using mdPath.' },
+                mdPath: { type: 'string', description: 'Absolute path to a .md file under this Codex session artifacts directory whose whole body becomes the outline. Omit when using content.' },
+            },
+            required: ['novelId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'edit_outline',
+        description:
+            'Replace the detailed outline (细纲) of ONE chapter or act that already has one. Locate the target by `chapterId` (章纲) or `actNumber` (卷纲) — the same identifier shown in the projection metadata at novel/DetailedOutline/chapters/<chapterId>.md or novel/DetailedOutline/acts/<actNumber>.md; the 细纲 does not have its own id. Provide exactly one of `chapterId` or `actNumber`, and exactly one of `content` (literal Markdown) or `mdPath` (absolute path to a .md file under this session artifacts directory — copy the projection into artifacts/, edit the Markdown there, then point `mdPath` at it for long rewrites). Errors if that chapter/act has no 细纲 yet (use create_outline first). Content is stored after Markdown→HTML conversion.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from the projection metadata.' },
+                chapterId: { type: 'string', description: 'Target chapter id for a chapter outline (章纲). Omit when using actNumber.' },
+                actNumber: { type: 'integer', description: 'Target act/volume number for an act outline (卷纲). Omit when using chapterId.' },
+                content: { type: 'string', description: 'New outline body as a literal Markdown string. Omit when using mdPath.' },
+                mdPath: { type: 'string', description: 'Absolute path to a .md file under this Codex session artifacts directory whose whole body becomes the new outline. Omit when using content.' },
+            },
+            required: ['novelId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'delete_outline',
+        description:
+            'Permanently delete the detailed outline (细纲) of ONE chapter or act. Locate the target by `chapterId` (章纲) or `actNumber` (卷纲) from the projection metadata. This is destructive and cannot be undone: it runs automatically only under the 无需审核 / no-review level; under 用户确认 and 自动审核 it raises a confirmation the author must approve before the outline is removed (if the author declines, nothing is deleted). Call it only when the author clearly asked to delete that chapter/act outline.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from the projection metadata.' },
+                chapterId: { type: 'string', description: 'Target chapter id for a chapter outline (章纲). Omit when using actNumber.' },
+                actNumber: { type: 'integer', description: 'Target act/volume number for an act outline (卷纲). Omit when using chapterId.' },
+            },
+            required: ['novelId'],
             additionalProperties: false,
         },
     },
@@ -447,12 +587,30 @@ async function callTool(params) {
                 return toolResult(await updateActSummary(args))
             case 'edit_scene_content':
                 return toolResult(await editSceneContent(args))
+            case 'create_act':
+                return toolResult(await createAct(args))
+            case 'create_chapter':
+                return toolResult(await createChapter(args))
+            case 'create_scene':
+                return toolResult(await createScene(args))
+            case 'delete_act':
+                return toolResult(await deleteAct(args))
+            case 'delete_chapter':
+                return toolResult(await deleteChapter(args))
+            case 'delete_scene':
+                return toolResult(await deleteScene(args))
             case 'create_snippet':
                 return toolResult(await createSnippet(args))
             case 'edit_snippet':
                 return toolResult(await editSnippet(args))
             case 'delete_snippet':
                 return toolResult(await deleteSnippet(args))
+            case 'create_outline':
+                return toolResult(await createOutline(args))
+            case 'edit_outline':
+                return toolResult(await editOutline(args))
+            case 'delete_outline':
+                return toolResult(await deleteOutline(args))
             case 'create_term':
                 return toolResult(await createTerm(args))
             case 'edit_term':
@@ -676,6 +834,405 @@ async function editSceneContent(args) {
     }
 }
 
+// --- Manuscript structure (act / chapter / scene) create & delete -------------------------------
+// Acts are keyed by their 1-based number (Act.number, unique per novel) which is also what the
+// outline projection exposes as `<!-- act_number -->`; chapters and scenes are keyed by cuid.
+// Chapter.order is per-act ordering and Scene.order is per-chapter ordering — neither is unique,
+// so a new row opens a slot by incrementing the orders after it.
+
+// An act "exists" when it has an Act metadata row, any chapter, or an act outline at that number —
+// the same union the outline projection is built from.
+async function actExistsInNovel(novelId, actNumber) {
+    const [actRow, chapter, outline] = await Promise.all([
+        prisma.act.findUnique({ where: { novelId_number: { novelId, number: actNumber } }, select: { id: true } }),
+        prisma.chapter.findFirst({ where: { novelId, actNumber }, select: { id: true } }),
+        prisma.outline.findUnique({ where: { novelId_type_actNumber: { novelId, type: 'ACT', actNumber } }, select: { id: true } }),
+    ])
+    return Boolean(actRow || chapter || outline)
+}
+
+// Shift every act at or above `fromNumber` by `delta` (+1 to open a slot for an insert, -1 to close
+// the gap after a delete). Act.number and Outline(ACT).actNumber are unique per novel, so they move
+// through a temporary offset in two phases to avoid colliding mid-update (the same trick the act
+// outline remap route uses); chapters have no such constraint and shift in a single pass.
+async function shiftActsFrom(novelId, fromNumber, delta) {
+    if (delta === 0) return
+    const [acts, actOutlines] = await Promise.all([
+        prisma.act.findMany({ where: { novelId, number: { gte: fromNumber } }, select: { id: true, number: true } }),
+        prisma.outline.findMany({ where: { novelId, type: 'ACT', actNumber: { gte: fromNumber } }, select: { id: true, actNumber: true } }),
+    ])
+    const highest = Math.max(0, ...acts.map((act) => act.number), ...actOutlines.map((outline) => outline.actNumber ?? 0))
+    const tempOffset = highest + 1000
+
+    await prisma.$transaction(async (tx) => {
+        for (const act of acts) {
+            await tx.act.update({ where: { id: act.id }, data: { number: act.number + tempOffset } })
+        }
+        for (const outline of actOutlines) {
+            await tx.outline.update({ where: { id: outline.id }, data: { actNumber: (outline.actNumber ?? 0) + tempOffset } })
+        }
+        await tx.chapter.updateMany({ where: { novelId, actNumber: { gte: fromNumber } }, data: { actNumber: { increment: delta } } })
+        for (const act of acts) {
+            await tx.act.update({ where: { id: act.id }, data: { number: act.number + delta } })
+        }
+        for (const outline of actOutlines) {
+            await tx.outline.update({ where: { id: outline.id }, data: { actNumber: (outline.actNumber ?? 0) + delta } })
+        }
+    })
+}
+
+function isChineseLanguage(language) {
+    return typeof language === 'string' && language.trim().toLowerCase().startsWith('zh')
+}
+
+function formatDefaultChapterTitle(chapterNumber, language) {
+    return isChineseLanguage(language) ? `章 ${chapterNumber}` : `Chapter ${chapterNumber}`
+}
+
+// A chapter title is a positional placeholder when it's the auto "章 N" / "第 N 章" / "Chapter N"
+// form (mirrors isDefaultChapterTitle / isPlaceholderChapterTitle in the editor). A blank title is
+// intentionally NOT counted — a brand-new chapter is opted in explicitly via `assignChapterId`.
+function isDefaultFormChapterTitle(title) {
+    const trimmed = (title ?? '').trim()
+    if (!trimmed) return false
+    return /^第\s*\d+\s*章$/.test(trimmed) || /^章\s*\d+$/.test(trimmed) || /^Chapter\s+\d+$/i.test(trimmed)
+}
+
+// Re-derive every default-titled chapter's "章 N" from its current global (act, order) position so
+// the numbers stay sequential after an insert/delete — exactly like the app's manual chapter create
+// /delete flow, which renumbers the placeholder titles of the chapters around the change. Custom
+// titles are left untouched. `assignChapterId`, if given, is a freshly created chapter that should
+// receive a default title even though it currently has none. Returns the ids whose title changed.
+async function syncDefaultChapterTitles(novelId, language, assignChapterId = null) {
+    const chapters = await prisma.chapter.findMany({
+        where: { novelId },
+        select: { id: true, title: true, actNumber: true, order: true },
+    })
+    chapters.sort((left, right) => {
+        if (left.actNumber !== right.actNumber) return left.actNumber - right.actNumber
+        if (left.order !== right.order) return left.order - right.order
+        return left.id.localeCompare(right.id)
+    })
+    const changedIds = []
+    for (let index = 0; index < chapters.length; index += 1) {
+        const chapter = chapters[index]
+        const isDefault = chapter.id === assignChapterId || isDefaultFormChapterTitle(chapter.title)
+        if (!isDefault) continue
+        const desired = formatDefaultChapterTitle(index + 1, language)
+        if (chapter.title !== desired) {
+            await prisma.chapter.update({ where: { id: chapter.id }, data: { title: desired } })
+            changedIds.push(chapter.id)
+        }
+    }
+    return changedIds
+}
+
+async function createAct(args) {
+    const novelId = requireString(args.novelId, 'novelId')
+    await requireOwnedNovel(novelId)
+
+    let insertNumber
+    if (args.afterActNumber === undefined || args.afterActNumber === null) {
+        // Front insert / first act: shift everything from act 1 up (a no-op when the novel is empty).
+        insertNumber = 1
+    } else {
+        const afterActNumber = requirePositiveInteger(args.afterActNumber, 'afterActNumber')
+        if (!(await actExistsInNovel(novelId, afterActNumber))) {
+            throw new Error(`Act ${afterActNumber} was not found in novel ${novelId}.`)
+        }
+        insertNumber = afterActNumber + 1
+    }
+
+    await shiftActsFrom(novelId, insertNumber, 1)
+
+    const title = args.title === undefined || args.title === null ? null : (requireString(args.title, 'title').trim() || null)
+    const summary = args.summary === undefined || args.summary === null ? null : (requireString(args.summary, 'summary').trim() || null)
+    const act = await prisma.act.create({
+        data: { novelId, number: insertNumber, title, summary },
+        select: { id: true, number: true, title: true, summary: true },
+    })
+    await Promise.all([
+        syncNovelWorkspaceOutline(novelId),
+        syncNovelWorkspaceDetailedOutlines(novelId),
+    ])
+    return { ok: true, act, actNumber: act.number }
+}
+
+async function createChapter(args) {
+    const novelId = requireString(args.novelId, 'novelId')
+    const actNumber = requirePositiveInteger(args.actNumber, 'actNumber')
+    await requireOwnedNovel(novelId)
+
+    const [actRow, actChapters] = await Promise.all([
+        prisma.act.findUnique({ where: { novelId_number: { novelId, number: actNumber } }, select: { id: true } }),
+        prisma.chapter.findMany({ where: { novelId, actNumber }, orderBy: { order: 'asc' }, select: { id: true, order: true } }),
+    ])
+    // Require the act to exist (create_act first) so we never punch chapters into a numbering gap.
+    if (!actRow && actChapters.length === 0) {
+        throw new Error(`Act ${actNumber} was not found in novel ${novelId}. Create it with create_act first.`)
+    }
+
+    const afterChapterId = args.afterChapterId === undefined || args.afterChapterId === null
+        ? null
+        : requireNonEmptyString(args.afterChapterId, 'afterChapterId')
+
+    let newOrder
+    if (afterChapterId) {
+        const anchor = actChapters.find((chapter) => chapter.id === afterChapterId)
+        if (!anchor) {
+            throw new Error(`Chapter ${afterChapterId} was not found in act ${actNumber} of novel ${novelId}.`)
+        }
+        await prisma.chapter.updateMany({
+            where: { novelId, actNumber, order: { gt: anchor.order } },
+            data: { order: { increment: 1 } },
+        })
+        newOrder = anchor.order + 1
+    } else if (actChapters.length === 0) {
+        newOrder = 1
+    } else {
+        const firstOrder = actChapters[0].order
+        await prisma.chapter.updateMany({
+            where: { novelId, actNumber, order: { gte: firstOrder } },
+            data: { order: { increment: 1 } },
+        })
+        newOrder = firstOrder
+    }
+
+    // Without a (non-blank) title, bake the positional "章 N" default like the app's manual chapter
+    // creation — a blank title would render as the grey "无标题章节" placeholder in the editor.
+    const title = args.title === undefined || args.title === null ? '' : requireString(args.title, 'title').trim()
+    const hasTitle = title.length > 0
+
+    const chapter = await prisma.chapter.create({
+        data: { novelId, actNumber, order: newOrder, title, wordCount: 0 },
+        select: { id: true, actNumber: true, order: true },
+    })
+    // Every chapter keeps at least one scene, matching the app's chapter creation.
+    const scene = await prisma.scene.create({
+        data: { chapterId: chapter.id, order: 0, content: '', wordCount: 0 },
+        select: { id: true },
+    })
+
+    const { language } = (await prisma.novel.findUnique({ where: { id: novelId }, select: { language: true } })) ?? {}
+    // Assign the new chapter its default title (when untitled) and renumber the placeholder titles
+    // of the chapters the insert pushed down, so "章 N" stays in step with the global order.
+    const changedIds = await syncDefaultChapterTitles(novelId, language, hasTitle ? null : chapter.id)
+    const finalTitle = hasTitle
+        ? title
+        : (await prisma.chapter.findUnique({ where: { id: chapter.id }, select: { title: true } }))?.title ?? title
+
+    const affectedChapterIds = new Set([chapter.id, ...changedIds])
+    await Promise.all([
+        syncNovelWorkspaceOutline(novelId),
+        ...[...affectedChapterIds].map((id) => syncNovelWorkspaceChapter(novelId, id)),
+        syncNovelWorkspaceDetailedOutlines(novelId),
+    ])
+    return {
+        ok: true,
+        chapter: { id: chapter.id, title: finalTitle, actNumber: chapter.actNumber, order: chapter.order },
+        chapterId: chapter.id,
+        sceneId: scene.id,
+        chapterFile: `chapters/${chapter.id}.md`,
+    }
+}
+
+async function createScene(args) {
+    const novelId = requireString(args.novelId, 'novelId')
+    const chapterId = requireNonEmptyString(args.chapterId, 'chapterId')
+    await requireOwnedNovel(novelId)
+
+    const chapter = await prisma.chapter.findFirst({ where: { id: chapterId, novelId }, select: { id: true } })
+    if (!chapter) throw new Error(`Chapter ${chapterId} was not found in novel ${novelId}.`)
+
+    const scenes = await prisma.scene.findMany({
+        where: { chapterId },
+        orderBy: { order: 'asc' },
+        select: { id: true, order: true },
+    })
+
+    const afterSceneId = args.afterSceneId === undefined || args.afterSceneId === null
+        ? null
+        : requireNonEmptyString(args.afterSceneId, 'afterSceneId')
+
+    let newOrder
+    if (afterSceneId) {
+        const anchor = scenes.find((scene) => scene.id === afterSceneId)
+        if (!anchor) {
+            throw new Error(`Scene ${afterSceneId} was not found in chapter ${chapterId}.`)
+        }
+        await prisma.scene.updateMany({
+            where: { chapterId, order: { gt: anchor.order } },
+            data: { order: { increment: 1 } },
+        })
+        newOrder = anchor.order + 1
+    } else if (scenes.length === 0) {
+        newOrder = 0
+    } else {
+        const firstOrder = scenes[0].order
+        await prisma.scene.updateMany({
+            where: { chapterId, order: { gte: firstOrder } },
+            data: { order: { increment: 1 } },
+        })
+        newOrder = firstOrder
+    }
+
+    const scene = await prisma.scene.create({
+        data: { chapterId, order: newOrder, content: '', wordCount: 0 },
+        select: { id: true, order: true },
+    })
+    await Promise.all([
+        syncNovelWorkspaceOutline(novelId),
+        syncNovelWorkspaceChapter(novelId, chapterId),
+    ])
+    return { ok: true, scene, sceneId: scene.id, chapterId }
+}
+
+async function deleteAct(args) {
+    const novelId = requireString(args.novelId, 'novelId')
+    const actNumber = requirePositiveInteger(args.actNumber, 'actNumber')
+    await requireOwnedNovel(novelId)
+
+    const [actRow, actOutline, chapterCount] = await Promise.all([
+        prisma.act.findUnique({ where: { novelId_number: { novelId, number: actNumber } }, select: { id: true } }),
+        prisma.outline.findUnique({ where: { novelId_type_actNumber: { novelId, type: 'ACT', actNumber } }, select: { id: true } }),
+        prisma.chapter.count({ where: { novelId, actNumber } }),
+    ])
+    if (!actRow && !actOutline && chapterCount === 0) {
+        throw new Error(`Act ${actNumber} was not found in novel ${novelId}.`)
+    }
+    if (chapterCount > 0) {
+        throw new Error(`Act ${actNumber} still has ${chapterCount} chapter${chapterCount === 1 ? '' : 's'} and cannot be deleted. Move or delete its chapters first.`)
+    }
+
+    await requireStructureDeletionApproval('delete_act', `run tool "delete_act"：永久删除空的第 ${actNumber} 卷？此操作不可撤销。`)
+
+    if (actRow) await prisma.act.delete({ where: { id: actRow.id } })
+    if (actOutline) await prisma.outline.delete({ where: { id: actOutline.id } })
+    // Close the numbering gap so acts stay contiguous (mirrors the upward shift on insert).
+    await shiftActsFrom(novelId, actNumber + 1, -1)
+
+    await Promise.all([
+        syncNovelWorkspaceOutline(novelId),
+        syncNovelWorkspaceDetailedOutlines(novelId),
+    ])
+    return { ok: true, deleted: { actNumber, novelId } }
+}
+
+async function deleteChapter(args) {
+    const novelId = requireString(args.novelId, 'novelId')
+    const chapterId = requireNonEmptyString(args.chapterId, 'chapterId')
+    await requireOwnedNovel(novelId)
+
+    const chapter = await prisma.chapter.findFirst({
+        where: { id: chapterId, novelId },
+        select: { id: true, title: true, scenes: { select: { id: true, content: true } } },
+    })
+    if (!chapter) throw new Error(`Chapter ${chapterId} was not found in novel ${novelId}.`)
+
+    const hasProse = chapter.scenes.some((scene) => calculateWordCountFromHtml(scene.content) > 0)
+    if (hasProse) {
+        throw new Error(`Chapter ${chapterId} has scenes with prose and cannot be deleted. Clear its scenes first.`)
+    }
+    const sceneIds = chapter.scenes.map((scene) => scene.id)
+    const panelCount = sceneIds.length
+        ? await prisma.sceneContinuationDraft.count({ where: { sceneId: { in: sceneIds } } })
+        : 0
+    if (panelCount > 0) {
+        throw new Error(`Chapter ${chapterId} still hosts an inline scene-continuation panel. Finish or discard it before deleting the chapter.`)
+    }
+
+    await requireStructureDeletionApproval('delete_chapter', `run tool "delete_chapter"：永久删除空章「${chapter.title || '未命名章节'}」（id ${chapterId}）？此操作不可撤销。`)
+
+    // Scenes and the chapter outline (章纲) cascade-delete with the chapter row.
+    await prisma.chapter.delete({ where: { id: chapterId } })
+    await removeNovelWorkspaceChapterProjection(novelId, chapterId)
+
+    // Renumber the placeholder "章 N" titles the deletion shifted, like the app's manual delete.
+    const { language } = (await prisma.novel.findUnique({ where: { id: novelId }, select: { language: true } })) ?? {}
+    const changedIds = await syncDefaultChapterTitles(novelId, language)
+    await Promise.all([
+        syncNovelWorkspaceOutline(novelId),
+        ...changedIds.map((id) => syncNovelWorkspaceChapter(novelId, id)),
+        syncNovelWorkspaceDetailedOutlines(novelId),
+    ])
+    return { ok: true, deleted: { chapterId, novelId } }
+}
+
+async function deleteScene(args) {
+    const novelId = requireString(args.novelId, 'novelId')
+    const sceneId = requireNonEmptyString(args.sceneId, 'sceneId')
+    await requireOwnedNovel(novelId)
+
+    const scene = await prisma.scene.findFirst({
+        where: { id: sceneId, chapter: { novelId } },
+        select: { id: true, content: true, chapterId: true },
+    })
+    if (!scene) throw new Error(`Scene ${sceneId} was not found in novel ${novelId}.`)
+
+    if (calculateWordCountFromHtml(scene.content) > 0) {
+        throw new Error(`Scene ${sceneId} has prose and cannot be deleted. Clear its Content first.`)
+    }
+    const panelCount = await prisma.sceneContinuationDraft.count({ where: { sceneId } })
+    if (panelCount > 0) {
+        throw new Error(`Scene ${sceneId} still hosts an inline scene-continuation panel. Finish or discard it before deleting the scene.`)
+    }
+    const sceneCount = await prisma.scene.count({ where: { chapterId: scene.chapterId } })
+    if (sceneCount <= 1) {
+        throw new Error('Cannot delete the last scene of a chapter. Delete the chapter instead.')
+    }
+
+    await requireStructureDeletionApproval('delete_scene', `run tool "delete_scene"：永久删除空场景（id ${sceneId}）？此操作不可撤销。`)
+
+    await prisma.scene.delete({ where: { id: sceneId } })
+
+    // Re-pack the surviving scenes' order and recompute the chapter word count.
+    const remaining = await prisma.scene.findMany({
+        where: { chapterId: scene.chapterId },
+        orderBy: { order: 'asc' },
+        select: { id: true, order: true, wordCount: true },
+    })
+    for (let index = 0; index < remaining.length; index += 1) {
+        if (remaining[index].order !== index) {
+            await prisma.scene.update({ where: { id: remaining[index].id }, data: { order: index } })
+        }
+    }
+    await prisma.chapter.update({
+        where: { id: scene.chapterId },
+        data: { wordCount: remaining.reduce((sum, item) => sum + item.wordCount, 0) },
+    })
+    await Promise.all([
+        syncNovelWorkspaceOutline(novelId),
+        syncNovelWorkspaceChapter(novelId, scene.chapterId),
+    ])
+    return { ok: true, deleted: { sceneId, chapterId: scene.chapterId, novelId } }
+}
+
+// Gate a destructive structure deletion on the session review level, same as delete_snippet /
+// delete_outline / delete_term: run automatically under no_review; don't double-prompt under
+// user_review (Codex already asks per call); otherwise raise our own confirmation the author
+// must accept before anything is deleted.
+async function requireStructureDeletionApproval(toolName, message) {
+    const reviewLevel = (process.env.OPENNOVELWRITER_REVIEW_LEVEL || '').trim()
+    if (reviewLevel === 'no_review' || reviewLevel === 'user_review') return
+    let result
+    try {
+        result = await sendServerRequest('elicitation/create', {
+            message,
+            requestedSchema: { type: 'object', properties: {}, additionalProperties: false },
+        })
+    } catch (error) {
+        throw new Error(`Deleting via "${toolName}" needs the author's approval, but the confirmation could not be shown (${error instanceof Error ? error.message : String(error)}). Nothing was deleted.`)
+    }
+    const action = result && typeof result === 'object' ? result.action : null
+    if (action !== 'accept') {
+        throw new Error('Deletion was declined by the author. Nothing was deleted.')
+    }
+}
+
+async function removeNovelWorkspaceChapterProjection(novelId, chapterId) {
+    await removeWorkspaceProjectionFile(getNovelWorkspaceChapterPath(ownerId, novelId, chapterId))
+}
+
 async function createSnippet(args) {
     const mdPath = requireNonEmptyString(args.mdPath, 'mdPath')
     const pinned = args.pinned === undefined ? false : requireBoolean(args.pinned, 'pinned')
@@ -840,6 +1397,176 @@ async function removeNovelWorkspaceSnippetProjection(novelId, snippetId) {
     const snippetPath = getNovelWorkspaceSnippetPath(ownerId, novelId, snippetId)
     await fs.rm(snippetPath, { force: true }).catch(() => {})
     await syncNovelWorkspaceSnippets(novelId)
+}
+
+// --- Detailed outline (细纲) tools ---------------------------------------------------------------
+// A 细纲 is always bound to an existing chapter (by chapterId) or act (by actNumber); it has no
+// standalone handle, so every tool locates it by that target. Mirrors the snippet create/edit/delete
+// shape: content arrives as literal Markdown or an artifacts/*.md path, stored after Markdown→HTML.
+
+function resolveOutlineTarget(args) {
+    const hasChapter = args.chapterId !== undefined && args.chapterId !== null
+    const hasAct = args.actNumber !== undefined && args.actNumber !== null
+    if (hasChapter === hasAct) {
+        throw new Error('Provide exactly one of chapterId or actNumber.')
+    }
+    if (hasChapter) {
+        return { type: 'CHAPTER', chapterId: requireNonEmptyString(args.chapterId, 'chapterId') }
+    }
+    return { type: 'ACT', actNumber: requirePositiveInteger(args.actNumber, 'actNumber') }
+}
+
+function outlineTargetLabel(target) {
+    return target.type === 'CHAPTER' ? `chapter ${target.chapterId}` : `act ${target.actNumber}`
+}
+
+function outlineProjectionFile(target) {
+    return target.type === 'CHAPTER'
+        ? `DetailedOutline/chapters/${target.chapterId}.md`
+        : `DetailedOutline/acts/${target.actNumber}.md`
+}
+
+async function requireOutlineTargetExists(novelId, target) {
+    if (target.type === 'CHAPTER') {
+        const chapter = await prisma.chapter.findFirst({
+            where: { id: target.chapterId, novelId },
+            select: { id: true },
+        })
+        if (!chapter) throw new Error(`Chapter ${target.chapterId} was not found in novel ${novelId}.`)
+        return
+    }
+    const act = await prisma.act.findUnique({
+        where: { novelId_number: { novelId, number: target.actNumber } },
+        select: { id: true },
+    })
+    if (act) return
+    const chapter = await prisma.chapter.findFirst({
+        where: { novelId, actNumber: target.actNumber },
+        select: { id: true },
+    })
+    if (!chapter) throw new Error(`Act ${target.actNumber} was not found in novel ${novelId}.`)
+}
+
+async function findOutlineForTarget(novelId, target) {
+    if (target.type === 'CHAPTER') {
+        return prisma.outline.findUnique({ where: { chapterId: target.chapterId }, select: { id: true } })
+    }
+    return prisma.outline.findUnique({
+        where: { novelId_type_actNumber: { novelId, type: 'ACT', actNumber: target.actNumber } },
+        select: { id: true },
+    })
+}
+
+async function resolveOutlineMarkdownHtml(args) {
+    const hasContent = args.content !== undefined && args.content !== null
+    const hasMdPath = args.mdPath !== undefined && args.mdPath !== null
+    if (hasContent && hasMdPath) throw new Error('Provide either content or mdPath, not both.')
+    if (!hasContent && !hasMdPath) {
+        throw new Error('Outline content is required: provide content or mdPath.')
+    }
+
+    let markdown
+    if (hasMdPath) {
+        const artifact = await resolveArtifactMarkdownPath(requireNonEmptyString(args.mdPath, 'mdPath'))
+        markdown = (await fs.readFile(artifact.realPath, 'utf8')).replace(/\r\n?/g, '\n').trim()
+    } else {
+        markdown = requireString(args.content, 'content').replace(/\r\n?/g, '\n').trim()
+    }
+    if (!markdown) throw new Error('The outline content is empty.')
+    return markdownToHtml(markdown)
+}
+
+async function createOutline(args) {
+    const novelId = requireString(args.novelId, 'novelId')
+    await requireOwnedNovel(novelId)
+    const target = resolveOutlineTarget(args)
+    await requireOutlineTargetExists(novelId, target)
+
+    const existing = await findOutlineForTarget(novelId, target)
+    if (existing) {
+        throw new Error(`A detailed outline already exists for ${outlineTargetLabel(target)}. Use edit_outline to change it.`)
+    }
+
+    const html = await resolveOutlineMarkdownHtml(args)
+    const outline = await prisma.outline.create({
+        data: {
+            novelId,
+            type: target.type,
+            chapterId: target.type === 'CHAPTER' ? target.chapterId : null,
+            actNumber: target.type === 'ACT' ? target.actNumber : null,
+            content: html,
+            wordCount: calculateWordCountFromHtml(html),
+        },
+        select: { id: true, type: true, actNumber: true, chapterId: true, wordCount: true },
+    })
+    await syncNovelWorkspaceDetailedOutlines(novelId)
+    return { ok: true, outline, outlineFile: outlineProjectionFile(target) }
+}
+
+async function editOutline(args) {
+    const novelId = requireString(args.novelId, 'novelId')
+    await requireOwnedNovel(novelId)
+    const target = resolveOutlineTarget(args)
+    const existing = await findOutlineForTarget(novelId, target)
+    if (!existing) {
+        throw new Error(`No detailed outline exists for ${outlineTargetLabel(target)} yet. Use create_outline first.`)
+    }
+
+    const html = await resolveOutlineMarkdownHtml(args)
+    const updated = await prisma.outline.update({
+        where: { id: existing.id },
+        data: { content: html, wordCount: calculateWordCountFromHtml(html) },
+        select: { id: true, type: true, actNumber: true, chapterId: true, wordCount: true },
+    })
+    await syncNovelWorkspaceDetailedOutlines(novelId)
+    return { ok: true, outline: updated, outlineFile: outlineProjectionFile(target) }
+}
+
+async function deleteOutline(args) {
+    const novelId = requireString(args.novelId, 'novelId')
+    await requireOwnedNovel(novelId)
+    const target = resolveOutlineTarget(args)
+    const existing = await findOutlineForTarget(novelId, target)
+    if (!existing) {
+        throw new Error(`No detailed outline exists for ${outlineTargetLabel(target)}.`)
+    }
+
+    // Destructive: same review gating as delete_snippet / delete_term.
+    const reviewLevel = (process.env.OPENNOVELWRITER_REVIEW_LEVEL || '').trim()
+    if (reviewLevel !== 'no_review' && reviewLevel !== 'user_review') {
+        await requestOutlineDeletionApproval(target)
+    }
+
+    await prisma.outline.delete({ where: { id: existing.id } })
+    await syncNovelWorkspaceDetailedOutlines(novelId)
+    return {
+        ok: true,
+        deleted: {
+            id: existing.id,
+            type: target.type,
+            chapterId: target.type === 'CHAPTER' ? target.chapterId : null,
+            actNumber: target.type === 'ACT' ? target.actNumber : null,
+            novelId,
+        },
+    }
+}
+
+async function requestOutlineDeletionApproval(target) {
+    const label = target.type === 'CHAPTER' ? `章纲（chapter ${target.chapterId}）` : `卷纲（act ${target.actNumber}）`
+    const message = `run tool "delete_outline"：永久删除${label}的细纲？此操作不可撤销。`
+    let result
+    try {
+        result = await sendServerRequest('elicitation/create', {
+            message,
+            requestedSchema: { type: 'object', properties: {}, additionalProperties: false },
+        })
+    } catch (error) {
+        throw new Error(`Outline deletion needs the author's approval, but the confirmation could not be shown (${error instanceof Error ? error.message : String(error)}). Nothing was deleted.`)
+    }
+    const action = result && typeof result === 'object' ? result.action : null
+    if (action !== 'accept') {
+        throw new Error('Outline deletion was declined by the author. Nothing was deleted.')
+    }
 }
 
 async function loadTermState(novelId) {
@@ -1407,6 +2134,73 @@ async function syncNovelWorkspaceSnippets(novelId) {
     return { indexPath, snippetsPath }
 }
 
+async function syncNovelWorkspaceDetailedOutlines(novelId) {
+    const novel = await prisma.novel.findFirst({
+        where: { id: novelId, ownerId },
+        select: {
+            id: true,
+            language: true,
+            acts: { select: { number: true, title: true } },
+            chapters: { select: { id: true, title: true, actNumber: true, order: true } },
+            outlines: { select: { id: true, type: true, actNumber: true, chapterId: true, content: true } },
+        },
+    })
+    if (!novel) return null
+
+    const rootPath = getNovelWorkspaceDetailedOutlinesPath(ownerId, novelId)
+    await fs.rm(rootPath, { recursive: true, force: true })
+
+    const sortedChapters = [...novel.chapters].sort((left, right) => {
+        if (left.actNumber !== right.actNumber) return left.actNumber - right.actNumber
+        if (left.order !== right.order) return left.order - right.order
+        return left.id.localeCompare(right.id)
+    })
+    const chapterNumberById = new Map()
+    sortedChapters.forEach((chapter, index) => chapterNumberById.set(chapter.id, index + 1))
+    const chapterById = new Map(novel.chapters.map((chapter) => [chapter.id, chapter]))
+    const actTitleByNumber = new Map()
+    for (const act of novel.acts) actTitleByNumber.set(act.number, act.title)
+
+    for (const outline of novel.outlines) {
+        if (!htmlToProjectionText(outline.content).trim()) continue
+
+        if (outline.type === 'CHAPTER') {
+            if (!outline.chapterId) continue
+            const chapter = chapterById.get(outline.chapterId)
+            if (!chapter) continue
+            await writeReadonlyProjectionFile(
+                path.join(rootPath, 'chapters', `${chapter.id}.md`),
+                buildNovelWorkspaceDetailedOutlineMarkdown({
+                    novelId: novel.id,
+                    language: novel.language,
+                    kind: 'chapter',
+                    outlineId: outline.id,
+                    chapterId: chapter.id,
+                    chapterNumber: chapterNumberById.get(chapter.id) ?? chapter.order,
+                    title: chapter.title,
+                    content: outline.content,
+                })
+            )
+        } else if (outline.type === 'ACT') {
+            if (outline.actNumber == null) continue
+            await writeReadonlyProjectionFile(
+                path.join(rootPath, 'acts', `${outline.actNumber}.md`),
+                buildNovelWorkspaceDetailedOutlineMarkdown({
+                    novelId: novel.id,
+                    language: novel.language,
+                    kind: 'act',
+                    outlineId: outline.id,
+                    actNumber: outline.actNumber,
+                    title: actTitleByNumber.get(outline.actNumber) ?? null,
+                    content: outline.content,
+                })
+            )
+        }
+    }
+
+    return rootPath
+}
+
 async function writeReadonlyProjectionFile(filePath, content) {
     await fs.mkdir(path.dirname(filePath), { recursive: true })
     await fs.chmod(filePath, 0o644).catch((error) => {
@@ -1442,6 +2236,10 @@ function getNovelWorkspaceSnippetsPath(ownerIdValue, novelId) {
 
 function getNovelWorkspaceSnippetPath(ownerIdValue, novelId, snippetId) {
     return path.join(getNovelWorkspaceSnippetsPath(ownerIdValue, novelId), `${snippetId}.md`)
+}
+
+function getNovelWorkspaceDetailedOutlinesPath(ownerIdValue, novelId) {
+    return path.join(getNovelWorkspacePath(ownerIdValue, novelId), 'DetailedOutline')
 }
 
 function getOpenNovelWriterDataDir() {
