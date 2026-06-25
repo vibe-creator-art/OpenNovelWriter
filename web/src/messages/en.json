@@ -942,7 +942,20 @@
             "noMessages": "No messages yet",
             "startTitle": "Let Codex help write your novel",
             "startDescription": "",
-            "composerPlaceholder": "Let Codex help write your novel. @ to mention files or plugins",
+            "composerPlaceholder": "Let Codex help write your novel. @ to mention novel content, / to run a command",
+            "compaction": {
+                "running": "Compacting context",
+                "done": "Context compacted"
+            },
+            "slashCompact": {
+                "title": "Compact",
+                "description": "Compact this thread's context"
+            },
+            "slashPlan": {
+                "title": "Plan mode",
+                "turnOn": "Turn plan mode on",
+                "turnOff": "Turn plan mode off"
+            },
             "running": "Codex is running...",
             "attach": "Add context",
             "plan": "Plan",

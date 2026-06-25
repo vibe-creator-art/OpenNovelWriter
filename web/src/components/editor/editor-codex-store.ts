@@ -1,11 +1,12 @@
 'use client'
 
-import { create } from 'zustand'
+import { create, type StoreApi } from 'zustand'
 import {
     codexSessionApi,
     type CodexApprovalOption,
     type CodexApprovalRequest,
     type CodexRunEvent,
+    type CodexSessionStreamEvent,
     type CodexReasoningEffort,
     type CodexReviewLevel,
     type CodexServiceTier,
@@ -78,6 +79,7 @@ type CodexStoreState = {
     renameSession: (novelId: string | null | undefined, sessionId: string, title: string) => Promise<void>
     deleteSession: (novelId: string | null | undefined, sessionId: string) => Promise<void>
     sendMessage: (novelId: string | null | undefined, sessionId: string, content: string, options?: { skillIds?: string[]; promptArtifact?: CodexPromptArtifact; attachments?: string[] }) => Promise<void>
+    compact: (novelId: string | null | undefined, sessionId: string) => Promise<void>
     resolveApproval: (
         sessionId: string,
         approvalId: string,
@@ -226,6 +228,97 @@ function attachContextWindow(session: CodexSession, event: { contextWindow: Code
 
 function shouldRefreshNovelAfterCodexEvent(event: CodexRunEvent) {
     return event.kind === 'tool' && event.title.startsWith('opennovelwriter.')
+}
+
+/**
+ * Reduce a single Codex SSE event into store state. Shared by `sendMessage` and `compact` so both
+ * streams handle done/error/approval/deltas/events identically. Returns the error detail when the
+ * event is an `error` (so the caller can rethrow once the stream ends), otherwise null.
+ */
+function applyCodexStreamEvent(
+    set: StoreApi<CodexStoreState>['setState'],
+    novelKey: string,
+    sessionId: string,
+    event: CodexSessionStreamEvent
+): string | null {
+    if (event.type === 'done') {
+        const session = { ...event.session, draftContent: '' }
+        set((state) => {
+            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            return {
+                pendingApprovalsBySession: {
+                    ...state.pendingApprovalsBySession,
+                    [sessionId]: null,
+                },
+                sessionsByNovel: {
+                    ...state.sessionsByNovel,
+                    [novelKey]: applySession(current, session, { select: true }),
+                },
+            }
+        })
+        return null
+    }
+
+    if (event.type === 'error') {
+        const session = event.session ? { ...event.session, draftContent: '' } : null
+        set((state) => {
+            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            return {
+                pendingApprovalsBySession: {
+                    ...state.pendingApprovalsBySession,
+                    [sessionId]: null,
+                },
+                sessionsByNovel: {
+                    ...state.sessionsByNovel,
+                    [novelKey]: session
+                        ? applySession(current, session, { select: true })
+                        : {
+                            ...current,
+                            sessions: current.sessions.map((item) =>
+                                item.id === sessionId
+                                    ? { ...item, status: 'error', lastError: event.detail }
+                                    : item
+                            ),
+                        },
+                },
+            }
+        })
+        return event.detail
+    }
+
+    if (event.type === 'approval_request') {
+        set((state) => ({
+            pendingApprovalsBySession: {
+                ...state.pendingApprovalsBySession,
+                [sessionId]: event.approval,
+            },
+        }))
+        return null
+    }
+
+    if (event.type === 'event' && shouldRefreshNovelAfterCodexEvent(event.event)) {
+        dispatchNovelRefreshRequested({ novelId: novelKey, source: 'codex' })
+    }
+
+    set((state) => {
+        const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+        return {
+            sessionsByNovel: {
+                ...state.sessionsByNovel,
+                [novelKey]: {
+                    ...current,
+                    sessions: current.sessions.map((session) => {
+                        if (session.id !== sessionId) return session
+                        if (event.type === 'assistant_delta') return appendAssistantDelta(session, event)
+                        if (event.type === 'plan_delta') return appendPlanDelta(session, event)
+                        if (event.type === 'context_window') return attachContextWindow(session, event)
+                        return upsertMessage(session, eventToMessage(event.event))
+                    }),
+                },
+            },
+        }
+    })
+    return null
 }
 
 export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
@@ -604,84 +697,39 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             promptArtifact: options?.promptArtifact,
             attachments: options?.attachments,
             onEvent: (event) => {
-                if (event.type === 'done') {
-                    const session = { ...event.session, draftContent: '' }
-                    set((state) => {
-                        const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-                        return {
-                            pendingApprovalsBySession: {
-                                ...state.pendingApprovalsBySession,
-                                [sessionId]: null,
-                            },
-                            sessionsByNovel: {
-                                ...state.sessionsByNovel,
-                                [novelKey]: applySession(current, session, { select: true }),
-                            },
-                        }
-                    })
-                    return
-                }
+                const detail = applyCodexStreamEvent(set, novelKey, sessionId, event)
+                if (detail) streamError = detail
+            },
+        })
+        if (streamError) throw new Error(streamError)
+    },
+    compact: async (novelId, sessionId) => {
+        const novelKey = getNovelKey(novelId)
+        clearDraftSave(sessionId)
+        // Optimistically flip to running so the composer shows the working (stop) state and clears
+        // the `/compact` draft immediately, before the first stream event lands.
+        set((state) => {
+            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            return {
+                sessionsByNovel: {
+                    ...state.sessionsByNovel,
+                    [novelKey]: {
+                        ...current,
+                        sessions: current.sessions.map((session) =>
+                            session.id === sessionId
+                                ? { ...session, status: 'running', draftContent: '' }
+                                : session
+                        ),
+                    },
+                },
+            }
+        })
 
-                if (event.type === 'error') {
-                    streamError = event.detail
-                    const session = event.session ? { ...event.session, draftContent: '' } : null
-                    set((state) => {
-                        const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-                        return {
-                            pendingApprovalsBySession: {
-                                ...state.pendingApprovalsBySession,
-                                [sessionId]: null,
-                            },
-                            sessionsByNovel: {
-                                ...state.sessionsByNovel,
-                                [novelKey]: session
-                                    ? applySession(current, session, { select: true })
-                                    : {
-                                        ...current,
-                                        sessions: current.sessions.map((session) =>
-                                            session.id === sessionId
-                                                ? { ...session, status: 'error', lastError: event.detail }
-                                                : session
-                                        ),
-                                    },
-                            },
-                        }
-                    })
-                    return
-                }
-
-                if (event.type === 'approval_request') {
-                    set((state) => ({
-                        pendingApprovalsBySession: {
-                            ...state.pendingApprovalsBySession,
-                            [sessionId]: event.approval,
-                        },
-                    }))
-                    return
-                }
-
-                if (event.type === 'event' && shouldRefreshNovelAfterCodexEvent(event.event)) {
-                    dispatchNovelRefreshRequested({ novelId: novelKey, source: 'codex' })
-                }
-
-                set((state) => {
-                    const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-                    return {
-                        sessionsByNovel: {
-                            ...state.sessionsByNovel,
-                            [novelKey]: {
-                                ...current,
-                                sessions: current.sessions.map((session) => {
-                                    if (session.id !== sessionId) return session
-                                    if (event.type === 'assistant_delta') return appendAssistantDelta(session, event)
-                                    if (event.type === 'plan_delta') return appendPlanDelta(session, event)
-                                    if (event.type === 'context_window') return attachContextWindow(session, event)
-                                    return upsertMessage(session, eventToMessage(event.event))
-                                }),
-                            },
-                        },
-                    }
-                })
+        let streamError: string | null = null
+        await codexSessionApi.streamCompaction(sessionId, {
+            onEvent: (event) => {
+                const detail = applyCodexStreamEvent(set, novelKey, sessionId, event)
+                if (detail) streamError = detail
             },
         })
         if (streamError) throw new Error(streamError)

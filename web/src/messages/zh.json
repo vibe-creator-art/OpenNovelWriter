@@ -942,7 +942,20 @@
             "noMessages": "还没有消息",
             "startTitle": "让 Codex 帮你创作小说",
             "startDescription": "",
-            "composerPlaceholder": "让 Codex 帮你创作小说。输入 @ 可提及文件或插件",
+            "composerPlaceholder": "让 Codex 帮你创作小说。输入 @ 提及小说内容,输入 / 发送指令",
+            "compaction": {
+                "running": "正在压缩上下文",
+                "done": "上下文已压缩"
+            },
+            "slashCompact": {
+                "title": "压缩",
+                "description": "压缩此对话的上下文"
+            },
+            "slashPlan": {
+                "title": "计划模式",
+                "turnOn": "开启计划模式",
+                "turnOff": "关闭计划模式"
+            },
             "running": "Codex 正在运行…",
             "attach": "添加上下文",
             "plan": "Plan",

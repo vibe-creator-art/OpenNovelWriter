@@ -1364,6 +1364,38 @@ export const codexSessionApi = {
 
         await readSseStream(response, options.onEvent)
     },
+
+    streamCompaction: async (
+        id: string,
+        options: {
+            signal?: AbortSignal
+            onEvent: (event: CodexSessionStreamEvent) => void
+        }
+    ) => {
+        const token = useAuthStore.getState().token
+        if (!token) throw new ApiError(401, 'Not authenticated - no token available')
+
+        const response = await fetch(`${API_BASE}/codex/sessions/${encodeURIComponent(id)}/compact`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream',
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ stream: true }),
+            signal: options.signal,
+        })
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                useAuthStore.getState().logout()
+            }
+            const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+            throw new ApiError(response.status, error.detail || 'Request failed', error)
+        }
+
+        await readSseStream(response, options.onEvent)
+    },
 }
 
 export type ContinuationDraft = {

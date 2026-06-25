@@ -448,7 +448,7 @@ export function LeftPanelChapterOutline({
     const showEmpty = !loading && actsToRender.length === 0
 
     return (
-        <div ref={rootRef} className="flex flex-col h-full">
+        <div ref={rootRef} className="flex flex-col min-h-0 flex-1">
             <div className="p-2 border-b">
                 <div className="flex items-center gap-2">
                     <div className="relative flex-1">

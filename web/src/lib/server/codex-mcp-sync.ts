@@ -115,7 +115,7 @@ function buildOpenNovelWriterMcpBlock(options: {
         `cwd = "${escapeTomlString(options.webRoot)}"`,
         'startup_timeout_sec = 10',
         // Generous timeout: the run_llm tool blocks on an external model that can be slow.
-        'tool_timeout_sec = 180',
+        'tool_timeout_sec = 300',
         // First-party, owner-scoped tools. In auto/no review we pre-approve (`approve`) so no
         // approval prompt is generated — under the auto_review reviewer a prompt would be routed
         // to a review subagent (an extra model call that can 503 and block the tool). In manual

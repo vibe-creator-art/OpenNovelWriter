@@ -16,6 +16,7 @@ import {
     Copy,
     EllipsisVertical,
     Download,
+    FoldVertical,
     ImageIcon,
     ImagePlus,
     Layers,
@@ -132,7 +133,6 @@ const CODEX_REVIEW_LEVELS: CodexReviewLevel[] = ['user_review', 'auto_review', '
 const CODEX_REASONING_EFFORTS: CodexReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
 const RECOMMENDED_CODEX_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
 const CODEX_SERVICE_TIERS: CodexServiceTier[] = ['standard', 'fast']
-const CODEX_PLAN_HINT_DISMISSED_KEY = 'openNovelWriter.codex.planHintDismissed.v2'
 const PLAN_COMPOSER_ACTION_OPTIONS: CodexComposerActionOption[] = [
     { id: 'implement', label: 'Yes, implement this plan', kind: 'submit' },
     { id: 'revise', label: 'No, and tell Codex what to do differently', kind: 'input' },
@@ -579,16 +579,6 @@ function formatCodexModelCompact(modelId: string) {
     if (normalized === 'gpt-5.4') return '5.4'
     if (normalized === 'gpt-5.4-mini') return '5.4 Mini'
     return formatCodexModelLabel(modelId)
-}
-
-function readPlanHintDismissed() {
-    if (typeof window === 'undefined') return true
-    return window.localStorage.getItem(CODEX_PLAN_HINT_DISMISSED_KEY) === 'true'
-}
-
-function writePlanHintDismissed() {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(CODEX_PLAN_HINT_DISMISSED_KEY, 'true')
 }
 
 function normalizePlanStepStatus(value: unknown): CodexPlanStepStatus {
@@ -1846,6 +1836,7 @@ function MessageActions({ message }: { message: CodexSessionMessage }) {
 }
 
 function MessageBubble({ message }: { message: CodexSessionMessage }) {
+    const t = useTranslations('editor')
     if (message.role === 'event') {
         const [title, ...body] = message.content.split(/\n\n/u)
         const eventBody = body.join('\n\n').trim()
@@ -1854,6 +1845,22 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
         }
         if (message.kind === 'plan_update') {
             return null
+        }
+        // Context compaction (auto at the token threshold, or manual via `/compact`) renders as a
+        // centered divider: plain text while running, an icon + label once it lands. The state is
+        // carried in the message content ('running' | 'done').
+        if (message.kind === 'context_compaction') {
+            const done = message.content.trim() === 'done'
+            return (
+                <div className="flex items-center gap-3 py-1 text-xs text-muted-foreground">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="flex items-center gap-1.5">
+                        {done && <FoldVertical className="h-3.5 w-3.5 shrink-0" />}
+                        {done ? t('codex.compaction.done') : t('codex.compaction.running')}
+                    </span>
+                    <div className="h-px flex-1 bg-border" />
+                </div>
+            )
         }
         if (message.kind === 'steer') {
             return (
@@ -2321,13 +2328,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const updateModelSettings = useEditorCodexStore((state) => state.updateModelSettings)
     const updatePlanMode = useEditorCodexStore((state) => state.updatePlanMode)
     const sendMessage = useEditorCodexStore((state) => state.sendMessage)
+    const compact = useEditorCodexStore((state) => state.compact)
     const pendingApprovalsBySession = useEditorCodexStore((state) => state.pendingApprovalsBySession)
     const resolveApproval = useEditorCodexStore((state) => state.resolveApproval)
     const [runError, setRunError] = useState<string | null>(null)
     const [connections, setConnections] = useState<CodexConnectionSummary[]>([])
     const [connectionModels, setConnectionModels] = useState<Record<string, string>>({})
     const [activeConnectionRateLimits, setActiveConnectionRateLimits] = useState<CodexRateLimits | null>(null)
-    const [planHintDismissed, setPlanHintDismissed] = useState(readPlanHintDismissed)
+    const [planHintDismissed, setPlanHintDismissed] = useState(false)
     const [dismissedComposerActions, setDismissedComposerActions] = useState<Record<string, true>>({})
     const [composerActionSelection, setComposerActionSelection] = useState<{ actionId: string; optionId: string } | null>(null)
     const [composerActionInput, setComposerActionInput] = useState('')
@@ -2347,6 +2355,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const composerFileInputRef = useRef<HTMLInputElement | null>(null)
     const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
     const [mentionIndex, setMentionIndex] = useState(0)
+    // Dismiss the `/compact` suggestion for the current keystroke (Escape); reset on the next edit.
+    const [slashCommandDismissed, setSlashCommandDismissed] = useState(false)
     const [modelGroups, setModelGroups] = useState<ModelGroup[] | null>(null)
     const [skills, setSkills] = useState<Skill[] | null>(null)
     // Terms are `@`-mentionable so the author can point Codex at a glossary entry's projected file
@@ -2626,6 +2636,10 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
 
     const handleComposerChange = (value: string, caret: number) => {
         setMention(detectMentionAtCaret(value, caret))
+        setSlashCommandDismissed(false)
+        // Reset the (transient) plan-hint dismissal once the trigger word leaves the draft, so a
+        // fresh "plan" later re-shows the hint while a single dismissal still sticks for this draft.
+        if (!/\bplan\b/iu.test(value)) setPlanHintDismissed(false)
         if (value.includes('@')) {
             if (modelGroups === null) void ensureModelGroups()
             if (skills === null) void ensureSkills()
@@ -2687,6 +2701,29 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const queuedMessages = selectedSession ? queuedMessagesBySession[selectedSession.id] ?? [] : []
     const queueingEnabled = selectedSession ? queueingEnabledBySession[selectedSession.id] ?? true : true
     const draftIsEmpty = !draft.trim()
+
+    // `/compact` slash command. Only matches when the WHOLE composer is `/` + a prefix of "compact"
+    // (so any other text — including a bare "compact" without the slash — suppresses it), the turn
+    // is idle, and the session already has a Codex thread worth compacting.
+    const slashCommandActive = useMemo(() => {
+        if (running || slashCommandDismissed) return false
+        if (!selectedSession?.codexThreadId) return false
+        const match = /^\/([a-zA-Z]+)$/.exec(draft)
+        if (!match) return false
+        return 'compact'.startsWith(match[1].toLowerCase())
+    }, [draft, running, slashCommandDismissed, selectedSession?.codexThreadId])
+
+    // `/plan` slash command. Unlike `/compact`, it triggers as a trailing `/`-token even with other
+    // text in the box (e.g. "你这个 /pl"), needs no Codex thread, and only toggles plan mode locally.
+    // Returns the slice range of the command token so activating it can strip the token from the draft.
+    const planSlash = useMemo(() => {
+        if (running || slashCommandDismissed) return null
+        const match = /(^|\s)\/([a-zA-Z]*)$/u.exec(draft)
+        if (!match) return null
+        const query = match[2].toLowerCase()
+        if (query.length === 0 || !'plan'.startsWith(query)) return null
+        return { tokenStart: match.index + match[1].length }
+    }, [draft, running, slashCommandDismissed])
 
     // Load model groups and skills when a restored draft already contains an `@` mention so the
     // overlay can highlight it (and the Tweak button can appear) without the user reopening the
@@ -2790,7 +2827,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const reasoningEffortOptions = codexModelSupportsXhighEffort(modelId)
         ? CODEX_REASONING_EFFORTS
         : CODEX_REASONING_EFFORTS.filter((effort) => effort !== 'xhigh')
-    const showPlanHint = !planMode && !planHintDismissed && !running && /\bplan\b/iu.test(draft)
+    const showPlanHint = !planMode && !planHintDismissed && !running && !planSlash && /\bplan\b/iu.test(draft)
     const approvalOptions = pendingApproval ? getApprovalComposerOptions(pendingApproval, t) : []
     const selectedApprovalOptionId =
         pendingApproval && approvalActionSelection?.approvalId === pendingApproval.id
@@ -3028,7 +3065,51 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         }
     }
 
+    const runCompaction = () => {
+        const sessionId = selectedSession?.id
+        if (!sessionId || running) return
+        setSlashCommandDismissed(false)
+        setRunError(null)
+        // The store action clears the draft and flips to the running (stop) state optimistically.
+        void compact(novelId, sessionId).catch((error) => {
+            setRunError(error instanceof Error ? error.message : String(error))
+        })
+    }
+
+    // Activate the `/plan` command: toggle plan mode, strip the command token from the draft, keep
+    // the rest. It never sends — `/plan` only flips the mode.
+    const runPlanSlash = () => {
+        if (running || !planSlash) return
+        const nextDraft = draft.slice(0, planSlash.tokenStart)
+        const caret = nextDraft.length
+        setRunError(null)
+        void (async () => {
+            const sessionId = await applyPlanMode(!planMode)
+            if (!sessionId) return
+            updateDraft(novelId, sessionId, nextDraft)
+            requestAnimationFrame(() => {
+                const textarea = composerRef.current
+                if (!textarea) return
+                textarea.focus()
+                textarea.setSelectionRange(caret, caret)
+            })
+        })().catch((error) => {
+            setRunError(error instanceof Error ? error.message : String(error))
+        })
+    }
+
     const submit = () => {
+        // A pending `/compact` is a command, never a message — route it to compaction even if the
+        // user clicks the send button instead of pressing Tab/Enter.
+        if (slashCommandActive) {
+            runCompaction()
+            return
+        }
+        // Likewise `/plan` is a command — toggle plan mode instead of sending the literal text.
+        if (planSlash) {
+            runPlanSlash()
+            return
+        }
         if (!draft.trim() || imageAttachments.uploading) return
 
         void (async () => {
@@ -3133,7 +3214,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     }
 
     const dismissPlanHint = () => {
-        writePlanHintDismissed()
         setPlanHintDismissed(true)
     }
 
@@ -3420,6 +3500,42 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             }}
                         />
                     )}
+                    {slashCommandActive && mention === null && (
+                        <div className="absolute bottom-full left-2 right-2 z-50 mb-2 overflow-hidden rounded-xl border bg-popover shadow-lg">
+                            <button
+                                type="button"
+                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-accent"
+                                // mousedown (not click) fires before the textarea blur so the menu acts before it closes.
+                                onMouseDown={(event) => {
+                                    event.preventDefault()
+                                    runCompaction()
+                                }}
+                            >
+                                <FoldVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="text-sm font-medium text-foreground">{t('codex.slashCompact.title')}</span>
+                                <span className="truncate text-xs text-muted-foreground">{t('codex.slashCompact.description')}</span>
+                            </button>
+                        </div>
+                    )}
+                    {planSlash && !slashCommandActive && mention === null && (
+                        <div className="absolute bottom-full left-2 right-2 z-50 mb-2 overflow-hidden rounded-xl border bg-popover shadow-lg">
+                            <button
+                                type="button"
+                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-accent"
+                                // mousedown (not click) fires before the textarea blur so the menu acts before it closes.
+                                onMouseDown={(event) => {
+                                    event.preventDefault()
+                                    runPlanSlash()
+                                }}
+                            >
+                                <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="text-sm font-medium text-foreground">{t('codex.slashPlan.title')}</span>
+                                <span className="truncate text-xs text-muted-foreground">
+                                    {planMode ? t('codex.slashPlan.turnOff') : t('codex.slashPlan.turnOn')}
+                                </span>
+                            </button>
+                        </div>
+                    )}
                     <div className="relative">
                     <div
                         ref={composerOverlayRef}
@@ -3471,6 +3587,30 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         }}
                         onKeyDown={(event) => {
                             if (isKeyboardEventComposing(event)) return
+                            if (slashCommandActive && mention === null) {
+                                if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
+                                    event.preventDefault()
+                                    runCompaction()
+                                    return
+                                }
+                                if (event.key === 'Escape') {
+                                    event.preventDefault()
+                                    setSlashCommandDismissed(true)
+                                    return
+                                }
+                            }
+                            if (planSlash && !slashCommandActive && mention === null) {
+                                if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
+                                    event.preventDefault()
+                                    runPlanSlash()
+                                    return
+                                }
+                                if (event.key === 'Escape') {
+                                    event.preventDefault()
+                                    setSlashCommandDismissed(true)
+                                    return
+                                }
+                            }
                             if (mention !== null && event.key === 'Escape') {
                                 event.preventDefault()
                                 closeMention()

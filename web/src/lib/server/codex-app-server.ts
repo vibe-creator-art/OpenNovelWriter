@@ -669,6 +669,20 @@ function getEventFromThreadItem(item: unknown): CodexRunEvent | null {
     return null
 }
 
+/**
+ * A context-compaction thread item (`item.type === 'contextCompaction'`) marks Codex summarizing
+ * its own history — emitted automatically when usage crosses `model_auto_compact_token_limit`, or
+ * on demand via `thread/compact/start`. It has no rich payload, so we surface it as a lightweight
+ * `context_compaction` event whose running/done state comes from the item/started vs item/completed
+ * method rather than any field on the item.
+ */
+function getContextCompactionItemId(item: unknown): string | null {
+    if (!item || typeof item !== 'object') return null
+    const record = item as Record<string, unknown>
+    if (record.type !== 'contextCompaction') return null
+    return typeof record.id === 'string' ? record.id : null
+}
+
 function getThreadItemId(item: unknown) {
     if (!item || typeof item !== 'object') return null
     const record = item as Record<string, unknown>
@@ -1132,7 +1146,22 @@ export async function runNovelCodexTurn(input: {
         }
         registerActiveCodexRun(activeRunHandle)
 
+        // Idle-timeout guard. Official Codex has no total-turn cap — its clients wait for
+        // `turn/completed` indefinitely (the SDK's wait_for_turn_completed is an unbounded
+        // loop). So we only defend against a genuinely stuck turn: reject after
+        // IDLE_TURN_TIMEOUT_MS of zero activity. Every notification and approval handoff
+        // re-arms it via bumpTurnActivity(), so an actively-streaming turn — long writing
+        // tasks, chained run_llm calls — is never killed mid-flight the way the old fixed
+        // 10-minute total cap did.
+        const IDLE_TURN_TIMEOUT_MS = 10 * 60 * 1000
+        let lastTurnActivityAt = Date.now()
+        const bumpTurnActivity = () => {
+            lastTurnActivityAt = Date.now()
+        }
+
         client.setServerRequestHandler(async (message) => {
+            // A server-side request (approval/elicitation) means Codex is making progress.
+            bumpTurnActivity()
             const method = typeof message.method === 'string' ? message.method : ''
             const params = message.params && typeof message.params === 'object'
                 ? message.params as Record<string, unknown>
@@ -1162,7 +1191,11 @@ export async function runNovelCodexTurn(input: {
             }
 
             input.stream?.onApprovalRequest?.(approvalRequest)
+            // Reset the idle clock at handoff so the human gets the full window to respond,
+            // then again once they do, so their think time never counts against the next turn.
+            bumpTurnActivity()
             const decision = await waitForCodexApprovalDecision(approvalRequest)
+            bumpTurnActivity()
             if (decision.decision === 'acceptForSession') {
                 rememberCodexApprovalForSession(approvalRequest)
             }
@@ -1201,14 +1234,19 @@ export async function runNovelCodexTurn(input: {
         })
 
         await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('Codex turn timed out.'))
-            }, 10 * 60 * 1000)
+            const idleTimer = setInterval(() => {
+                if (Date.now() - lastTurnActivityAt >= IDLE_TURN_TIMEOUT_MS) {
+                    clearInterval(idleTimer)
+                    reject(new Error('Codex turn timed out after 10 minutes with no activity.'))
+                }
+            }, 30 * 1000)
 
             client.setNotificationHandler((message) => {
                 const params = message.params as Record<string, unknown> | undefined
                 if (!params) return
                 if (params.threadId && params.threadId !== threadId) return
+                // Any notification for this thread is progress — keep the idle timer alive.
+                bumpTurnActivity()
 
                 const nextContextWindow = getContextWindowFromTokenCount(params)
                 if (nextContextWindow) {
@@ -1245,6 +1283,13 @@ export async function runNovelCodexTurn(input: {
 
                 if (message.method === 'item/started' && params.turnId === turnId) {
                     const item = params.item
+                    const compactionId = getContextCompactionItemId(item)
+                    if (compactionId) {
+                        const createdAt = eventCreatedAtById.get(compactionId) ?? new Date().toISOString()
+                        eventCreatedAtById.set(compactionId, createdAt)
+                        emitEvent({ id: compactionId, kind: 'context_compaction', title: '', content: 'running', createdAt })
+                        return
+                    }
                     rememberThreadItem(item)
                     const event = getEventFromThreadItem(item)
                     if (event) {
@@ -1277,6 +1322,13 @@ export async function runNovelCodexTurn(input: {
 
                 if (message.method === 'item/completed' && params.turnId === turnId) {
                     const item = params.item
+                    const compactionId = getContextCompactionItemId(item)
+                    if (compactionId) {
+                        const createdAt = eventCreatedAtById.get(compactionId) ?? new Date().toISOString()
+                        eventCreatedAtById.set(compactionId, createdAt)
+                        emitEvent({ id: compactionId, kind: 'context_compaction', title: '', content: 'done', createdAt })
+                        return
+                    }
                     rememberThreadItem(item)
                     void tagSceneEditsWithSession(item, input.sessionId)
                     importGeneratedImage(item)
@@ -1303,7 +1355,7 @@ export async function runNovelCodexTurn(input: {
                 if (message.method === 'turn/completed') {
                     const turn = params.turn as Record<string, unknown> | undefined
                     if (turn?.id !== turnId) return
-                    clearTimeout(timeout)
+                    clearInterval(idleTimer)
                     const status = (turn.status as Record<string, unknown> | undefined)?.type
                     if (status === 'failed') {
                         const error = turn.error as Record<string, unknown> | undefined
@@ -1315,7 +1367,7 @@ export async function runNovelCodexTurn(input: {
             })
 
             client.setExitHandler((error) => {
-                clearTimeout(timeout)
+                clearInterval(idleTimer)
                 if (activeRunHandle) clearActiveCodexRun(input.sessionId, activeRunHandle)
                 reject(error)
             })
@@ -1334,6 +1386,209 @@ export async function runNovelCodexTurn(input: {
             threadId,
             assistantText: assistantText.trim(),
             events: eventOrder.map((eventId) => eventsById.get(eventId)).filter((event): event is CodexRunEvent => event !== undefined),
+            contextWindow,
+            connectionId: connection.id,
+        }
+    } finally {
+        if (activeRunHandle) clearActiveCodexRun(input.sessionId, activeRunHandle)
+        client.close()
+    }
+}
+
+/**
+ * Manually compact a session's Codex thread via `thread/compact/start` (the on-demand counterpart
+ * to the automatic compaction that fires at `model_auto_compact_token_limit`). Progress streams as
+ * standard `turn/*` + `item/*` notifications, so we run it as a lightweight turn: register an active
+ * run so the user can interrupt it, surface the `contextCompaction` divider, and — mirroring the
+ * official app — always land on the "done" state even when interrupted mid-compaction.
+ */
+export async function runNovelCodexCompaction(input: {
+    sessionId: string
+    ownerId: string
+    novelId: string
+    codexThreadId?: string | null
+    codexConnectionId?: string | null
+    reviewLevel?: string | null
+    modelId?: string | null
+    serviceTier?: string | null
+    stream?: CodexRunStreamHandlers
+}) {
+    if (!input.codexThreadId) {
+        throw new Error('This session has no Codex thread to compact yet.')
+    }
+
+    const [sessionWorkspacePath, connection] = await Promise.all([
+        ensureCodexSessionWorkspace({
+            ownerId: input.ownerId,
+            novelId: input.novelId,
+            sessionId: input.sessionId,
+        }),
+        input.codexConnectionId
+            ? prisma.codexConnection.findFirst({
+                where: { id: input.codexConnectionId, ownerId: input.ownerId },
+            })
+            : prisma.codexConnection.findFirst({
+                where: { ownerId: input.ownerId, isActive: true },
+                orderBy: { createdAt: 'asc' },
+            }),
+    ])
+
+    if (!connection) {
+        throw new Error('No Codex connection is available.')
+    }
+
+    const codexHome = await ensureCodexConnectionHome(input.ownerId, connection.id)
+    const reviewLevel = normalizeCodexReviewLevel(input.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL
+    const reviewOptions = getCodexRuntimeReviewOptions(reviewLevel)
+    const client = await CodexAppServerClient.create(codexHome)
+    const modelId = typeof input.modelId === 'string' && input.modelId.trim()
+        ? input.modelId.trim()
+        : 'gpt-5.4'
+    const requestedServiceTier = normalizeCodexServiceTier(input.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
+    const serviceTier =
+        requestedServiceTier === 'fast' &&
+        connection.providerType === 'openai-official' &&
+        connection.authStatus === 'authenticated'
+            ? 'fast'
+            : null
+
+    let contextWindow: CodexContextWindow | null = null
+    let activeRunHandle: ActiveCodexRunHandle | null = null
+
+    try {
+        const threadResponse = await client.request<{ thread: { id: string } }>('thread/resume', {
+            threadId: input.codexThreadId,
+            model: modelId,
+            serviceTier,
+            cwd: sessionWorkspacePath,
+            approvalPolicy: reviewOptions.approvalPolicy,
+            approvalsReviewer: reviewOptions.approvalsReviewer,
+            sandbox: 'workspace-write',
+            excludeTurns: true,
+        })
+        const threadId = threadResponse.thread.id
+
+        let turnId: string | null = null
+        activeRunHandle = {
+            sessionId: input.sessionId,
+            client,
+            threadId,
+            get turnId() {
+                return turnId ?? ''
+            },
+            set turnId(value: string) {
+                turnId = value
+            },
+            emitEvent: (event) => {
+                input.stream?.onEvent?.(event)
+            },
+        }
+        registerActiveCodexRun(activeRunHandle)
+
+        const IDLE_TURN_TIMEOUT_MS = 10 * 60 * 1000
+        let lastTurnActivityAt = Date.now()
+        const bumpTurnActivity = () => {
+            lastTurnActivityAt = Date.now()
+        }
+
+        let compactionItemId: string | null = null
+        let compactionDone = false
+        const emitCompaction = (id: string, status: 'running' | 'done') => {
+            compactionItemId = id
+            if (status === 'done') compactionDone = true
+            input.stream?.onEvent?.({
+                id,
+                kind: 'context_compaction',
+                title: '',
+                content: status,
+                createdAt: new Date().toISOString(),
+            })
+        }
+
+        // thread/compact/start returns {} immediately; the work streams as turn/* + item/* below.
+        await client.request('thread/compact/start', { threadId })
+
+        await new Promise<void>((resolve, reject) => {
+            const idleTimer = setInterval(() => {
+                if (Date.now() - lastTurnActivityAt >= IDLE_TURN_TIMEOUT_MS) {
+                    clearInterval(idleTimer)
+                    reject(new Error('Codex compaction timed out after 10 minutes with no activity.'))
+                }
+            }, 30 * 1000)
+
+            let settled = false
+            const finish = () => {
+                if (settled) return
+                settled = true
+                clearInterval(idleTimer)
+                // Always settle on a visible "compacted" divider — even an interrupted compaction
+                // shows "Context compacted" in the official app, so we match that.
+                if (compactionItemId && !compactionDone) emitCompaction(compactionItemId, 'done')
+                else if (!compactionItemId) emitCompaction(`codex_compaction_${threadId}`, 'done')
+                resolve()
+            }
+
+            client.setNotificationHandler((message) => {
+                const params = message.params as Record<string, unknown> | undefined
+                if (!params) return
+                if (params.threadId && params.threadId !== threadId) return
+                bumpTurnActivity()
+
+                if (typeof params.turnId === 'string' && !turnId) {
+                    turnId = params.turnId
+                }
+
+                const nextContextWindow = getContextWindowFromTokenCount(params)
+                if (nextContextWindow) {
+                    contextWindow = nextContextWindow
+                    input.stream?.onContextWindow?.(nextContextWindow)
+                    return
+                }
+
+                if (message.method === 'turn/started') {
+                    const turn = params.turn as Record<string, unknown> | undefined
+                    if (typeof turn?.id === 'string') turnId = turn.id
+                    return
+                }
+
+                if (message.method === 'item/started') {
+                    const id = getContextCompactionItemId(params.item)
+                    if (id) emitCompaction(id, 'running')
+                    return
+                }
+
+                if (message.method === 'item/completed') {
+                    const id = getContextCompactionItemId(params.item)
+                    if (id) {
+                        emitCompaction(id, 'done')
+                        // The compaction item completing is the definitive done-signal; resolve on it
+                        // in case the server doesn't follow with a separate turn/completed.
+                        finish()
+                    }
+                    return
+                }
+
+                if (message.method === 'turn/completed') {
+                    const turn = params.turn as Record<string, unknown> | undefined
+                    if (turnId && turn?.id !== turnId) return
+                    finish()
+                }
+            })
+
+            client.setExitHandler((error) => {
+                clearInterval(idleTimer)
+                if (activeRunHandle) clearActiveCodexRun(input.sessionId, activeRunHandle)
+                reject(error)
+            })
+        })
+
+        if (!contextWindow) {
+            contextWindow = await readLatestContextWindowFromSessionLog(codexHome, threadId)
+            if (contextWindow) input.stream?.onContextWindow?.(contextWindow)
+        }
+
+        return {
+            threadId,
             contextWindow,
             connectionId: connection.id,
         }
