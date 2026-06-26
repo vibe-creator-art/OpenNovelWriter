@@ -197,10 +197,13 @@ export function SceneOperationRunDialog({
         chapters: chapters ?? undefined,
     })
 
+    // `model` is a fresh object every render (useInputsEditorModel returns a plain literal),
+    // so depend on the stable `setPreviewSceneId` callback to avoid an every-render setState loop.
+    const { setPreviewSceneId } = model
     useEffect(() => {
         if (!shouldLoad) return
-        model.setPreviewSceneId(sceneId)
-    }, [model, sceneId, shouldLoad])
+        setPreviewSceneId(sceneId)
+    }, [setPreviewSceneId, sceneId, shouldLoad])
 
     useEffect(() => {
         if (open && (generating || resultText.trim() || reasoningText.trim() || runError)) {

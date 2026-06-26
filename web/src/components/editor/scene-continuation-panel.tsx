@@ -630,9 +630,14 @@ export function SceneContinuationPanel({
         instructionText,
     })
 
+    // Depend on the stable `setPreviewSceneId` callback, NOT the whole `model` object.
+    // `useInputsEditorModel` returns a fresh object literal every render, so `[model, ...]`
+    // re-runs this effect on every render — and because the effect itself calls setState,
+    // that turns into a setState→render→setState feedback loop ("Maximum update depth exceeded").
+    const { setPreviewSceneId } = model
     useEffect(() => {
-        model.setPreviewSceneId(sceneId)
-    }, [model, sceneId])
+        setPreviewSceneId(sceneId)
+    }, [setPreviewSceneId, sceneId])
 
     const renderedMessages = useMemo(
         () =>
