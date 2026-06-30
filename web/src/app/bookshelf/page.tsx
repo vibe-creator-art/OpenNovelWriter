@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, type ChangeEvent } from 'reac
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { actApi, Novel, novelApi, sceneApi, snippetApi, termsApi, chapterApi, uploadApi } from '@/lib/api'
-import { useAuthStore } from '@/lib/store'
+import { useAuthStore, useSettingsStore } from '@/lib/store'
 import { NovelCard } from '@/components/novel-card'
 import { NovelFormDialog } from '@/components/novel-form-dialog'
 import { NovelLoadingOverlay } from '@/components/novel-loading-overlay'
@@ -37,6 +37,7 @@ import { TavernImportDialog } from '@/components/tavern-import-dialog'
 export default function BookshelfPage() {
     const router = useRouter()
     const { token, user, logout, isHydrated } = useAuthStore()
+    const fastNovelOpen = useSettingsStore((s) => s.fastNovelOpen)
     const [novels, setNovels] = useState<Novel[]>([])
     const [loading, setLoading] = useState(true)
     const [formOpen, setFormOpen] = useState(false)
@@ -129,6 +130,14 @@ export default function BookshelfPage() {
     const handleNovelClick = (novel: Novel) => {
         setLoadingNovelTitle(novel.title)
         setLoadingOverlayVisible(true)
+
+        // The overlay still shows while the editor loads. The delay below only
+        // exists to fully reveal the animation; "fast open" skips it and lets
+        // navigation start immediately.
+        if (fastNovelOpen) {
+            router.push(`/editor/${novel.id}`)
+            return
+        }
 
         // Navigate after a short delay to show the animation
         setTimeout(() => {

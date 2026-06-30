@@ -10,8 +10,9 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { useSettingsStore, Locale } from '@/lib/store'
-import { Key, Settings, Globe, Bot } from 'lucide-react'
+import { Key, Settings, Globe, Bot, Zap } from 'lucide-react'
 import { AIConnectionsTab } from '@/components/settings/ai-connections-tab'
 import { CodexConnectionsTab } from '@/components/settings/codex-connections-tab'
 
@@ -95,7 +96,7 @@ function TabButton({ active, onClick, icon, label }: TabButtonProps) {
 }
 
 function GeneralTab() {
-    const { locale, setLocale } = useSettingsStore()
+    const { locale, setLocale, fastNovelOpen, setFastNovelOpen } = useSettingsStore()
     const t = useTranslations('settings.general')
 
     const languages: { value: Locale; label: string }[] = [
@@ -124,6 +125,23 @@ function GeneralTab() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                     {t('languageHint')}
+                </p>
+            </div>
+
+            <div className="space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                    <Label htmlFor="fast-novel-open" className="flex items-center gap-2">
+                        <Zap className="h-4 w-4" />
+                        {t('fastNovelOpen')}
+                    </Label>
+                    <Switch
+                        id="fast-novel-open"
+                        checked={fastNovelOpen}
+                        onCheckedChange={setFastNovelOpen}
+                    />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                    {t('fastNovelOpenHint')}
                 </p>
             </div>
         </div>

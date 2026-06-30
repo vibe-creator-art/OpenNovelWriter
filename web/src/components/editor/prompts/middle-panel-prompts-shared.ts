@@ -40,8 +40,6 @@ export type BundlePromptSource = {
     messages: PromptMessage[]
     inputs: Prompt['inputs']
     isNsfw?: boolean
-    modelGroupIds?: string[]
-    modelSetIds?: string[]
     allowLlmCall?: boolean
     allowAgentCall?: boolean
     agentCallMode?: Prompt['agentCallMode']
@@ -199,6 +197,7 @@ export function toPromptBundlePrompt(source: BundlePromptSource): PromptBundlePr
     const category = coerceCategory(String(source.category))
     if (!name || !category) return null
 
+    // Model bindings are user-local and never exported — a copied/exported prompt carries none.
     return {
         name,
         category,
@@ -206,8 +205,6 @@ export function toPromptBundlePrompt(source: BundlePromptSource): PromptBundlePr
         messages: source.messages ?? [],
         inputs: source.inputs ?? [],
         isNsfw: source.isNsfw === true,
-        modelGroupIds: Array.isArray(source.modelGroupIds) ? source.modelGroupIds : [],
-        modelSetIds: Array.isArray(source.modelSetIds) ? source.modelSetIds : [],
         allowLlmCall: source.allowLlmCall === true,
         allowAgentCall: source.allowAgentCall === true,
         agentCallMode: source.agentCallMode ?? 'generate_then_agent',

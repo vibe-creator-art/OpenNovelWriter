@@ -449,6 +449,57 @@ const tools = [
             additionalProperties: false,
         },
     },
+    {
+        name: 'describe_prompt',
+        description:
+            'Inspect a saved OpenNovelWriter prompt so you know what to pass to `compose_scene_continuation`. Use this only when a skill tells you to assemble a specific prompt — the active skill\'s instructions name the prompt to use; pass that exact name here. Returns the prompt\'s `inputs` grouped by type: `custom` (free text and/or a dropdown of option labels — give a final string value), `checkbox` (a boolean), and `content_selection` (you CANNOT fill these — they are left at their default). If `unsupportedRequiredContentSelection` is non-empty, the prompt has a required content-selection input that cannot be assembled this way; tell the author it is not supported yet and stop. Also returns the bound model `groups` (the first is the default for a later run_llm).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                promptName: { type: 'string', description: 'The exact prompt name the active skill\'s instructions tell you to use. Prompt names are unique across the author\'s prompts.' },
+            },
+            required: ['promptName'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'compose_scene_continuation',
+        description:
+            'Assemble a scene-continuation prompt into a conversation artifact, exactly as the scene-continuation panel would — without a real panel. Use this only when a skill tells you to assemble a specific prompt. Call `describe_prompt` first to learn the inputs. This tool renders the prompt (`promptName`) against a concrete scene plus your `instruction` and `inputs`, pulling in the scene\'s previous/following text, the terms mentioned in your instruction, outlines, etc., and writes a `## system` / `## user` markdown file to `mdPath` under this Codex session artifacts directory. Its job ends there: it does NOT call a model and does NOT touch the manuscript. What happens next (run_llm, showing the result, editing the scene) is decided by the skill / author. Returns the written `mdPath`, the bound `groups`, and any `missingInputs` / `unsupportedRequiredContentSelection` warnings.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                promptName: { type: 'string', description: 'The exact prompt name the active skill\'s instructions tell you to use (the same one you passed to describe_prompt).' },
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                sceneId: { type: 'string', description: 'The scene id the continuation is for (from a `<!-- scene_id: ... -->` comment).' },
+                mdPath: { type: 'string', description: 'Absolute output path ending in `.md` under this Codex session artifacts directory. The assembled conversation is written here (overwriting any existing file).' },
+                instruction: { type: 'string', description: 'The continuation instruction — the same free text the author would type into the panel. Terms mentioned here are auto-detected and their knowledge injected, just like the panel. Pass an empty string only if the prompt truly needs no instruction.' },
+                inputs: {
+                    type: 'object',
+                    description: 'Values for the prompt\'s inputs, grouped by type (see describe_prompt). Omit any input to use its default. `content_selection` inputs cannot be set here.',
+                    properties: {
+                        custom: {
+                            type: 'object',
+                            description: 'Custom inputs by name → final string value (e.g. {"目标字数": "2000"}). For a dropdown input, pass the chosen option label as the string.',
+                            additionalProperties: { type: 'string' },
+                        },
+                        checkbox: {
+                            type: 'object',
+                            description: 'Checkbox inputs by name → boolean (e.g. {"启用planning": true}).',
+                            additionalProperties: { type: 'boolean' },
+                        },
+                    },
+                    additionalProperties: false,
+                },
+                afterParagraph: {
+                    type: 'string',
+                    description: 'Where the virtual panel sits: an exact, unique run of existing scene prose to place the continuation AFTER (this becomes the previous-text / following-text split, like dropping a panel right after that line). Omit or pass an empty string to place it at the very front of the scene.',
+                },
+            },
+            required: ['promptName', 'novelId', 'sceneId', 'mdPath', 'instruction'],
+            additionalProperties: false,
+        },
+    },
 ]
 
 let buffer = ''
@@ -623,6 +674,10 @@ async function callTool(params) {
                 return toolResult(await getContinuationDraft(args))
             case 'set_continuation_draft':
                 return toolResult(await setContinuationDraft(args))
+            case 'describe_prompt':
+                return toolResult(await describePrompt(args))
+            case 'compose_scene_continuation':
+                return toolResult(await composeSceneContinuation(args))
             default:
                 throw new Error(`Unknown tool: ${name}`)
         }
@@ -1928,6 +1983,111 @@ async function runLlm(args) {
     }
 }
 
+// POST a JSON body to one of the app's internal Codex endpoints (authenticated with the shared
+// internal token) and return its parsed `{ ok, ... }` payload. Mirrors how run_llm calls back into
+// the app: the MCP runs as a separate process and cannot import the app's TS render pipeline.
+async function callInternalCodexEndpoint(pathName, body, timeoutMs) {
+    if (!internalToken) {
+        throw new Error(`This tool is not configured: missing OPENNOVELWRITER_INTERNAL_TOKEN. Re-sync the Codex connection.`)
+    }
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs ?? 60_000)
+    try {
+        const response = await fetch(`${internalBaseUrl}${pathName}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-onw-internal-token': internalToken },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        })
+        const payload = await response.json().catch(() => null)
+        if (!response.ok || !payload?.ok) {
+            throw new Error(payload?.detail || `Request failed with status ${response.status}.`)
+        }
+        return payload
+    } catch (error) {
+        if (error && error.name === 'AbortError') {
+            throw new Error(`Request timed out after ${Math.round((timeoutMs ?? 60_000) / 1000)}s.`)
+        }
+        throw error
+    } finally {
+        clearTimeout(timeout)
+    }
+}
+
+async function describePrompt(args) {
+    const promptName = requireNonEmptyString(args.promptName, 'promptName')
+    const payload = await callInternalCodexEndpoint('/api/internal/codex/describe-prompt', { ownerId, promptName }, 30_000)
+    return { ok: true, prompt: payload.prompt }
+}
+
+async function composeSceneContinuation(args) {
+    const promptName = requireNonEmptyString(args.promptName, 'promptName')
+    const novelId = requireNonEmptyString(args.novelId, 'novelId')
+    const sceneId = requireNonEmptyString(args.sceneId, 'sceneId')
+    const mdPath = requireNonEmptyString(args.mdPath, 'mdPath')
+    const instruction = requireString(args.instruction, 'instruction')
+    const afterParagraph = args.afterParagraph === undefined || args.afterParagraph === null
+        ? ''
+        : requireString(args.afterParagraph, 'afterParagraph')
+    const inputs = normalizeComposeInputs(args.inputs)
+
+    // Resolve + validate the output path before doing any work: it must live in a session this
+    // connection owns, so Codex cannot write the assembled prompt anywhere else.
+    const output = await resolveArtifactOutputPath(mdPath)
+    const session = await prisma.codexSession.findFirst({
+        where: { id: output.sessionId, ownerId },
+        select: { id: true },
+    })
+    if (!session) {
+        throw new Error(`Codex session ${output.sessionId} was not found for this connection.`)
+    }
+
+    const payload = await callInternalCodexEndpoint(
+        '/api/internal/codex/compose-continuation',
+        { ownerId, promptName, novelId, sceneId, instruction, inputs, afterParagraph },
+        90_000
+    )
+
+    await fs.writeFile(output.realPath, payload.markdown, 'utf8')
+
+    return {
+        ok: true,
+        mdPath: output.realPath,
+        promptName: payload.promptName,
+        groups: payload.groups ?? [],
+        missingInputs: payload.missingInputs ?? [],
+        unsupportedRequiredContentSelection: payload.unsupportedRequiredContentSelection ?? [],
+    }
+}
+
+function normalizeComposeInputs(raw) {
+    if (raw === undefined || raw === null) return { custom: {}, checkbox: {} }
+    if (typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new Error('inputs must be an object with optional `custom` and `checkbox` maps.')
+    }
+    const custom = {}
+    if (raw.custom !== undefined && raw.custom !== null) {
+        if (typeof raw.custom !== 'object' || Array.isArray(raw.custom)) {
+            throw new Error('inputs.custom must be an object mapping input names to string values.')
+        }
+        for (const [name, value] of Object.entries(raw.custom)) {
+            if (typeof value !== 'string') throw new Error(`inputs.custom["${name}"] must be a string.`)
+            custom[name] = value
+        }
+    }
+    const checkbox = {}
+    if (raw.checkbox !== undefined && raw.checkbox !== null) {
+        if (typeof raw.checkbox !== 'object' || Array.isArray(raw.checkbox)) {
+            throw new Error('inputs.checkbox must be an object mapping input names to booleans.')
+        }
+        for (const [name, value] of Object.entries(raw.checkbox)) {
+            if (typeof value !== 'boolean') throw new Error(`inputs.checkbox["${name}"] must be a boolean.`)
+            checkbox[name] = value
+        }
+    }
+    return { custom, checkbox }
+}
+
 async function getContinuationDraft(args) {
     const panelId = requireNonEmptyString(args.panelId, 'panelId')
     const draft = await requireOwnedContinuationDraft(panelId)
@@ -2358,6 +2518,35 @@ async function resolveArtifactMarkdownPath(rawPath) {
     }
 
     return { realPath, sessionId }
+}
+
+// Like resolveArtifactMarkdownPath, but for a file that may not exist yet (an output target): we
+// realpath the parent directory instead of the file, so compose_scene_continuation can write a new
+// `.md` while still guaranteeing the path stays inside a session this connection owns.
+async function resolveArtifactOutputPath(rawPath) {
+    if (!path.isAbsolute(rawPath)) {
+        throw new Error('mdPath must be an absolute path inside this Codex session artifacts directory.')
+    }
+    const resolvedPath = path.resolve(rawPath)
+    if (path.extname(resolvedPath).toLowerCase() !== '.md') {
+        throw new Error('mdPath must point to a .md file.')
+    }
+
+    const realParent = await fs.realpath(path.dirname(resolvedPath))
+    const realSessionsOwnerRoot = await fs.realpath(path.join(getOpenNovelWriterDataDir(), 'codex', 'sessions', ownerId))
+    const relativeToSessions = path.relative(realSessionsOwnerRoot, realParent)
+    const segments = relativeToSessions.split(path.sep)
+    if (
+        !relativeToSessions ||
+        relativeToSessions.startsWith('..') ||
+        path.isAbsolute(relativeToSessions) ||
+        segments.length < 2 ||
+        segments[1] !== 'artifacts'
+    ) {
+        throw new Error('mdPath must be inside a Codex session artifacts directory.')
+    }
+
+    return { realPath: path.join(realParent, path.basename(resolvedPath)), sessionId: segments[0] }
 }
 
 function toSnippetProjectionInput(snippet) {

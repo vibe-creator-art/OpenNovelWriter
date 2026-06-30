@@ -430,9 +430,10 @@ export function PromptEditorPanel({
                     </div>
                     <Separator className="mb-4" />
 
-                    <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0 disabled:opacity-60">
+                    {/* Model bindings are user-local, not preset content — kept outside the read-only
+                        fieldset so a preset-sourced prompt can still bind/unbind models in place. */}
                     {editorTab === 'general' && (
-                        <div className="space-y-4">
+                        <div className="mb-4">
                             <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(280px,1fr)]">
                                 <div className="flex h-full flex-col space-y-3 rounded-xl border bg-card p-4">
                                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -578,7 +579,12 @@ export function PromptEditorPanel({
                                     )}
                                 </div>
                             </div>
+                        </div>
+                    )}
 
+                    <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0 disabled:opacity-60">
+                    {editorTab === 'general' && (
+                        <div className="space-y-4">
                             <div className="rounded-md border bg-card p-4 space-y-4">
                                 <div className="text-sm font-medium">{t('general.settings.title')}</div>
 

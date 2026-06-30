@@ -285,8 +285,6 @@ export function usePromptClipboard(params: {
                     messages: prompt.messages ?? [],
                     inputs: prompt.inputs ?? [],
                     isNsfw: prompt.isNsfw === true,
-                    modelGroupIds: prompt.modelGroupIds ?? [],
-                    modelSetIds: prompt.modelSetIds ?? [],
                     allowLlmCall: prompt.allowLlmCall === true,
                     allowAgentCall: prompt.allowAgentCall === true,
                     agentCallMode: prompt.agentCallMode ?? 'generate_then_agent',

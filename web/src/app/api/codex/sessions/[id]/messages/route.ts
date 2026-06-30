@@ -231,6 +231,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             (_full, label: string, snippetId: string) =>
                 `${label} (snippet — read its full content in novel/snippets/${snippetId}.md before responding)`
         )
+        // A material reference points Codex at the imported document's projected file (keyed by id).
+        // Materials can be large, so this @-mention is the only signal to open one — Codex otherwise
+        // leaves novel/materials/ alone (see AGENTS.md).
+        .replace(
+            /\[([^\]]+)\]\(material:([^)]+)\)/g,
+            (_full, label: string, materialId: string) =>
+                `${label} (material — read its full content in novel/materials/${materialId}.md before responding)`
+        )
         // A chapter detailed-outline (章纲) reference: read the projected file when it has content,
         // otherwise tell Codex the slot exists but is empty (a write target). Must run before the bare
         // `chapter:` rewrite — it is a longer, more specific token, but they are textually distinct.

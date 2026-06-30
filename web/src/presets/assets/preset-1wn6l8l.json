@@ -129,8 +129,6 @@
           }
         ],
         "isNsfw": false,
-        "modelGroupIds": [],
-        "modelSetIds": [],
         "allowLlmCall": true,
         "allowAgentCall": true,
         "agentCallMode": "generate_then_agent"

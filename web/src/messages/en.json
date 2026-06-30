@@ -410,6 +410,8 @@
         "general": {
             "language": "Interface Language",
             "languageHint": "Choose display language",
+            "fastNovelOpen": "Quick open",
+            "fastNovelOpenHint": "Skip the delay that's only there to show the opening animation and go straight into the novel. The animation still appears if loading is slow.",
             "comingSoon": "More settings coming soon"
         }
     },
@@ -1242,8 +1244,8 @@
         "editor": {
             "emptyState": "Select a prompt to edit",
             "name": "Name",
-            "presetReadOnlyNotice": "Read-only — clone it first to edit",
-            "presetReadOnlyNoticeVersioned": "Cloned from preset v{revision} — read-only, clone it first to edit",
+            "presetReadOnlyNotice": "Content is read-only — clone it first to edit (model bindings can still be changed)",
+            "presetReadOnlyNoticeVersioned": "Cloned from preset v{revision} — content is read-only, clone it first to edit (model bindings can still be changed)",
             "presetUpdateAvailable": "Update available",
             "presetUpdateClone": "Clone update",
             "systemMessage": "System Message",

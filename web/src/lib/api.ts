@@ -520,6 +520,13 @@ export const promptApi = {
             body: JSON.stringify(updates),
         }),
 
+    // Model bindings are user-local: this works even on preset-sourced (read-only) prompts.
+    updateModelBindings: (id: string, bindings: { modelGroupIds?: string[]; modelSetIds?: string[] }) =>
+        fetchApi<{ prompt: Prompt }>(`/prompts/${id}/model-bindings`, {
+            method: 'PUT',
+            body: JSON.stringify(bindings),
+        }),
+
     delete: (id: string) =>
         fetchApi<{ ok: true }>(`/prompts/${id}`, { method: 'DELETE' }),
 
@@ -534,8 +541,6 @@ export const promptApi = {
             messages: PromptMessage[]
             inputs: PromptInputDefinition[]
             isNsfw?: boolean
-            modelGroupIds?: string[]
-            modelSetIds?: string[]
             allowLlmCall?: boolean
             allowAgentCall?: boolean
             agentCallMode?: PromptAgentCallMode

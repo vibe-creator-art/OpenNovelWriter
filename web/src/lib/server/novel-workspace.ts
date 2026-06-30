@@ -53,6 +53,7 @@ const SNIPPET_INDEX_FILE_NAME = 'snippet.md'
 const CHAPTERS_DIR_NAME = 'chapters'
 const TERMS_DIR_NAME = 'terms'
 const SNIPPETS_DIR_NAME = 'snippets'
+const MATERIALS_DIR_NAME = 'materials'
 const DETAILED_OUTLINE_DIR_NAME = 'DetailedOutline'
 const DETAILED_OUTLINE_CHAPTERS_DIR_NAME = 'chapters'
 const DETAILED_OUTLINE_ACTS_DIR_NAME = 'acts'
@@ -161,6 +162,10 @@ export function getNovelWorkspaceSnippetPath(ownerId: string, novelId: string, s
     return getNovelWorkspaceProjectionPath(ownerId, novelId, SNIPPETS_DIR_NAME, `${snippetId}.md`)
 }
 
+export function getNovelWorkspaceMaterialsPath(ownerId: string, novelId: string) {
+    return getNovelWorkspaceProjectionPath(ownerId, novelId, MATERIALS_DIR_NAME)
+}
+
 export function getNovelWorkspaceTermPath(ownerId: string, novelId: string, title: string) {
     return getNovelWorkspaceProjectionPath(ownerId, novelId, TERMS_DIR_NAME, getNovelWorkspaceTermFileName(title))
 }
@@ -220,6 +225,7 @@ export async function ensureNovelWorkspace(ownerId: string, novelId: string) {
         syncNovelWorkspaceOutline(ownerId, novelId),
         syncNovelWorkspaceSnippets(ownerId, novelId),
         syncNovelWorkspaceDetailedOutlines(ownerId, novelId),
+        syncNovelWorkspaceMaterials(ownerId, novelId),
     ])
 
     const chaptersPath = getNovelWorkspaceChaptersPath(ownerId, novelId)
@@ -245,6 +251,7 @@ export async function ensureNovelWorkspaces(ownerId: string, novelIds: string[])
             syncNovelWorkspaceOutline(ownerId, novelId),
             syncNovelWorkspaceSnippets(ownerId, novelId),
             syncNovelWorkspaceDetailedOutlines(ownerId, novelId),
+            syncNovelWorkspaceMaterials(ownerId, novelId),
         ])
         const chaptersPath = getNovelWorkspaceChaptersPath(ownerId, novelId)
         if (!(await hasMarkdownFiles(chaptersPath))) {
@@ -616,6 +623,35 @@ export async function syncNovelWorkspaceSnippet(ownerId: string, novelId: string
     ])
 
     return snippetPath
+}
+
+/**
+ * Materialize each imported reference document (资料) as a read-only Markdown file under
+ * `novel/materials/<id>.md`, keyed by id so the file name carries no content hint. Full rebuild:
+ * the folder is wiped first, so deleted/renamed materials disappear automatically. Materials can be
+ * large (a whole novel), so the agent is told in AGENTS.md to open one only when the author
+ * @-mentions it — never to browse this folder on its own.
+ */
+export async function syncNovelWorkspaceMaterials(ownerId: string, novelId: string) {
+    await ensureNovelWorkspaceDirectory(ownerId, novelId)
+    const materials = await prisma.material.findMany({
+        where: { novelId, novel: { ownerId } },
+        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        select: { id: true, name: true, content: true },
+    })
+
+    const materialsPath = getNovelWorkspaceMaterialsPath(ownerId, novelId)
+    await fs.rm(materialsPath, { recursive: true, force: true })
+    if (materials.length === 0) return { materialsPath, written: [] as string[] }
+
+    const written = await Promise.all(materials.map(async (material) => {
+        const filePath = path.join(materialsPath, `${material.id}.md`)
+        const heading = material.name.trim() ? `# ${material.name.trim()}\n\n` : ''
+        await writeReadonlyProjectionFile(filePath, `${heading}${material.content}`)
+        return filePath
+    }))
+
+    return { materialsPath, written }
 }
 
 export async function removeNovelWorkspaceChapter(ownerId: string, novelId: string, chapterId: string) {

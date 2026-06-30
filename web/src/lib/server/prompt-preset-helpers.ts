@@ -17,22 +17,6 @@ import { toPromptNameKey } from '@/lib/server/prompt-names'
 type PromptRecord = Parameters<typeof toPromptDto>[0]
 type Tx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
-function normalizeStringIdList(value: unknown) {
-    if (value === undefined) return undefined
-    if (!Array.isArray(value)) return null
-
-    const seen = new Set<string>()
-    const result: string[] = []
-    for (const item of value) {
-        if (typeof item !== 'string') continue
-        const trimmed = item.trim()
-        if (!trimmed || seen.has(trimmed)) continue
-        seen.add(trimmed)
-        result.push(trimmed)
-    }
-    return result
-}
-
 function normalizeNameKey(value: string) {
     return value.trim().toLowerCase()
 }
@@ -42,6 +26,8 @@ function toPromptBundlePrompt(record: PromptRecord): PromptBundlePromptV1 | null
     if (!category) return null
 
     const dto = toPromptDto(record)
+    // Model bindings (modelGroupIds / modelSetIds) are user-local, not preset content: they are
+    // never exported into a preset, so a published bundle carries no bindings.
     return {
         name: dto.name.trim(),
         category,
@@ -49,24 +35,10 @@ function toPromptBundlePrompt(record: PromptRecord): PromptBundlePromptV1 | null
         messages: dto.messages ?? [],
         inputs: dto.inputs ?? [],
         isNsfw: dto.isNsfw === true,
-        modelGroupIds: dto.modelGroupIds ?? [],
-        modelSetIds: dto.modelSetIds ?? [],
         allowLlmCall: dto.allowLlmCall === true,
         allowAgentCall: dto.allowAgentCall === true,
         agentCallMode: dto.agentCallMode ?? 'generate_then_agent',
     }
-}
-
-function promptHasPrivateModelBindings(prompt: PromptBundlePromptV1) {
-    return (prompt.modelGroupIds?.length ?? 0) > 0 || (prompt.modelSetIds?.length ?? 0) > 0
-}
-
-export function getPromptPresetIllegalBindingDetail(presetName: string, promptName: string) {
-    return `Preset "${presetName}" cannot be published because prompt "${promptName}" still contains private model bindings.`
-}
-
-export function getPromptPresetCloneIllegalBindingDetail(presetName: string, promptName: string) {
-    return `Preset "${presetName}" cannot be cloned because prompt "${promptName}" still contains private model bindings.`
 }
 
 export async function buildPromptPresetAssetFromOwnedPrompt(params: {
@@ -131,14 +103,6 @@ export async function buildPromptPresetAssetFromOwnedPrompt(params: {
     }
 
     const promptsForBundle = [entryPrompt, ...dependencyPrompts]
-    const illegalPrompt = promptsForBundle.find(promptHasPrivateModelBindings) ?? null
-    if (illegalPrompt) {
-        return {
-            ok: false,
-            status: 400,
-            detail: getPromptPresetIllegalBindingDetail(params.name, illegalPrompt.name),
-        }
-    }
 
     const exportedAt = new Date().toISOString()
     const bundle: PromptBundleV1 = {
@@ -177,6 +141,8 @@ export async function importPromptBundleForOwner(params: {
     | { ok: true; prompts: ReturnType<typeof toPromptDto>[] }
     | { ok: false; status: number; detail: string; code?: string; names?: string[] }
 > {
+    // Model bindings are user-local and never travel in a preset: incoming bindings are ignored, a
+    // newly created prompt starts unbound, and an upgrade leaves the existing prompt's bindings alone.
     const imported: Array<{
         name: string
         category: PromptCategory
@@ -184,8 +150,6 @@ export async function importPromptBundleForOwner(params: {
         messages: unknown
         inputs: unknown
         isNsfw: boolean
-        modelGroupIds: string[] | undefined
-        modelSetIds: string[] | undefined
         allowLlmCall: boolean
         allowAgentCall: boolean
         agentCallMode: ReturnType<typeof normalizePromptAgentCallMode>
@@ -194,20 +158,9 @@ export async function importPromptBundleForOwner(params: {
     for (const prompt of params.bundle.prompts) {
         const name = typeof prompt.name === 'string' ? prompt.name.trim() : ''
         const category = normalizePromptCategory(prompt.category)
-        const modelGroupIds = normalizeStringIdList(prompt.modelGroupIds)
-        const modelSetIds = normalizeStringIdList(prompt.modelSetIds)
 
         if (!name) return { ok: false, status: 400, detail: 'Name is required.' }
         if (!category) return { ok: false, status: 400, detail: 'Invalid category.' }
-        if (modelGroupIds === null) return { ok: false, status: 400, detail: 'Invalid modelGroupIds.' }
-        if (modelSetIds === null) return { ok: false, status: 400, detail: 'Invalid modelSetIds.' }
-        if ((modelGroupIds?.length ?? 0) > 0 || (modelSetIds?.length ?? 0) > 0) {
-            return {
-                ok: false,
-                status: 400,
-                detail: getPromptPresetCloneIllegalBindingDetail(params.bundle.entryName, name),
-            }
-        }
 
         imported.push({
             name,
@@ -216,8 +169,6 @@ export async function importPromptBundleForOwner(params: {
             messages: prompt.messages,
             inputs: prompt.inputs ?? [],
             isNsfw: prompt.isNsfw === true,
-            modelGroupIds,
-            modelSetIds,
             allowLlmCall: category === 'component' ? false : prompt.allowLlmCall === true,
             allowAgentCall: category === 'component' ? false : prompt.allowAgentCall === true,
             agentCallMode: normalizePromptAgentCallMode(prompt.agentCallMode),
@@ -271,8 +222,6 @@ export async function importPromptBundleForOwner(params: {
         messagesJson: string
         inputsJson: string
         isNsfw: boolean
-        modelGroupIdsJson: string
-        modelSetIdsJson: string
         allowLlmCall: boolean
         allowAgentCall: boolean
         agentCallMode: ReturnType<typeof normalizePromptAgentCallMode>
@@ -293,8 +242,6 @@ export async function importPromptBundleForOwner(params: {
             messagesJson: JSON.stringify(normalized.messages),
             inputsJson: JSON.stringify(inputs),
             isNsfw: prompt.isNsfw,
-            modelGroupIdsJson: JSON.stringify(prompt.modelGroupIds ?? []),
-            modelSetIdsJson: JSON.stringify(prompt.modelSetIds ?? []),
             allowLlmCall: prompt.allowLlmCall,
             allowAgentCall: prompt.allowAgentCall,
             agentCallMode: prompt.agentCallMode,
@@ -305,6 +252,7 @@ export async function importPromptBundleForOwner(params: {
     for (const prompt of prepared) {
         const existing = existingByNameKey.get(toPromptNameKey(prompt.name)) ?? null
         const record = existing && params.overwriteExisting
+            // Upgrade: refresh preset content but never touch the user's model bindings.
             ? await params.prisma.prompt.update({
                 where: { id: existing.id },
                 data: {
@@ -313,8 +261,6 @@ export async function importPromptBundleForOwner(params: {
                     description: prompt.description,
                     messagesJson: prompt.messagesJson,
                     inputsJson: prompt.inputsJson,
-                    modelGroupIdsJson: prompt.modelGroupIdsJson,
-                    modelSetIdsJson: prompt.modelSetIdsJson,
                     allowLlmCall: prompt.allowLlmCall,
                     allowAgentCall: prompt.allowAgentCall,
                     agentCallMode: prompt.agentCallMode,
@@ -323,6 +269,7 @@ export async function importPromptBundleForOwner(params: {
                     sourcePresetRevision: params.sourcePresetRevision ?? null,
                 },
             })
+            // Create: starts unbound (modelGroupIdsJson / modelSetIdsJson fall back to their "[]" default).
             : await params.prisma.prompt.create({
                 data: {
                     name: prompt.name,
@@ -330,8 +277,6 @@ export async function importPromptBundleForOwner(params: {
                     description: prompt.description,
                     messagesJson: prompt.messagesJson,
                     inputsJson: prompt.inputsJson,
-                    modelGroupIdsJson: prompt.modelGroupIdsJson,
-                    modelSetIdsJson: prompt.modelSetIdsJson,
                     allowLlmCall: prompt.allowLlmCall,
                     allowAgentCall: prompt.allowAgentCall,
                     agentCallMode: prompt.agentCallMode,

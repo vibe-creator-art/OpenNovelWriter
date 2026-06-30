@@ -410,6 +410,8 @@
         "general": {
             "language": "界面语言",
             "languageHint": "选择界面显示语言",
+            "fastNovelOpen": "快速打开",
+            "fastNovelOpenHint": "从书架打开小说时跳过为展示动画而设的延时，直接进入。加载较慢时动画仍会照常显示。",
             "comingSoon": "更多通用设置即将推出"
         }
     },
@@ -1242,8 +1244,8 @@
         "editor": {
             "emptyState": "选择一个提示词进行编辑",
             "name": "名称",
-            "presetReadOnlyNotice": "不可编辑，请先克隆后编辑",
-            "presetReadOnlyNoticeVersioned": "克隆自官方预设 v{revision} · 不可编辑，请先克隆后编辑",
+            "presetReadOnlyNotice": "内容只读，请先克隆后再编辑（模型分组可直接修改）",
+            "presetReadOnlyNoticeVersioned": "克隆自官方预设 v{revision} · 内容只读，请先克隆后再编辑（模型分组可直接修改）",
             "presetUpdateAvailable": "检测到更新",
             "presetUpdateClone": "克隆更新",
             "systemMessage": "系统消息",

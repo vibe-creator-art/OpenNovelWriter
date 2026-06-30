@@ -6,6 +6,8 @@ import { normalizePromptInputs } from '@/lib/prompt-inputs'
 import { getPromptApiErrorDetail, normalizeIncomingMessages, toPromptDto } from '@/lib/server/prompt-helpers'
 import { loadPromptNameKeys, toPromptNameKey } from '@/lib/server/prompt-names'
 
+// Model bindings are user-local and never travel with a copied/imported prompt: incoming bindings
+// are ignored, a newly created prompt starts unbound, and overwriting leaves existing bindings alone.
 type ImportPromptPayload = {
     name: string
     category: PromptCategory
@@ -13,27 +15,9 @@ type ImportPromptPayload = {
     messages: unknown
     inputs: unknown
     isNsfw: boolean
-    modelGroupIds: string[] | undefined
-    modelSetIds: string[] | undefined
     allowLlmCall: boolean
     allowAgentCall: boolean
     agentCallMode: PromptAgentCallMode
-}
-
-function normalizeStringIdList(value: unknown) {
-    if (value === undefined) return undefined
-    if (!Array.isArray(value)) return null
-
-    const seen = new Set<string>()
-    const result: string[] = []
-    for (const item of value) {
-        if (typeof item !== 'string') continue
-        const trimmed = item.trim()
-        if (!trimmed || seen.has(trimmed)) continue
-        seen.add(trimmed)
-        result.push(trimmed)
-    }
-    return result
 }
 
 export async function POST(request: NextRequest) {
@@ -65,8 +49,6 @@ export async function POST(request: NextRequest) {
             const description = obj.description === null ? null : typeof obj.description === 'string' ? obj.description : null
             const inputsRaw = obj.inputs
             const isNsfw = obj.isNsfw === true
-            const modelGroupIds = normalizeStringIdList(obj.modelGroupIds)
-            const modelSetIds = normalizeStringIdList(obj.modelSetIds)
             const allowLlmCall = category === 'component' ? false : obj.allowLlmCall === true
             const allowAgentCall = category === 'component' ? false : obj.allowAgentCall === true
             const agentCallMode = normalizePromptAgentCallMode(obj.agentCallMode)
@@ -76,12 +58,6 @@ export async function POST(request: NextRequest) {
             if (inputsRaw !== undefined && !Array.isArray(inputsRaw)) {
                 return NextResponse.json({ detail: 'Invalid inputs' }, { status: 400 })
             }
-            if (modelGroupIds === null) {
-                return NextResponse.json({ detail: 'Invalid modelGroupIds' }, { status: 400 })
-            }
-            if (modelSetIds === null) {
-                return NextResponse.json({ detail: 'Invalid modelSetIds' }, { status: 400 })
-            }
 
             imported.push({
                 name,
@@ -90,8 +66,6 @@ export async function POST(request: NextRequest) {
                 messages: obj.messages,
                 inputs: inputsRaw ?? [],
                 isNsfw,
-                modelGroupIds,
-                modelSetIds,
                 allowLlmCall,
                 allowAgentCall,
                 agentCallMode,
@@ -144,8 +118,6 @@ export async function POST(request: NextRequest) {
             messagesJson: string
             inputsJson: string
             isNsfw: boolean
-            modelGroupIdsJson: string
-            modelSetIdsJson: string
             allowLlmCall: boolean
             allowAgentCall: boolean
             agentCallMode: PromptAgentCallMode
@@ -168,8 +140,6 @@ export async function POST(request: NextRequest) {
                 messagesJson: JSON.stringify(normalized.messages),
                 inputsJson: JSON.stringify(inputs),
                 isNsfw: prompt.isNsfw,
-                modelGroupIdsJson: JSON.stringify(prompt.modelGroupIds ?? []),
-                modelSetIdsJson: JSON.stringify(prompt.modelSetIds ?? []),
                 allowLlmCall: prompt.allowLlmCall,
                 allowAgentCall: prompt.allowAgentCall,
                 agentCallMode: prompt.agentCallMode,
@@ -193,6 +163,7 @@ export async function POST(request: NextRequest) {
                 const nameKey = toPromptNameKey(prompt.name)
                 const existing = nameKey ? existingByNameKey.get(nameKey) ?? null : null
                 const record = existing
+                    // Overwrite refreshes content but never touches the user's model bindings.
                     ? await tx.prompt.update({
                         where: { id: existing.id },
                         data: {
@@ -201,14 +172,13 @@ export async function POST(request: NextRequest) {
                             description: prompt.description,
                             messagesJson: prompt.messagesJson,
                             inputsJson: prompt.inputsJson,
-                            modelGroupIdsJson: prompt.modelGroupIdsJson,
-                            modelSetIdsJson: prompt.modelSetIdsJson,
                             allowLlmCall: prompt.allowLlmCall,
                             allowAgentCall: prompt.allowAgentCall,
                             agentCallMode: prompt.agentCallMode,
                             isNsfw: prompt.isNsfw,
                         },
                     })
+                    // New prompts start unbound (modelGroupIdsJson / modelSetIdsJson keep their "[]" default).
                     : await tx.prompt.create({
                         data: {
                             name: prompt.name,
@@ -216,8 +186,6 @@ export async function POST(request: NextRequest) {
                             description: prompt.description,
                             messagesJson: prompt.messagesJson,
                             inputsJson: prompt.inputsJson,
-                            modelGroupIdsJson: prompt.modelGroupIdsJson,
-                            modelSetIdsJson: prompt.modelSetIdsJson,
                             allowLlmCall: prompt.allowLlmCall,
                             allowAgentCall: prompt.allowAgentCall,
                             agentCallMode: prompt.agentCallMode,

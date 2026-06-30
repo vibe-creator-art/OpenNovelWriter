@@ -69,6 +69,8 @@ export function usePromptDraftManager(params: {
     } | null>(null)
     const latestDraftRef = useRef<PromptDraft | null>(null)
     const saveRequestIdRef = useRef(0)
+    const bindingSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const bindingSaveRequestIdRef = useRef(0)
     const allowedGroupIds = useMemo(
         () => new Set(modelGroups.map((group) => group.id)),
         [modelGroups]
@@ -339,6 +341,53 @@ export function usePromptDraftManager(params: {
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
         }
     }, [draft, getPromptNameError, isEditingName, onPromptChanged, readOnly, restorePromptName, setError, setPrompts, t])
+
+    // Model bindings stay editable on read-only (preset-sourced) prompts, where the full-prompt
+    // autosave above is disabled. Persist binding-only changes through the dedicated endpoint, which
+    // is not gated by the preset-sourced lock.
+    useEffect(() => {
+        if (!readOnly || !draft) return
+        const lastSaved = lastSavedRef.current
+        if (!lastSaved || lastSaved.id !== draft.id) return
+
+        const modelGroupIds = draft.modelGroupIds ?? []
+        const modelSetIds = draft.modelSetIds ?? []
+        const modelGroupIdsJson = JSON.stringify(modelGroupIds)
+        const modelSetIdsJson = JSON.stringify(modelSetIds)
+        if (modelGroupIdsJson === lastSaved.modelGroupIdsJson && modelSetIdsJson === lastSaved.modelSetIdsJson) return
+
+        if (bindingSaveTimerRef.current) clearTimeout(bindingSaveTimerRef.current)
+        const promptId = draft.id
+        bindingSaveTimerRef.current = setTimeout(async () => {
+            const requestId = ++bindingSaveRequestIdRef.current
+            setSaveState('saving')
+            try {
+                const { prompt } = await promptApi.updateModelBindings(promptId, { modelGroupIds, modelSetIds })
+                if (requestId !== bindingSaveRequestIdRef.current) return
+
+                setPrompts((prev) => prev.map((item) => (item.id === prompt.id ? prompt : item)))
+                if (lastSavedRef.current?.id === promptId) {
+                    lastSavedRef.current = {
+                        ...lastSavedRef.current,
+                        modelGroupIdsJson: JSON.stringify(prompt.modelGroupIds ?? []),
+                        modelSetIdsJson: JSON.stringify(prompt.modelSetIds ?? []),
+                    }
+                }
+                setError(null)
+                onPromptChanged()
+                setSaveState('saved')
+                window.setTimeout(() => setSaveState('idle'), 900)
+            } catch (error) {
+                console.error(error)
+                if (requestId !== bindingSaveRequestIdRef.current) return
+                setSaveState('error')
+            }
+        }, 650)
+
+        return () => {
+            if (bindingSaveTimerRef.current) clearTimeout(bindingSaveTimerRef.current)
+        }
+    }, [draft, readOnly, onPromptChanged, setError, setPrompts])
 
     const handleUpdateDraftName = useCallback((value: string) => {
         setError(null)

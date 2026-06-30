@@ -95,8 +95,6 @@
           }
         ],
         "isNsfw": false,
-        "modelGroupIds": [],
-        "modelSetIds": [],
         "allowLlmCall": true,
         "allowAgentCall": true,
         "agentCallMode": "generate_then_agent"
@@ -114,8 +112,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "modelGroupIds": [],
-        "modelSetIds": [],
         "allowLlmCall": false,
         "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
@@ -133,8 +129,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "modelGroupIds": [],
-        "modelSetIds": [],
         "allowLlmCall": false,
         "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
@@ -152,8 +146,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "modelGroupIds": [],
-        "modelSetIds": [],
         "allowLlmCall": false,
         "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
@@ -171,8 +163,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "modelGroupIds": [],
-        "modelSetIds": [],
         "allowLlmCall": false,
         "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"

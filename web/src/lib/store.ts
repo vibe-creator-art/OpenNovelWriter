@@ -53,8 +53,13 @@ function detectBrowserLocale(): Locale {
 
 interface SettingsState {
     locale: Locale
+    // When true, skip the artificial delay before opening a novel from the
+    // bookshelf and navigate immediately. The loading overlay still shows for
+    // as long as the real load takes.
+    fastNovelOpen: boolean
     isHydrated: boolean
     setLocale: (locale: Locale) => void
+    setFastNovelOpen: (fastNovelOpen: boolean) => void
     setHydrated: (hydrated: boolean) => void
 }
 
@@ -62,13 +67,15 @@ export const useSettingsStore = create<SettingsState>()(
     persist(
         (set) => ({
             locale: 'zh', // Will be overwritten by browser detection on first load
+            fastNovelOpen: false,
             isHydrated: false,
             setLocale: (locale) => set({ locale }),
+            setFastNovelOpen: (fastNovelOpen) => set({ fastNovelOpen }),
             setHydrated: (isHydrated) => set({ isHydrated }),
         }),
         {
             name: 'settings-storage',
-            partialize: (state) => ({ locale: state.locale }),
+            partialize: (state) => ({ locale: state.locale, fastNovelOpen: state.fastNovelOpen }),
             onRehydrateStorage: () => (state) => {
                 if (state) {
                     // If no locale was stored (first visit), detect from browser
