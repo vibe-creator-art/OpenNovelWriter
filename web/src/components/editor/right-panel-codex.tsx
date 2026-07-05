@@ -1,6 +1,6 @@
 'use client'
 
-import { type MouseEvent as ReactMouseEvent, type ReactNode, Fragment, createContext, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { type MouseEvent as ReactMouseEvent, type ReactNode, Fragment, createContext, useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import {
     ArrowUp,
@@ -134,6 +134,7 @@ const CODEX_REVIEW_LEVELS: CodexReviewLevel[] = ['user_review', 'auto_review', '
 const CODEX_REASONING_EFFORTS: CodexReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
 const RECOMMENDED_CODEX_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
 const CODEX_SERVICE_TIERS: CodexServiceTier[] = ['standard', 'fast']
+const COMPOSER_TRAILING_LINE_MARKER = '\u200B'
 const PLAN_COMPOSER_ACTION_OPTIONS: CodexComposerActionOption[] = [
     { id: 'implement', label: 'Yes, implement this plan', kind: 'submit' },
     { id: 'revise', label: 'No, and tell Codex what to do differently', kind: 'input' },
@@ -2414,6 +2415,13 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const composerRef = useRef<HTMLTextAreaElement | null>(null)
     const composerOverlayRef = useRef<HTMLDivElement | null>(null)
     const composerFileInputRef = useRef<HTMLInputElement | null>(null)
+    const syncComposerOverlayScroll = useCallback(() => {
+        const textarea = composerRef.current
+        const overlay = composerOverlayRef.current
+        if (!textarea || !overlay) return
+        overlay.scrollTop = textarea.scrollTop
+        overlay.scrollLeft = textarea.scrollLeft
+    }, [])
     const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
     const [mentionIndex, setMentionIndex] = useState(0)
     // Dismiss the `/compact` suggestion for the current keystroke (Escape); reset on the next edit.
@@ -2853,6 +2861,18 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         () => buildComposerSegments(draft, mentionNames),
         [draft, mentionNames]
     )
+
+    useLayoutEffect(() => {
+        let secondFrame = 0
+        const firstFrame = window.requestAnimationFrame(() => {
+            syncComposerOverlayScroll()
+            secondFrame = window.requestAnimationFrame(syncComposerOverlayScroll)
+        })
+        return () => {
+            window.cancelAnimationFrame(firstFrame)
+            if (secondFrame) window.cancelAnimationFrame(secondFrame)
+        }
+    }, [draft, syncComposerOverlayScroll])
 
     // The first `@`-mentioned ai_chat skill that carries a bound prompt — it gets a Tweak dialog.
     const activePromptSkill = useMemo(() => {
@@ -3652,6 +3672,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                 <span key={index}>{segment.text}</span>
                             )
                         )}
+                        {draft.endsWith('\n') && <span>{COMPOSER_TRAILING_LINE_MARKER}</span>}
                     </div>
                     <AutoResizeTextarea
                         ref={composerRef}
@@ -3660,12 +3681,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         placeholder={t('codex.composerPlaceholder')}
                         className="onw-editor-scrollbar relative z-[1] max-h-48 min-h-10 overflow-auto border-0 bg-transparent px-1 py-1 text-sm text-transparent shadow-none selection:bg-primary/30 focus-visible:ring-0"
                         style={{ caretColor: 'var(--color-foreground)' }}
-                        onScroll={(event) => {
-                            const overlay = composerOverlayRef.current
-                            if (!overlay) return
-                            overlay.scrollTop = event.currentTarget.scrollTop
-                            overlay.scrollLeft = event.currentTarget.scrollLeft
-                        }}
+                        onScroll={syncComposerOverlayScroll}
                         onChange={(event) => {
                             const { value, selectionStart } = event.target
                             handleComposerChange(value, selectionStart ?? value.length)
