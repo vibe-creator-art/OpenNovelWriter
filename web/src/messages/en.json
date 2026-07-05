@@ -820,15 +820,14 @@
                 "mono": "Monospace"
             },
             "fontFamilyOptions": {
-                "sans": "Geist Sans",
-                "systemSans": "System UI (Sans)",
+                "sans": "System UI (Sans)",
                 "arial": "Arial",
                 "helvetica": "Helvetica",
                 "serif": "System Serif",
                 "times": "Times New Roman",
                 "georgia": "Georgia",
                 "palatino": "Palatino",
-                "mono": "Geist Mono",
+                "mono": "System UI (Mono)",
                 "menlo": "Menlo",
                 "consolas": "Consolas",
                 "courier": "Courier New"

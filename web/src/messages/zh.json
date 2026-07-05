@@ -820,15 +820,14 @@
                 "mono": "等宽"
             },
             "fontFamilyOptions": {
-                "sans": "Geist Sans",
-                "systemSans": "系统默认（无衬线）",
+                "sans": "系统默认（无衬线）",
                 "arial": "Arial",
                 "helvetica": "Helvetica",
                 "serif": "系统默认（衬线）",
                 "times": "Times New Roman",
                 "georgia": "Georgia",
                 "palatino": "Palatino",
-                "mono": "Geist Mono",
+                "mono": "系统默认（等宽）",
                 "menlo": "Menlo",
                 "consolas": "Consolas",
                 "courier": "Courier New"

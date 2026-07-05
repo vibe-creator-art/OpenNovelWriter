@@ -242,7 +242,7 @@ export function WriteFormatMenu() {
                                         <SelectSeparator />
                                         <SelectGroup>
                                             <SelectLabel>{t('fontFamilyGroups.sans')}</SelectLabel>
-                                            {(['sans', 'systemSans', 'arial', 'helvetica'] as const).map((value) => (
+                                            {(['sans', 'arial', 'helvetica'] as const).map((value) => (
                                                 <SelectItem
                                                     key={value}
                                                     value={value}

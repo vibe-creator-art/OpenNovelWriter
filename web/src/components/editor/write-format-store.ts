@@ -6,7 +6,6 @@ import { persist } from 'zustand/middleware'
 export type WriteFontFamily =
     // Sans serif
     | 'sans'
-    | 'systemSans'
     | 'arial'
     | 'helvetica'
     // Serif
@@ -30,8 +29,6 @@ export type WriteAiOutputStyle = 'none' | 'card'
 export const WRITE_FONT_FAMILY_STACK: Record<WriteFontFamily, string> = {
     // Sans serif
     sans: 'var(--font-sans)',
-    systemSans:
-        'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Noto Sans", "Liberation Sans", sans-serif',
     arial: 'Arial, Helvetica, sans-serif',
     helvetica: '"Helvetica Neue", Helvetica, Arial, sans-serif',
     // Serif
