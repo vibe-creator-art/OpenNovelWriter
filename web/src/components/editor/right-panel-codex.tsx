@@ -3658,7 +3658,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         value={draft}
                         rows={1}
                         placeholder={t('codex.composerPlaceholder')}
-                        className="relative z-[1] max-h-48 min-h-10 border-0 bg-transparent px-1 py-1 text-sm text-transparent shadow-none selection:bg-primary/30 focus-visible:ring-0"
+                        className="onw-editor-scrollbar relative z-[1] max-h-48 min-h-10 overflow-auto border-0 bg-transparent px-1 py-1 text-sm text-transparent shadow-none selection:bg-primary/30 focus-visible:ring-0"
                         style={{ caretColor: 'var(--color-foreground)' }}
                         onScroll={(event) => {
                             const overlay = composerOverlayRef.current
