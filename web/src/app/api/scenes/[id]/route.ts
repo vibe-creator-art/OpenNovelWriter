@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/db'
+import { getPrismaClient } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { normalizeLabelIds } from '@/lib/labels'
 import { serializeScene } from '@/lib/scenes'
@@ -15,6 +15,8 @@ import {
 interface RouteParams {
     params: Promise<{ id: string }>
 }
+
+const prisma = getPrismaClient({ ensureModel: 'novelWritingDay' })
 
 // GET /api/scenes/[id] - Get a scene by ID
 export async function GET(request: NextRequest, { params }: RouteParams) {

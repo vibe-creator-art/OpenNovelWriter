@@ -239,6 +239,11 @@ echo ==^> Starting OpenNovelWriter at http://localhost:!PORT!
 echo Press Ctrl+C to stop the server.
 call !START_COMMAND!
 set "EXIT_CODE=!ERRORLEVEL!"
+if not "!EXIT_CODE!"=="0" (
+    echo.
+    echo Error: Server exited with code !EXIT_CODE!.
+    goto :fail
+)
 popd >nul 2>&1
 endlocal & exit /b %EXIT_CODE%
 

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/db'
+import { getPrismaClient } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { calculateManuscriptWordCount, getLocalDateKey } from '@/lib/server/manuscript-word-count'
 
 interface RouteParams {
     params: Promise<{ id: string }>
 }
+
+const prisma = getPrismaClient({ ensureModel: 'novelWritingDay' })
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
     try {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/db'
+import { getPrismaClient } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import {
     removeNovelWorkspaceChapter,
@@ -13,6 +13,8 @@ import { recordNovelWritingDelta } from '@/lib/server/manuscript-word-count'
 interface RouteParams {
     params: Promise<{ id: string }>
 }
+
+const prisma = getPrismaClient({ ensureModel: 'novelWritingDay' })
 
 // GET /api/chapters/[id] - Get a single chapter
 export async function GET(request: NextRequest, { params }: RouteParams) {

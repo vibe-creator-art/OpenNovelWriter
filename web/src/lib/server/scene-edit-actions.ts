@@ -1,5 +1,5 @@
 import { createRequire } from 'module'
-import { prisma } from '@/lib/db'
+import { getPrismaClient } from '@/lib/db'
 import { syncNovelWorkspaceChapter, syncNovelWorkspaceOutline } from '@/lib/server/novel-workspace'
 import { updateSceneContentWithStats } from '@/lib/server/manuscript-word-count'
 
@@ -12,6 +12,8 @@ const { revertHunk } = require('./manuscript-edit.cjs') as {
         afterAnchorHtml: string
     ) => { ok: true; newHtml: string } | { ok: false; error: string }
 }
+
+const prisma = getPrismaClient({ ensureModel: 'novelWritingDay' })
 
 export type SceneEditRecord = {
     id: string

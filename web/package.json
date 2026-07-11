@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "prisma migrate deploy && prisma generate",
     "dev": "next dev",
-    "build": "BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA=true BROWSERSLIST_IGNORE_OLD_DATA=true node scripts/build.mjs",
+    "prebuild": "prisma generate",
+    "build": "node scripts/build.mjs",
+    "prestart": "prisma migrate deploy && prisma generate",
     "start": "next start",
     "lint": "eslint",
     "sync:cherrystudio-model-config": "node scripts/sync-cherrystudio-model-config.mjs"
