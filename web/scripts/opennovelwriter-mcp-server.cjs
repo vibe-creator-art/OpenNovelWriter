@@ -34,6 +34,8 @@ const ownerId = process.env.OPENNOVELWRITER_OWNER_ID
 const internalBaseUrl = (process.env.OPENNOVELWRITER_BASE_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '')
 const internalToken = process.env.OPENNOVELWRITER_INTERNAL_TOKEN || ''
 const RUN_LLM_TIMEOUT_MS = 175_000
+const TERM_RELATION_DIRECTIONS = ['outgoing', 'incoming', 'bidirectional']
+const TERM_RELATION_OP_ACTIONS = ['set', 'delete']
 
 // A reference to an assistant reply inside a run_llm conversation artifact, used so
 // the model output goes straight from the .md into a scene without Codex retyping it.
@@ -358,7 +360,7 @@ const tools = [
     {
         name: 'edit_term',
         description:
-            'Edit an existing OpenNovelWriter term. Find `termId` in the `<!-- term_id: ... -->` comment of its projection file novel/terms/<title>.md (and `novelId` in `<!-- novel_id: ... -->`). Patch semantics: omitted fields stay unchanged; pass an empty string (or empty array) to clear a field. For the experiences timeline, `appendExperiences` adds new events at the end (the common case as the story progresses) while `experiences` replaces the whole list (use it to rewrite or reorder; read the current list from the projection first) — provide at most one of the two. For a long description rewrite, copy the current description into an artifacts/*.md file, edit it there, then pass `descriptionMdPath`.',
+            'Edit an existing OpenNovelWriter term. Find `termId` in the `<!-- term_id: ... -->` comment of its projection file novel/terms/<title>.md (and `novelId` in `<!-- novel_id: ... -->`). Patch semantics: omitted fields stay unchanged; pass an empty string (or empty array for replace-style list fields) to clear a field. For the experiences timeline, `appendExperiences` adds new events at the end (the common case as the story progresses) while `experiences` replaces the whole list (use it to rewrite or reorder; read the current list from the projection first) — provide at most one of the two. For relations, use `relationOps` with the other term\'s `termId`; direction is from this `termId` to `otherTermId`, and the mirrored reverse relation is maintained automatically. Empty `relationOps` does nothing; delete relations explicitly with action=delete. For a long description rewrite, copy the current description into an artifacts/*.md file, edit it there, then pass `descriptionMdPath`.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -374,6 +376,21 @@ const tools = [
                 appendExperiences: { type: 'array', items: { type: 'string' }, description: 'Append these events to the end of the existing timeline.' },
                 tags: { type: 'array', items: { type: 'string' }, description: 'Replace the tags. Empty array clears them.' },
                 color: { type: 'string', enum: ['black', 'gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'], description: 'New accent color. "black" clears the accent.' },
+                relationOps: {
+                    type: 'array',
+                    description: 'Create/update/delete mirrored term relations. Read the other term projection to get `otherTermId`. `direction` is from this `termId` to `otherTermId`: outgoing = this term points to the other, incoming = the other points to this term, bidirectional = both ways.',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            action: { type: 'string', enum: TERM_RELATION_OP_ACTIONS, description: '`set` creates or updates the relation; `delete` removes it.' },
+                            otherTermId: { type: 'string', description: 'The related term id from the other term projection metadata.' },
+                            direction: { type: 'string', enum: TERM_RELATION_DIRECTIONS, description: 'Required for action=set. Direction from `termId` to `otherTermId`.' },
+                            label: { type: 'string', description: 'Optional relation label. Empty string clears it. Omit to leave an existing label unchanged.' },
+                        },
+                        required: ['action', 'otherTermId'],
+                        additionalProperties: false,
+                    },
+                },
             },
             required: ['novelId', 'termId'],
             additionalProperties: false,
@@ -1701,6 +1718,162 @@ function normalizeStringListInput(raw, name) {
     return lines.filter(Boolean)
 }
 
+function invertTermRelationDirection(direction) {
+    if (direction === 'outgoing') return 'incoming'
+    if (direction === 'incoming') return 'outgoing'
+    return 'bidirectional'
+}
+
+function normalizeRelationOpsInput(raw) {
+    if (!Array.isArray(raw)) throw new Error('relationOps must be an array of relation operation objects.')
+    return raw.map((candidate, index) => {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+            throw new Error(`relationOps[${index}] must be an object.`)
+        }
+        const action = requireNonEmptyString(candidate.action, `relationOps[${index}].action`)
+        if (!TERM_RELATION_OP_ACTIONS.includes(action)) {
+            throw new Error(`relationOps[${index}].action must be one of: ${TERM_RELATION_OP_ACTIONS.join(', ')}.`)
+        }
+        const otherTermId = requireNonEmptyString(candidate.otherTermId, `relationOps[${index}].otherTermId`)
+
+        if (action === 'delete') {
+            if (candidate.direction !== undefined && candidate.direction !== null) {
+                throw new Error(`relationOps[${index}].direction is only valid for action=set.`)
+            }
+            if (candidate.label !== undefined && candidate.label !== null) {
+                throw new Error(`relationOps[${index}].label is only valid for action=set.`)
+            }
+            return { action, otherTermId }
+        }
+
+        const direction = requireNonEmptyString(candidate.direction, `relationOps[${index}].direction`)
+        if (!TERM_RELATION_DIRECTIONS.includes(direction)) {
+            throw new Error(`relationOps[${index}].direction must be one of: ${TERM_RELATION_DIRECTIONS.join(', ')}.`)
+        }
+
+        const op = { action, otherTermId, direction }
+        if (candidate.label !== undefined && candidate.label !== null) {
+            op.label = requireString(candidate.label, `relationOps[${index}].label`).trim()
+        }
+        return op
+    })
+}
+
+function getStoredRelations(entry) {
+    return Array.isArray(entry.relations) ? entry.relations : []
+}
+
+function setStoredRelations(entry, relations) {
+    if (relations.length) entry.relations = relations
+    else delete entry.relations
+}
+
+function getTermDisplayName(entry) {
+    const title = typeof entry.title === 'string' && entry.title.trim() ? entry.title.trim() : ''
+    const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : 'unknown'
+    return title ? `${title} (${id})` : id
+}
+
+function requireActiveRelationTarget(state, sourceEntry, otherTermId) {
+    if (sourceEntry.id === otherTermId) throw new Error('A term cannot relate to itself.')
+    const target = getTermStateEntries(state).find((item) => item.id === otherTermId) ?? null
+    if (!target) throw new Error(`Related term ${otherTermId} was not found in this novel.`)
+    if (target.archived === true) throw new Error(`Related term ${otherTermId} is archived; restore it in the app before relating to it.`)
+    return target
+}
+
+function findUniqueRelationTo(entry, otherTermId) {
+    const matches = getStoredRelations(entry).filter(
+        (relation) => relation && typeof relation === 'object' && relation.otherId === otherTermId
+    )
+    if (matches.length > 1) {
+        throw new Error(`Term ${getTermDisplayName(entry)} has multiple relations to ${otherTermId}; fix the duplicate relation in the app before using relationOps.`)
+    }
+    return matches[0] ?? null
+}
+
+function getMirroredRelationPair(fromEntry, toEntry) {
+    const fromRel = findUniqueRelationTo(fromEntry, toEntry.id)
+    const toRel = findUniqueRelationTo(toEntry, fromEntry.id)
+
+    if (fromRel && !toRel) {
+        throw new Error(`Relation from ${getTermDisplayName(fromEntry)} to ${getTermDisplayName(toEntry)} is missing its mirrored reverse entry; fix it in the app before using relationOps.`)
+    }
+    if (!fromRel && toRel) {
+        throw new Error(`Relation from ${getTermDisplayName(toEntry)} to ${getTermDisplayName(fromEntry)} is missing its mirrored reverse entry; fix it in the app before using relationOps.`)
+    }
+    if (!fromRel || !toRel) return { fromRel: null, toRel: null }
+    if (typeof fromRel.id !== 'string' || !fromRel.id.trim() || typeof toRel.id !== 'string' || !toRel.id.trim()) {
+        throw new Error(`Relation between ${getTermDisplayName(fromEntry)} and ${getTermDisplayName(toEntry)} is missing a relation id; fix it in the app before using relationOps.`)
+    }
+    if (!TERM_RELATION_DIRECTIONS.includes(fromRel.direction) || !TERM_RELATION_DIRECTIONS.includes(toRel.direction)) {
+        throw new Error(`Relation between ${getTermDisplayName(fromEntry)} and ${getTermDisplayName(toEntry)} has an invalid direction; fix it in the app before using relationOps.`)
+    }
+    if (fromRel.id !== toRel.id) {
+        throw new Error(`Relation between ${getTermDisplayName(fromEntry)} and ${getTermDisplayName(toEntry)} has mismatched relation ids; fix it in the app before using relationOps.`)
+    }
+    if (toRel.direction !== invertTermRelationDirection(fromRel.direction)) {
+        throw new Error(`Relation between ${getTermDisplayName(fromEntry)} and ${getTermDisplayName(toEntry)} has inconsistent directions; fix it in the app before using relationOps.`)
+    }
+    const fromLabel = typeof fromRel.label === 'string' ? fromRel.label.trim() : ''
+    const toLabel = typeof toRel.label === 'string' ? toRel.label.trim() : ''
+    if (fromLabel !== toLabel) {
+        throw new Error(`Relation between ${getTermDisplayName(fromEntry)} and ${getTermDisplayName(toEntry)} has inconsistent labels; fix it in the app before using relationOps.`)
+    }
+    return { fromRel, toRel }
+}
+
+function applyRelationLabel(relation, label) {
+    if (label === undefined) return
+    if (label) relation.label = label
+    else delete relation.label
+}
+
+function applySetRelation(fromEntry, toEntry, op) {
+    const pair = getMirroredRelationPair(fromEntry, toEntry)
+    const reverseDirection = invertTermRelationDirection(op.direction)
+
+    if (!pair.fromRel || !pair.toRel) {
+        const id = crypto.randomUUID()
+        const fromRel = { id, otherId: toEntry.id, direction: op.direction }
+        const toRel = { id, otherId: fromEntry.id, direction: reverseDirection }
+        applyRelationLabel(fromRel, op.label)
+        applyRelationLabel(toRel, op.label)
+        fromEntry.relations = [...getStoredRelations(fromEntry), fromRel]
+        toEntry.relations = [...getStoredRelations(toEntry), toRel]
+        return
+    }
+
+    pair.fromRel.direction = op.direction
+    pair.toRel.direction = reverseDirection
+    applyRelationLabel(pair.fromRel, op.label)
+    applyRelationLabel(pair.toRel, op.label)
+}
+
+function applyDeleteRelation(fromEntry, toEntry) {
+    const pair = getMirroredRelationPair(fromEntry, toEntry)
+    if (!pair.fromRel || !pair.toRel) {
+        throw new Error(`No relation exists between ${getTermDisplayName(fromEntry)} and ${getTermDisplayName(toEntry)}.`)
+    }
+    const relationId = pair.fromRel.id
+    setStoredRelations(
+        fromEntry,
+        getStoredRelations(fromEntry).filter((relation) => !(relation && typeof relation === 'object' && relation.id === relationId))
+    )
+    setStoredRelations(
+        toEntry,
+        getStoredRelations(toEntry).filter((relation) => !(relation && typeof relation === 'object' && relation.id === relationId))
+    )
+}
+
+function applyTermRelationOps(state, entry, relationOps) {
+    for (const op of relationOps) {
+        const otherEntry = requireActiveRelationTarget(state, entry, op.otherTermId)
+        if (op.action === 'set') applySetRelation(entry, otherEntry, op)
+        else applyDeleteRelation(entry, otherEntry)
+    }
+}
+
 async function resolveTermDescription(args) {
     const hasLiteral = args.description !== undefined && args.description !== null
     const hasMdPath = args.descriptionMdPath !== undefined && args.descriptionMdPath !== null
@@ -1785,6 +1958,9 @@ async function editTerm(args) {
 
     const hasExperiences = args.experiences !== undefined && args.experiences !== null
     const hasAppendExperiences = args.appendExperiences !== undefined && args.appendExperiences !== null
+    const relationOps = args.relationOps === undefined || args.relationOps === null
+        ? []
+        : normalizeRelationOpsInput(args.relationOps)
     if (hasExperiences && hasAppendExperiences) {
         throw new Error('Provide either experiences (replace) or appendExperiences (append), not both.')
     }
@@ -1837,6 +2013,10 @@ async function editTerm(args) {
         const color = requireNonEmptyString(args.color, 'color')
         if (color === 'black') delete entry.color
         else entry.color = color
+        changed = true
+    }
+    if (relationOps.length) {
+        applyTermRelationOps(state, entry, relationOps)
         changed = true
     }
 
