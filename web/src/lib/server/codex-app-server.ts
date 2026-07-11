@@ -5,6 +5,7 @@ import { getPrismaClient } from '@/lib/db'
 import { resolveManagedUploadPath, saveImageBuffer } from '@/lib/server/storage'
 import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
+import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
 import { ensureCodexSessionWorkspace } from '@/lib/server/codex-session-workspace'
 import {
@@ -993,7 +994,9 @@ export async function runNovelCodexTurn(input: {
         throw new Error('No Codex connection is available.')
     }
 
-    const codexHome = await ensureCodexConnectionHome(input.ownerId, connection.id)
+    const codexHome = connection.providerType === 'custom'
+        ? await syncCodexConnectionRuntimeFiles(connection)
+        : await ensureCodexConnectionHome(input.ownerId, connection.id)
     const reviewLevel = normalizeCodexReviewLevel(input.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL
     const reviewOptions = getCodexRuntimeReviewOptions(reviewLevel)
     // Rewrite the managed MCP config block before spawning the app-server so config.toml
@@ -1010,7 +1013,7 @@ export async function runNovelCodexTurn(input: {
     await mountCodexCoreSkills(client)
     const modelId = typeof input.modelId === 'string' && input.modelId.trim()
         ? input.modelId.trim()
-        : DEFAULT_CODEX_MODEL
+        : connection.defaultModelId?.trim() || DEFAULT_CODEX_MODEL
     const reasoningEffort =
         normalizeCodexReasoningEffort(input.reasoningEffort) ?? DEFAULT_CODEX_REASONING_EFFORT
     const requestedServiceTier = normalizeCodexServiceTier(input.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
@@ -1402,7 +1405,9 @@ export async function runNovelCodexCompaction(input: {
         throw new Error('No Codex connection is available.')
     }
 
-    const codexHome = await ensureCodexConnectionHome(input.ownerId, connection.id)
+    const codexHome = connection.providerType === 'custom'
+        ? await syncCodexConnectionRuntimeFiles(connection)
+        : await ensureCodexConnectionHome(input.ownerId, connection.id)
     const reviewLevel = normalizeCodexReviewLevel(input.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL
     const reviewOptions = getCodexRuntimeReviewOptions(reviewLevel)
     const client = await CodexAppServerClient.create(codexHome)

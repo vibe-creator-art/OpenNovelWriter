@@ -1,6 +1,6 @@
 'use client'
 
-import { type MouseEvent as ReactMouseEvent, type ReactNode, Fragment, createContext, useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject, Fragment, createContext, useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import {
     ArrowUp,
@@ -80,6 +80,7 @@ import { useStoredTermEntries } from '@/components/editor/terms/use-stored-term-
 import type { TermEntry } from '@/components/editor/terms/types'
 import { CodexSkillTweakDialog, type CodexRenderedBlock } from '@/components/editor/codex-skill-tweak-dialog'
 import { CodexModelPicker } from '@/components/editor/codex-model-picker'
+import { CodexTurnNavigator, type CodexTurnNavigatorEntry } from '@/components/editor/codex-turn-navigator'
 import { emitSceneEditsChanged } from '@/components/editor/scene-edit-events'
 import {
     codexApi,
@@ -1937,7 +1938,7 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
         const displayTitle = formatEventTitleForDisplay(eventTitle)
         const EventIcon = message.kind === 'web_search' ? Search : Sparkles
         return (
-            <div className="w-full min-w-0 overflow-hidden rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <div className="ml-10 w-[86%] min-w-0 overflow-hidden rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 <div className="flex min-w-0 items-center gap-2 font-medium text-foreground">
                     <EventIcon className="h-3.5 w-3.5 shrink-0" />
                     <span className="min-w-0 flex-1 truncate" title={eventTitle}>{displayTitle}</span>
@@ -2348,9 +2349,50 @@ function CodexTurnGroup({
     )
 }
 
-function CodexTimeline({ messages, running }: { messages: CodexSessionMessage[]; running: boolean }) {
+function codexTurnPreviewText(value: string) {
+    return value
+        .replace(/!\[([^\]]*)\]\([^)]*\)/gu, '$1')
+        .replace(/\[([^\]]+)\]\([^)]+\)/gu, '$1')
+        .replace(/[`*_>#~-]+/gu, ' ')
+        .replace(/\s+/gu, ' ')
+        .trim()
+}
+
+function CodexTimeline({
+    messages,
+    running,
+    scrollRootRef,
+}: {
+    messages: CodexSessionMessage[]
+    running: boolean
+    scrollRootRef: RefObject<HTMLDivElement | null>
+}) {
     const [now, setNow] = useState(() => Date.now())
     const turns = useMemo(() => splitMessagesIntoTurns(messages), [messages])
+    const turnRefs = useRef<Array<HTMLDivElement | null>>([])
+    const turnOffsetsRef = useRef<number[]>([])
+    const animationFrameRef = useRef<number | null>(null)
+    const [activeTurnIndex, setActiveTurnIndex] = useState(0)
+    const [navigatorHeight, setNavigatorHeight] = useState(0)
+
+    const navigableTurns = useMemo(
+        () => turns
+            .map((turn, turnIndex) => ({ turn, turnIndex }))
+            .filter(({ turn }) => turn[0]?.role === 'user'),
+        [turns]
+    )
+    const navigatorEntries = useMemo<CodexTurnNavigatorEntry[]>(
+        () => navigableTurns.map(({ turn }) => {
+            const userMessage = turn[0]
+            const assistantMessage = [...turn].reverse().find((message) => message.role === 'assistant')
+            return {
+                id: userMessage?.id ?? `turn-${turn.length}`,
+                userText: codexTurnPreviewText(userMessage?.content ?? ''),
+                assistantText: codexTurnPreviewText(assistantMessage?.content ?? ''),
+            }
+        }),
+        [navigableTurns]
+    )
 
     useEffect(() => {
         if (!running) return
@@ -2358,17 +2400,102 @@ function CodexTimeline({ messages, running }: { messages: CodexSessionMessage[];
         return () => window.clearInterval(timer)
     }, [running])
 
+    useLayoutEffect(() => {
+        const root = scrollRootRef.current
+        if (!root || navigableTurns.length === 0) return
+
+        const updateActiveTurn = () => {
+            const targetOffset = root.scrollTop + Math.min(root.clientHeight * 0.28, 180)
+            let nextActive = 0
+            turnOffsetsRef.current.forEach((offset, index) => {
+                if (offset <= targetOffset) nextActive = index
+            })
+            setActiveTurnIndex(nextActive)
+        }
+
+        const computeGeometry = () => {
+            const rootRect = root.getBoundingClientRect()
+            const offsets = navigableTurns.map(({ turnIndex }) => {
+                const element = turnRefs.current[turnIndex]
+                if (!element) return 0
+                return element.getBoundingClientRect().top - rootRect.top + root.scrollTop
+            })
+            turnOffsetsRef.current = offsets
+            setNavigatorHeight(Math.max(0, root.clientHeight - 24))
+            updateActiveTurn()
+        }
+
+        const scheduleGeometry = () => {
+            if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current)
+            animationFrameRef.current = requestAnimationFrame(() => {
+                animationFrameRef.current = null
+                computeGeometry()
+            })
+        }
+        const scheduleActiveTurn = () => {
+            if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current)
+            animationFrameRef.current = requestAnimationFrame(() => {
+                animationFrameRef.current = null
+                updateActiveTurn()
+            })
+        }
+
+        scheduleGeometry()
+        root.addEventListener('scroll', scheduleActiveTurn, { passive: true })
+        const resizeObserver = new ResizeObserver(scheduleGeometry)
+        resizeObserver.observe(root)
+        navigableTurns.forEach(({ turnIndex }) => {
+            const element = turnRefs.current[turnIndex]
+            if (element) resizeObserver.observe(element)
+        })
+
+        return () => {
+            root.removeEventListener('scroll', scheduleActiveTurn)
+            resizeObserver.disconnect()
+            if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current)
+        }
+    }, [navigableTurns, scrollRootRef])
+
+    const jumpToTurn = (navigatorIndex: number) => {
+        const root = scrollRootRef.current
+        const turnIndex = navigableTurns[navigatorIndex]?.turnIndex
+        const element = turnIndex === undefined ? null : turnRefs.current[turnIndex]
+        if (!root || !element) return
+        const rootRect = root.getBoundingClientRect()
+        const elementRect = element.getBoundingClientRect()
+        const top = elementRect.top - rootRect.top + root.scrollTop - 16
+        root.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+        setActiveTurnIndex(navigatorIndex)
+    }
+
     return (
-        <>
-            {turns.map((turn, index) => (
-                <CodexTurnGroup
-                    key={turn[0]?.id ?? index}
-                    messages={turn}
-                    running={running && index === turns.length - 1}
-                    now={now}
+        <div className="relative min-w-0">
+            <div className="pointer-events-none sticky top-3 z-30 h-0">
+                <CodexTurnNavigator
+                    entries={navigatorEntries}
+                    activeIndex={activeTurnIndex}
+                    height={navigatorHeight}
+                    onJump={jumpToTurn}
                 />
-            ))}
-        </>
+            </div>
+            <div className="space-y-4">
+                {turns.map((turn, index) => (
+                    <div
+                        key={turn[0]?.id ?? index}
+                        ref={(element) => {
+                            turnRefs.current[index] = element
+                        }}
+                        className="scroll-mt-4"
+                    >
+                        <CodexTurnGroup
+                            messages={turn}
+                            running={running && index === turns.length - 1}
+                            now={now}
+                        />
+                    </div>
+                ))}
+            </div>
+        </div>
     )
 }
 
@@ -2798,6 +2925,15 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const queueingEnabled = selectedSession ? queueingEnabledBySession[selectedSession.id] ?? true : true
     const draftIsEmpty = !draft.trim()
 
+    useEffect(() => {
+        if (!selectedSession?.id) return
+        void codexApi.listConnections()
+            .then(setConnections)
+            .catch((error) => {
+                console.error('Failed to refresh Codex connections for the selected session:', error)
+            })
+    }, [selectedSession?.id])
+
     // `/compact` slash command. Only matches when the WHOLE composer is `/` + a prefix of "compact"
     // (so any other text — including a bare "compact" without the slash — suppresses it), the turn
     // is idle, and the session already has a Codex thread worth compacting.
@@ -2920,7 +3056,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         ? composerActionSelection.optionId
         : PLAN_COMPOSER_ACTION_OPTIONS[0].id
     const activeConnection = useMemo(() => connections.find((connection) => connection.isActive) ?? null, [connections])
-    const showServiceTier = activeConnection?.providerType === 'openai-official' && activeConnection.authStatus === 'authenticated'
+    const sessionConnection = useMemo(
+        () => connections.find((connection) => connection.id === selectedSession?.codexConnectionId) ?? activeConnection,
+        [activeConnection, connections, selectedSession?.codexConnectionId]
+    )
+    const showServiceTier = sessionConnection?.providerType === 'openai-official' && sessionConnection.authStatus === 'authenticated'
     const quotaSummary = useMemo(
         () =>
             getCodexRateLimitSummary(
@@ -2947,10 +3087,10 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
 
     useEffect(() => {
         let cancelled = false
-        if (!activeConnection?.id) return
+        if (!sessionConnection?.id) return
 
         setActiveModelCatalog([])
-        void codexApi.getConnection(activeConnection.id)
+        void codexApi.getConnection(sessionConnection.id)
             .then((detail) => {
                 if (cancelled) return
                 setActiveConnectionRateLimits(detail.rateLimits)
@@ -2960,7 +3100,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                     console.error('Failed to load active Codex connection detail:', error)
                 }
             })
-        void codexApi.listConnectionModels(activeConnection.id)
+        void codexApi.listConnectionModels(sessionConnection.id)
             .then((catalog) => {
                 if (!cancelled) setActiveModelCatalog(catalog.models)
             })
@@ -2971,15 +3111,15 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         return () => {
             cancelled = true
         }
-    }, [activeConnection?.id])
+    }, [sessionConnection?.id])
 
     useEffect(() => {
         const wasRunning = previousRunningRef.current
         previousRunningRef.current = running
-        if (!wasRunning || running || !activeConnection?.id) return
+        if (!wasRunning || running || !sessionConnection?.id) return
 
         let cancelled = false
-        void codexApi.getConnection(activeConnection.id)
+        void codexApi.getConnection(sessionConnection.id)
             .then((detail) => {
                 if (cancelled) return
                 setActiveConnectionRateLimits(detail.rateLimits)
@@ -2993,7 +3133,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         return () => {
             cancelled = true
         }
-    }, [activeConnection?.id, running])
+    }, [sessionConnection?.id, running])
 
     useEffect(() => {
         const root = scrollRef.current
@@ -3452,7 +3592,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            <CodexTimeline messages={timelineMessages} running={running} />
+                            <CodexTimeline
+                                messages={timelineMessages}
+                                running={running}
+                                scrollRootRef={scrollRef}
+                            />
                             {running && (
                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                     <CircleStop className="h-3.5 w-3.5 animate-pulse" />
@@ -3786,7 +3930,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         }}
                     />
                     </div>
-                    <div className="mt-2 flex items-center gap-2">
+                    <div className="mt-2 flex min-w-0 items-center gap-2 pr-11">
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button
@@ -3913,42 +4057,45 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                 </div>
                             </div>
                         )}
-                        <div className="ml-auto flex min-w-0 items-center gap-2">
+                        <div className="ml-auto flex min-w-0 max-w-[55%] items-center gap-1 overflow-hidden">
                             <ContextWindowIndicator contextWindow={latestContextWindow} />
-                            <CodexModelPicker
-                                modelId={modelId}
-                                reasoningEffort={reasoningEffort}
-                                serviceTier={serviceTier}
-                                models={activeModelCatalog}
-                                showServiceTier={showServiceTier}
-                                disabled={running}
-                                onChange={selectModelSetting}
-                            />
-                            <Button
-                                type="button"
-                                size="icon-sm"
-                                className="h-9 w-9 rounded-full"
-                                disabled={!running && draftIsEmpty}
-                                onClick={() => {
-                                    if (running && draftIsEmpty) {
-                                        void stopTurn(selectedSession?.id)
-                                        return
-                                    }
-                                    submit()
-                                }}
-                                title={composerButtonTitle}
-                                aria-label={composerButtonTitle}
-                            >
-                                {running && draftIsEmpty ? (
-                                    <CircleStop className="h-3.5 w-3.5 animate-pulse" />
-                                ) : running ? (
-                                    <ArrowUp className="h-4 w-4" />
-                                ) : (
-                                    <SendHorizonal className="h-4 w-4" />
-                                )}
-                            </Button>
+                            <div className="min-w-0 flex-1 overflow-hidden">
+                                <CodexModelPicker
+                                    modelId={modelId}
+                                    reasoningEffort={reasoningEffort}
+                                    serviceTier={serviceTier}
+                                    models={activeModelCatalog}
+                                    includeBuiltinModels={sessionConnection?.providerType !== 'custom'}
+                                    showServiceTier={showServiceTier}
+                                    disabled={running}
+                                    onChange={selectModelSetting}
+                                />
+                            </div>
                         </div>
                     </div>
+                    <Button
+                        type="button"
+                        size="icon-sm"
+                        className="absolute bottom-3 right-3 h-9 w-9 rounded-full"
+                        disabled={!running && draftIsEmpty}
+                        onClick={() => {
+                            if (running && draftIsEmpty) {
+                                void stopTurn(selectedSession?.id)
+                                return
+                            }
+                            submit()
+                        }}
+                        title={composerButtonTitle}
+                        aria-label={composerButtonTitle}
+                    >
+                        {running && draftIsEmpty ? (
+                            <CircleStop className="h-3.5 w-3.5 animate-pulse" />
+                        ) : running ? (
+                            <ArrowUp className="h-4 w-4" />
+                        ) : (
+                            <SendHorizonal className="h-4 w-4" />
+                        )}
+                    </Button>
                     </div>
                     </>
                 )}

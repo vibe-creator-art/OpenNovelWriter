@@ -2,6 +2,7 @@
 
 import { create, type StoreApi } from 'zustand'
 import {
+    codexApi,
     codexSessionApi,
     type CodexApprovalOption,
     type CodexApprovalRequest,
@@ -127,6 +128,10 @@ function applySession(
         selectedSessionId: options?.select ? session.id : state.selectedSessionId,
         sessions,
     }
+}
+
+function isUnsavedSession(session: CodexSession | undefined | null) {
+    return Boolean(session && !session.ownerId)
 }
 
 function scheduleDraftSave(sessionId: string, draftContent: string) {
@@ -342,7 +347,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
 
         try {
             const result = await codexSessionApi.list(novelKey)
-            const sessions = sortSessions(result.sessions ?? [])
+            const sessions = sortSessions((result.sessions ?? []).filter((session) => session.messages.length > 0))
             set((state) => {
                 const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
                 const selectedSessionId =
@@ -387,18 +392,20 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
 
         const now = new Date().toISOString()
         const reviewLevel = getStickyReviewLevel()
+        const connections = await codexApi.listConnections().catch(() => [])
+        const activeConnection = connections.find((connection) => connection.isActive) ?? null
         const fallback: CodexSession = {
             id: createId('codex_session'),
             category: 'general',
             title: null,
             titleManuallyEdited: false,
             reviewLevel,
-            modelId: DEFAULT_CODEX_MODEL,
+            modelId: activeConnection?.defaultModelId || DEFAULT_CODEX_MODEL,
             reasoningEffort: 'high',
             serviceTier: 'standard',
             planMode: false,
             codexThreadId: null,
-            codexConnectionId: null,
+            codexConnectionId: activeConnection?.id ?? null,
             draftContent: '',
             status: 'idle',
             lastError: null,
@@ -411,25 +418,18 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
 
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            const withoutUnsavedSessions = {
+                ...current,
+                sessions: current.sessions.filter((session) => !isUnsavedSession(session)),
+            }
             return {
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: applySession(current, fallback, { select: true }),
+                    [novelKey]: applySession(withoutUnsavedSessions, fallback, { select: true }),
                 },
             }
         })
-
-        const result = await codexSessionApi.create(novelKey, { id: fallback.id, category: 'general', reviewLevel })
-        set((state) => {
-            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            return {
-                sessionsByNovel: {
-                    ...state.sessionsByNovel,
-                    [novelKey]: applySession(current, result.session, { select: true, front: false }),
-                },
-            }
-        })
-        return result.session.id
+        return fallback.id
     },
     createSceneOperationSkillSession: async (novelId, input) => {
         const novelKey = getNovelKey(novelId)
@@ -517,7 +517,10 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 },
             }
         })
-        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) scheduleDraftSave(sessionId, draftContent)
+        const session = get().sessionsByNovel[novelKey]?.sessions.find((item) => item.id === sessionId)
+        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID && !isUnsavedSession(session)) {
+            scheduleDraftSave(sessionId, draftContent)
+        }
     },
     updateReviewLevel: async (novelId, sessionId, reviewLevel) => {
         const novelKey = getNovelKey(novelId)
@@ -537,6 +540,8 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             }
         })
 
+        const localSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
+        if (isUnsavedSession(localSession)) return
         const result = await codexSessionApi.update(sessionId, { reviewLevel })
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
@@ -574,6 +579,8 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             }
         })
 
+        const localSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
+        if (isUnsavedSession(localSession)) return
         const result = await codexSessionApi.update(sessionId, patch)
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
@@ -602,6 +609,8 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             }
         })
 
+        const localSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
+        if (isUnsavedSession(localSession)) return
         const result = await codexSessionApi.update(sessionId, { planMode })
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
@@ -617,6 +626,8 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         const novelKey = getNovelKey(novelId)
         const normalizedTitle = title.trim()
         if (!normalizedTitle) return
+        const localSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
+        if (isUnsavedSession(localSession)) return
         const result = await codexSessionApi.update(sessionId, {
             title: normalizedTitle,
             titleManuallyEdited: true,
@@ -633,6 +644,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     },
     deleteSession: async (novelId, sessionId) => {
         const novelKey = getNovelKey(novelId)
+        const deletedSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             const sessions = current.sessions.filter((session) => session.id !== sessionId)
@@ -648,7 +660,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 },
             }
         })
-        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) {
+        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID && !isUnsavedSession(deletedSession)) {
             const result = await codexSessionApi.delete(sessionId)
             // A scene-continuation session is paired with an inline panel; the server removed it
             // from the stored scene HTML, so drop the live node too if that scene is open.
@@ -660,6 +672,32 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     sendMessage: async (novelId, sessionId, content, options) => {
         const novelKey = getNovelKey(novelId)
         clearDraftSave(sessionId)
+        const localSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
+        if (isUnsavedSession(localSession)) {
+            const connections = await codexApi.listConnections().catch(() => [])
+            const activeConnection = connections.find((connection) => connection.isActive) ?? null
+            const connectionChanged = activeConnection?.id !== localSession?.codexConnectionId
+            const result = await codexSessionApi.create(novelKey, {
+                id: sessionId,
+                category: 'general',
+                reviewLevel: localSession!.reviewLevel,
+                modelId: connectionChanged
+                    ? activeConnection?.defaultModelId || DEFAULT_CODEX_MODEL
+                    : localSession!.modelId,
+                reasoningEffort: localSession!.reasoningEffort,
+                serviceTier: localSession!.serviceTier,
+                planMode: localSession!.planMode,
+            })
+            set((state) => {
+                const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+                return {
+                    sessionsByNovel: {
+                        ...state.sessionsByNovel,
+                        [novelKey]: applySession(current, result.session, { select: true, front: false }),
+                    },
+                }
+            })
+        }
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             const now = new Date().toISOString()

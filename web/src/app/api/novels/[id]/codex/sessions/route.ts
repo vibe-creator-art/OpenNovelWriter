@@ -13,8 +13,7 @@ import {
     normalizeCodexStringId,
     serializeCodexSession,
 } from '@/lib/server/codex-session'
-import { readCodexConnectionFiles } from '@/lib/server/codex-connection-storage'
-import { DEFAULT_CODEX_MODEL, parseCodexModelFromConfig } from '@/lib/codex-config'
+import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import { seedSkillSessionArtifact } from '@/lib/server/codex-skill-session'
 
 interface RouteContext {
@@ -72,14 +71,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const activeConnection = await prisma.codexConnection.findFirst({
             where: { ownerId: user.userId, isActive: true },
             orderBy: { createdAt: 'asc' },
-            select: { id: true },
+            select: { id: true, defaultModelId: true },
         })
-        const activeConnectionModel = activeConnection
-            ? parseCodexModelFromConfig(
-                (await readCodexConnectionFiles(user.userId, activeConnection.id)).configToml,
-                DEFAULT_CODEX_MODEL
-            )
-            : DEFAULT_CODEX_MODEL
+        const activeConnectionModel = activeConnection?.defaultModelId?.trim() || DEFAULT_CODEX_MODEL
 
         const now = new Date()
         const session = await prisma.codexSession.create({

@@ -26,6 +26,7 @@ const {
     buildTermProjectionSnapshots,
 } = require('../src/lib/server/novel-workspace-terms.cjs')
 const { applyHunk, diffRegions } = require('../src/lib/server/manuscript-edit.cjs')
+const { updateSceneContentWithStats } = require('../src/lib/server/manuscript-word-count.cjs')
 const { parseLlmConversation, buildLlmRequestPayload, getAssistantBlock } = require('../src/lib/server/llm-conversation.cjs')
 
 const prisma = new PrismaClient()
@@ -847,10 +848,7 @@ async function editSceneContent(args) {
         throw new Error(`No edits could be applied. ${failed.map((item) => `#${item.index}: ${item.error}`).join(' ')}`)
     }
 
-    await prisma.scene.update({
-        where: { id: sceneId },
-        data: { content: currentHtml, wordCount: calculateWordCountFromHtml(currentHtml) },
-    })
+    await updateSceneContentWithStats(prisma, sceneId, currentHtml)
     await Promise.all([
         syncNovelWorkspaceOutline(novelId),
         syncNovelWorkspaceChapter(novelId, scene.chapterId),

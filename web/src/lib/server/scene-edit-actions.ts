@@ -1,6 +1,7 @@
 import { createRequire } from 'module'
 import { prisma } from '@/lib/db'
 import { syncNovelWorkspaceChapter, syncNovelWorkspaceOutline } from '@/lib/server/novel-workspace'
+import { updateSceneContentWithStats } from '@/lib/server/manuscript-word-count'
 
 const require = createRequire(import.meta.url)
 const { revertHunk } = require('./manuscript-edit.cjs') as {
@@ -20,25 +21,6 @@ export type SceneEditRecord = {
 }
 
 export type SceneEditActionResult = { ok: true } | { ok: false; error: string; status?: number }
-
-function countWordsFromHtml(html: string): number {
-    const text = String(html ?? '')
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/\s+/g, ' ')
-        .trim()
-    if (!text) return 0
-    const chineseChars = text.match(/[一-鿿㐀-䶿]/g)?.length || 0
-    const englishWords = text
-        .replace(/[一-鿿㐀-䶿]/g, ' ')
-        .trim()
-        .split(/\s+/)
-        .filter((word) => word.length > 0).length
-    return chineseChars + englishWords
-}
 
 async function loadOwnedPendingEdit(ownerId: string, editId: string) {
     return prisma.sceneEdit.findFirst({
@@ -89,10 +71,7 @@ export async function rejectSceneEdit(ownerId: string, editOrId: SceneEditRecord
         return { ok: false, error: result.error, status: 409 }
     }
 
-    await prisma.scene.update({
-        where: { id: scene.id },
-        data: { content: result.newHtml, wordCount: countWordsFromHtml(result.newHtml) },
-    })
+    await updateSceneContentWithStats(prisma, scene.id, result.newHtml)
     await prisma.sceneEdit.update({ where: { id: edit.id }, data: { status: 'rejected' } })
     await Promise.all([
         syncNovelWorkspaceOutline(ownerId, edit.novelId),

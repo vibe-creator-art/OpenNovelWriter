@@ -74,3 +74,18 @@ export function isValidCodexInternalToken(candidate: string | null | undefined):
     if (a.length !== b.length) return false
     return crypto.timingSafeEqual(a, b)
 }
+
+export function getCodexProxyToken(connectionId: string): string {
+    return crypto
+        .createHmac('sha256', getCodexInternalToken())
+        .update(`codex-proxy:${connectionId}`, 'utf8')
+        .digest('base64url')
+}
+
+export function isValidCodexProxyToken(connectionId: string, candidate: string | null | undefined) {
+    if (!candidate) return false
+    const expected = getCodexProxyToken(connectionId)
+    const a = Buffer.from(candidate)
+    const b = Buffer.from(expected)
+    return a.length === b.length && crypto.timingSafeEqual(a, b)
+}

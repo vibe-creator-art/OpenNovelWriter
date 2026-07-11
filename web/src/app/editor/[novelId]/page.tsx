@@ -18,6 +18,7 @@ import { MiddlePanelWrite } from '@/components/editor/middle-panel-write'
 import { MiddlePanelPrompts } from '@/components/editor/middle-panel-prompts'
 import { MiddlePanelSkills } from '@/components/editor/skills/middle-panel-skills'
 import { MiddlePanelAgents } from '@/components/editor/agents/middle-panel-agents'
+import { MiddlePanelReview } from '@/components/editor/middle-panel-review'
 import { WriteFormatMenu } from '@/components/editor/write-format-menu'
 import { LeftPanelMenu } from '@/components/editor/left-panel-menu'
 import { RightPanel } from '@/components/editor/right-panel'
@@ -633,7 +634,10 @@ export default function EditorPage({ params }: EditorPageProps) {
 
     // Calculate total word count
     const totalWordCount = useMemo(
-        () => chapters.reduce((sum, c) => sum + c.wordCount, 0),
+        () => chapters.reduce(
+            (sum, chapter) => sum + chapter.scenes.reduce((sceneSum, scene) => sceneSum + scene.wordCount, 0),
+            0
+        ),
         [chapters]
     )
 
@@ -1492,6 +1496,14 @@ export default function EditorPage({ params }: EditorPageProps) {
                             {activeTab === 'agents' && (
                                 <MiddlePanelAgents
                                     novelId={novelId ?? undefined}
+                                />
+                            )}
+
+                            {activeTab === 'review' && novelId && (
+                                <MiddlePanelReview
+                                    novelId={novelId}
+                                    chapters={chapters}
+                                    onNavigateToScene={(chapterId, sceneId) => navigateToWriteTarget({ kind: 'scene', chapterId, sceneId })}
                                 />
                             )}
                         </div>

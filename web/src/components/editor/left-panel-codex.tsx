@@ -58,7 +58,10 @@ export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCod
         void loadSessions(novelId)
     }, [loadSessions, novelId])
 
-    const sessions = sessionState?.sessions ?? EMPTY_SESSIONS
+    const sessions = useMemo(
+        () => (sessionState?.sessions ?? EMPTY_SESSIONS).filter((session) => session.messages.length > 0),
+        [sessionState?.sessions]
+    )
     const selectedSessionId = sessionState?.selectedSessionId ?? null
     const deletingSession = sessions.find((session) => session.id === deleteSessionId) ?? null
 

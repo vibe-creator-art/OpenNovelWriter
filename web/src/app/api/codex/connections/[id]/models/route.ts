@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
 import { listCodexModels } from '@/lib/server/codex-app-server'
+import { parseCodexProviderModelsJson } from '@/lib/codex-config'
 
 const prisma = getPrismaClient({ ensureModel: 'codexConnection' })
 
@@ -13,11 +14,21 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const { id } = await context.params
     const connection = await prisma.codexConnection.findFirst({
         where: { id, ownerId: user.userId },
-        select: { id: true },
     })
     if (!connection) return NextResponse.json({ detail: 'Not found' }, { status: 404 })
 
     try {
+        if (connection.providerType === 'custom') {
+            return NextResponse.json({
+                models: parseCodexProviderModelsJson(connection.modelsJson).map((model) => ({
+                    id: model.id,
+                    displayName: model.displayName,
+                    description: model.displayName,
+                    supportedReasoningEfforts: model.supportedReasoningEfforts,
+                    defaultReasoningEffort: model.defaultReasoningEffort,
+                })),
+            })
+        }
         const codexHome = await ensureCodexConnectionHome(user.userId, connection.id)
         return NextResponse.json({ models: await listCodexModels(codexHome) })
     } catch (error) {

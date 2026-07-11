@@ -1,1177 +1,422 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Copy, ExternalLink, Eye, EyeOff, KeyRound, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
+
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import {
     ApiError,
     codexApi,
     type CodexConnectionDetail,
-    type CodexModel,
     type CodexConnectionProviderType,
-    type CodexRateLimits,
     type CodexConnectionSummary,
+    type CodexModel,
+    type CodexProviderModel,
+    type CodexRateLimits,
+    type CodexReasoningEffort,
+    type CodexUpstreamFormat,
 } from '@/lib/api'
 import {
-    buildCustomCodexAuthJson,
-    buildCustomCodexConfigToml,
+    createDefaultCodexProviderModel,
     getDefaultCodexAuthJson,
     getDefaultCodexConfig,
     getDefaultCodexCustomSettings,
-    parseCodexCustomSettingsFromFiles,
 } from '@/lib/codex-config'
-import {
-    getCodexRateLimitSummary,
-    hasMeaningfulCodexRateLimits,
-} from '@/lib/codex-rate-limits'
-import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import {
-    Card,
-    CardContent,
-    CardHeader,
-    CardTitle,
-} from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
-import {
-    ArrowRight,
-    Bot,
-    Copy,
-    ExternalLink,
-    Eye,
-    EyeOff,
-    KeyRound,
-    Loader2,
-    Plus,
-    RefreshCw,
-    Trash2,
-} from 'lucide-react'
+import { getCodexRateLimitSummary, hasMeaningfulCodexRateLimits } from '@/lib/codex-rate-limits'
 
-type EditableConnection = {
+const EFFORTS: CodexReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+
+type FormState = {
     id: string | null
     name: string
+    note: string
     providerType: CodexConnectionProviderType
     isActive: boolean
     authStatus: string
-    authType: string | null
-    accountEmail: string | null
-    accountPlan: string | null
-    lastAuthError: string | null
     authJson: string
     configToml: string
+    upstreamFormat: CodexUpstreamFormat
+    baseUrl: string
+    apiKey: string
+    hasApiKey: boolean
+    defaultModelId: string
+    models: CodexProviderModel[]
     rateLimits: CodexRateLimits | null
-    customApiKey: string
-    customBaseUrl: string
-    customModel: string
 }
 
-function createDraft(
-    providerType: CodexConnectionProviderType,
-    getLabel: (key: string) => string
-): EditableConnection {
-    const customSettings = getDefaultCodexCustomSettings()
+function newForm(providerType: CodexConnectionProviderType): FormState {
+    const custom = getDefaultCodexCustomSettings()
     return {
         id: null,
-        name:
-            providerType === 'openai-official'
-                ? getLabel('defaults.openaiOfficialName')
-                : getLabel('defaults.customName'),
+        name: providerType === 'custom' ? 'Custom Codex' : 'OpenAI Official',
+        note: '',
         providerType,
         isActive: false,
         authStatus: 'unauthenticated',
-        authType: null,
-        accountEmail: null,
-        accountPlan: null,
-        lastAuthError: null,
-        authJson: getDefaultCodexAuthJson(providerType),
-        configToml: getDefaultCodexConfig(providerType),
+        authJson: getDefaultCodexAuthJson(),
+        configToml: getDefaultCodexConfig(),
+        upstreamFormat: custom.upstreamFormat,
+        baseUrl: custom.baseUrl,
+        apiKey: '',
+        hasApiKey: false,
+        defaultModelId: custom.defaultModelId,
+        models: custom.models,
         rateLimits: null,
-        customApiKey: customSettings.apiKey,
-        customBaseUrl: customSettings.baseUrl,
-        customModel: customSettings.model,
     }
 }
 
-function fromDetail(detail: CodexConnectionDetail): EditableConnection {
-    const providerType = detail.connection.providerType as CodexConnectionProviderType
-    const customSettings =
-        providerType === 'custom'
-            ? parseCodexCustomSettingsFromFiles({
-                authJson: detail.authJson,
-                configToml: detail.configToml,
-            })
-            : getDefaultCodexCustomSettings()
-
+function detailToForm(detail: CodexConnectionDetail): FormState {
+    const connection = detail.connection
     return {
-        id: detail.connection.id,
-        name: detail.connection.name,
-        providerType,
-        isActive: detail.connection.isActive,
-        authStatus: detail.connection.authStatus,
-        authType: detail.connection.authType,
-        accountEmail: detail.connection.accountEmail,
-        accountPlan: detail.connection.accountPlan,
-        lastAuthError: detail.connection.lastAuthError,
+        id: connection.id,
+        name: connection.name,
+        note: connection.note || '',
+        providerType: connection.providerType as CodexConnectionProviderType,
+        isActive: connection.isActive,
+        authStatus: connection.authStatus,
         authJson: detail.authJson,
         configToml: detail.configToml,
+        upstreamFormat: connection.upstreamFormat || 'responses',
+        baseUrl: connection.baseUrl || getDefaultCodexCustomSettings().baseUrl,
+        apiKey: '',
+        hasApiKey: connection.hasApiKey,
+        defaultModelId: connection.defaultModelId || connection.models[0]?.id || '',
+        models: connection.models,
         rateLimits: detail.rateLimits,
-        customApiKey: customSettings.apiKey,
-        customBaseUrl: customSettings.baseUrl,
-        customModel: customSettings.model,
     }
 }
 
 export function CodexConnectionsTab() {
     const t = useTranslations('settings.codex')
-    const label = useCallback((key: string) => t(key as never), [t])
-    const DRAFT_ENTRY_ID = '__draft__'
     const [connections, setConnections] = useState<CodexConnectionSummary[]>([])
-    const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null)
-    const [hasUnsavedDraft, setHasUnsavedDraft] = useState(false)
-    const [form, setForm] = useState<EditableConnection>(() =>
-        createDraft('openai-official', label)
-    )
-    const [loadingList, setLoadingList] = useState(true)
-    const [loadingDetail, setLoadingDetail] = useState(false)
+    const [selectedId, setSelectedId] = useState<string | null>(null)
+    const [form, setForm] = useState<FormState>(() => newForm('openai-official'))
+    const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [deleting, setDeleting] = useState(false)
-    const [authorizingType, setAuthorizingType] = useState<'chatgpt' | 'chatgptDeviceCode' | null>(null)
-    const [deviceCodeLogin, setDeviceCodeLogin] = useState<{
-        loginId: string
-        verificationUrl: string
-        userCode: string
-    } | null>(null)
-    const [copiedDeviceCode, setCopiedDeviceCode] = useState(false)
-    const [fetchingCustomModels, setFetchingCustomModels] = useState(false)
-    const [customModels, setCustomModels] = useState<CodexModel[]>([])
-    const [showCustomApiKey, setShowCustomApiKey] = useState(false)
+    const [authorizing, setAuthorizing] = useState(false)
+    const [fetchingModels, setFetchingModels] = useState(false)
+    const [discoveredModels, setDiscoveredModels] = useState<CodexModel[]>([])
+    const [discoveredModelId, setDiscoveredModelId] = useState('')
+    const [showApiKey, setShowApiKey] = useState(false)
+    const [deviceCodeLogin, setDeviceCodeLogin] = useState<{ verificationUrl: string; userCode: string } | null>(null)
     const [error, setError] = useState<string | null>(null)
-    const pollTimerRef = useRef<number | null>(null)
-    const detailRequestIdRef = useRef(0)
-    const selectedEntryIdRef = useRef<string | null>(null)
-    const detailCacheRef = useRef<Map<string, EditableConnection>>(new Map())
 
     const selectedSummary = useMemo(
-        () =>
-            selectedEntryId && selectedEntryId !== DRAFT_ENTRY_ID
-                ? connections.find((connection) => connection.id === selectedEntryId) ?? null
-                : null,
-        [connections, selectedEntryId]
+        () => connections.find((connection) => connection.id === selectedId) || null,
+        [connections, selectedId]
     )
-    const currentRateLimits = form.rateLimits
-    const isDraftSelected = selectedEntryId === DRAFT_ENTRY_ID
-    const isSavedConnectionSelected =
-        selectedEntryId !== null && selectedEntryId !== DRAFT_ENTRY_ID
-    const isSavedDetailReady = isSavedConnectionSelected && form.id === selectedEntryId
-    const showEditor = isDraftSelected || isSavedConnectionSelected || hasUnsavedDraft
-    const customModelOptions = useMemo(() => {
-        const seen = new Set<string>()
-        const options: CodexModel[] = []
 
-        const append = (model: CodexModel | null) => {
-            if (!model || !model.id || seen.has(model.id)) return
-            seen.add(model.id)
-            options.push(model)
-        }
-
-        if (form.providerType === 'custom' && form.customModel) {
-            append({ id: form.customModel, name: form.customModel })
-        }
-
-        for (const model of customModels) {
-            append(model)
-        }
-
-        return options
-    }, [customModels, form.customModel, form.providerType])
-
-    const setSelectedEntry = useCallback((nextId: string | null) => {
-        detailRequestIdRef.current += 1
-        selectedEntryIdRef.current = nextId
-        setSelectedEntryId(nextId)
-        setDeviceCodeLogin(null)
-        setCopiedDeviceCode(false)
-        if (nextId === null) {
-            setLoadingDetail(false)
-        }
-    }, [])
-
-    const cacheDetail = useCallback((detail: EditableConnection) => {
-        if (!detail.id) return
-        detailCacheRef.current.set(detail.id, detail)
-    }, [])
-
-    const loadDetail = useCallback(async (id: string, options?: { silent?: boolean }) => {
-        const requestId = ++detailRequestIdRef.current
-        if (!options?.silent) {
-            setLoadingDetail(true)
-        }
-        try {
-            const detail = await codexApi.getConnection(id)
-            if (detailRequestIdRef.current !== requestId || selectedEntryIdRef.current !== id) {
-                return
-            }
-            const editable = fromDetail(detail)
-            cacheDetail(editable)
-            setForm(editable)
-            setError(null)
-        } catch (nextError) {
-            if (detailRequestIdRef.current !== requestId || selectedEntryIdRef.current !== id) {
-                return
-            }
-            setError(getErrorMessage(nextError, t('errors.loadFailed')))
-        } finally {
-            if (detailRequestIdRef.current === requestId) {
-                setLoadingDetail(false)
-            }
-        }
-    }, [cacheDetail, t])
-
-    const loadConnections = useCallback(async (nextSelectedId?: string | null) => {
-        setLoadingList(true)
+    const loadConnections = useCallback(async () => {
+        setLoading(true)
         try {
             const items = await codexApi.listConnections()
             setConnections(items)
-
-            const targetId =
-                nextSelectedId && items.some((item) => item.id === nextSelectedId)
-                    ? nextSelectedId
-                    : null
-
-            if (targetId) {
-                setSelectedEntry(targetId)
+            const target = items.find((item) => item.id === selectedId) || items[0]
+            if (target) {
+                setSelectedId(target.id)
+                setForm(detailToForm(await codexApi.getConnection(target.id)))
             } else {
-                setSelectedEntry(null)
-                setForm(createDraft('openai-official', label))
+                setSelectedId(null)
+                setForm(newForm('openai-official'))
             }
+            setError(null)
         } catch (nextError) {
-            setError(getErrorMessage(nextError, t('errors.loadFailed')))
+            setError(errorMessage(nextError, t('errors.loadFailed')))
         } finally {
-            setLoadingList(false)
+            setLoading(false)
         }
-    }, [label, setSelectedEntry, t])
+    }, [selectedId, t])
 
     useEffect(() => {
         void loadConnections()
-        return () => stopPolling()
-    }, [loadConnections])
+        // Loading once on mount avoids replacing an in-progress edit when selection changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
-    useEffect(() => {
-        if (!selectedEntryId || selectedEntryId === DRAFT_ENTRY_ID) return
-        const cached = detailCacheRef.current.get(selectedEntryId)
-        if (cached) {
-            setForm(cached)
-            setLoadingDetail(false)
-            void loadDetail(selectedEntryId, { silent: true })
-            return
-        }
-        void loadDetail(selectedEntryId)
-    }, [DRAFT_ENTRY_ID, loadDetail, selectedEntryId])
-
-    useEffect(() => {
-        if (form.providerType !== 'custom') {
-            setCustomModels([])
-            setShowCustomApiKey(false)
-        }
-    }, [form.providerType])
-
-    function stopPolling() {
-        if (pollTimerRef.current !== null) {
-            window.clearInterval(pollTimerRef.current)
-            pollTimerRef.current = null
-        }
-    }
-
-    async function copyDeviceCode() {
-        if (!deviceCodeLogin) return
-        if (navigator.clipboard) {
-            await navigator.clipboard.writeText(deviceCodeLogin.userCode)
-        }
-        setCopiedDeviceCode(true)
-        window.setTimeout(() => {
-            setCopiedDeviceCode(false)
-        }, 1500)
-    }
-
-    function updateSummary(connection: CodexConnectionSummary) {
-        setConnections((current) => {
-            const index = current.findIndex((item) => item.id === connection.id)
-            if (index < 0) return [...current, connection]
-            const next = [...current]
-            next[index] = connection
-            return next
-        })
-    }
-
-    function applyCustomSettings(
-        current: EditableConnection,
-        updates: Partial<Pick<EditableConnection, 'customApiKey' | 'customBaseUrl' | 'customModel'>>
-    ) {
-        const nextCustomApiKey = updates.customApiKey ?? current.customApiKey
-        const nextCustomBaseUrl = updates.customBaseUrl ?? current.customBaseUrl
-        const nextCustomModel = updates.customModel ?? current.customModel
-
-        return {
-            ...current,
-            customApiKey: nextCustomApiKey,
-            customBaseUrl: nextCustomBaseUrl,
-            customModel: nextCustomModel,
-            authJson: buildCustomCodexAuthJson({
-                apiKey: nextCustomApiKey,
-                baseUrl: nextCustomBaseUrl,
-                model: nextCustomModel,
-            }),
-            configToml: buildCustomCodexConfigToml({
-                apiKey: nextCustomApiKey,
-                baseUrl: nextCustomBaseUrl,
-                model: nextCustomModel,
-            }),
-        }
-    }
-
-    function syncCustomFieldsFromFiles(
-        current: EditableConnection,
-        overrides: Partial<Pick<EditableConnection, 'authJson' | 'configToml'>>
-    ) {
-        const nextAuthJson = overrides.authJson ?? current.authJson
-        const nextConfigToml = overrides.configToml ?? current.configToml
-        const nextSettings = parseCodexCustomSettingsFromFiles({
-            authJson: nextAuthJson,
-            configToml: nextConfigToml,
-            fallback: {
-                apiKey: current.customApiKey,
-                baseUrl: current.customBaseUrl,
-                model: current.customModel,
-            },
-        })
-
-        return {
-            ...current,
-            authJson: nextAuthJson,
-            configToml: nextConfigToml,
-            customApiKey: nextSettings.apiKey,
-            customBaseUrl: nextSettings.baseUrl,
-            customModel: nextSettings.model,
+    async function selectConnection(id: string) {
+        setSelectedId(id)
+        setLoading(true)
+        try {
+            setForm(detailToForm(await codexApi.getConnection(id)))
+            setDiscoveredModels([])
+            setError(null)
+        } catch (nextError) {
+            setError(errorMessage(nextError, t('errors.loadFailed')))
+        } finally {
+            setLoading(false)
         }
     }
 
     function startDraft(providerType: CodexConnectionProviderType) {
-        stopPolling()
-        setHasUnsavedDraft(true)
-        setSelectedEntry(DRAFT_ENTRY_ID)
-        setForm(createDraft(providerType, label))
-        setCustomModels([])
+        setSelectedId(null)
+        setForm(newForm(providerType))
+        setDiscoveredModels([])
         setError(null)
     }
 
-    function clearDraft() {
-        setHasUnsavedDraft(false)
-        setForm(createDraft('openai-official', label))
-        setCustomModels([])
-    }
-
-    function selectSavedConnection(connectionId: string) {
-        stopPolling()
-        if (hasUnsavedDraft) {
-            clearDraft()
-        }
-        setCustomModels([])
-        setSelectedEntry(connectionId)
-        const cached = detailCacheRef.current.get(connectionId)
-        if (cached) {
-            setForm(cached)
-            setLoadingDetail(false)
+    function payload(active = form.isActive) {
+        return {
+            name: form.name,
+            note: form.note || null,
+            providerType: form.providerType,
+            isActive: active,
+            ...(form.providerType === 'openai-official'
+                ? { authJson: form.authJson, configToml: form.configToml }
+                : {
+                    upstreamFormat: form.upstreamFormat,
+                    baseUrl: form.baseUrl,
+                    apiKey: form.apiKey || undefined,
+                    defaultModelId: form.defaultModelId,
+                    models: form.models,
+                }),
         }
     }
 
-    async function saveCurrent() {
+    async function save() {
         setSaving(true)
         try {
-            const payload = {
-                name: form.name,
-                providerType: form.providerType,
-                isActive: form.isActive,
-                authJson: form.authJson,
-                configToml: form.configToml,
-            }
-
             const detail = form.id
-                ? await codexApi.updateConnection(form.id, payload)
-                : await codexApi.createConnection(payload)
-
-            const editable = fromDetail(detail)
-            cacheDetail(editable)
-            setForm(editable)
-            setHasUnsavedDraft(false)
-            setSelectedEntry(detail.connection.id)
-            updateSummary(detail.connection)
+                ? await codexApi.updateConnection(form.id, payload())
+                : await codexApi.createConnection(payload())
+            setForm(detailToForm(detail))
+            setSelectedId(detail.connection.id)
+            setConnections((current) => {
+                const rest = current.filter((item) => item.id !== detail.connection.id)
+                return [...rest.map((item) => detail.connection.isActive ? { ...item, isActive: false } : item), detail.connection]
+            })
             setError(null)
-            return detail.connection.id
         } catch (nextError) {
-            setError(getErrorMessage(nextError, t('errors.saveFailed')))
-            return null
+            setError(errorMessage(nextError, t('errors.saveFailed')))
         } finally {
             setSaving(false)
         }
     }
 
-    async function deleteCurrent() {
-        if (!form.id) {
-            clearDraft()
-            const fallbackId = connections[0]?.id ?? null
-            setSelectedEntry(fallbackId)
-            return
-        }
-
-        if (!window.confirm(t('confirmDelete'))) return
-
-        setDeleting(true)
+    async function activate(connection: CodexConnectionSummary) {
         try {
-            const deletedId = form.id
-            await codexApi.deleteConnection(deletedId)
-            stopPolling()
-            detailCacheRef.current.delete(deletedId)
-            const remaining = connections.filter((item) => item.id !== deletedId)
-            setConnections(remaining)
-            clearDraft()
-            setSelectedEntry(null)
+            const detail = connection.id === form.id ? null : await codexApi.getConnection(connection.id)
+            const source = detail ? detailToForm(detail) : form
+            const updated = await codexApi.updateConnection(connection.id, {
+                name: source.name,
+                note: source.note || null,
+                providerType: source.providerType,
+                isActive: true,
+                ...(source.providerType === 'openai-official'
+                    ? { authJson: source.authJson, configToml: source.configToml }
+                    : {
+                        upstreamFormat: source.upstreamFormat,
+                        baseUrl: source.baseUrl,
+                        defaultModelId: source.defaultModelId,
+                        models: source.models,
+                    }),
+            })
+            setConnections((current) => current.map((item) => ({ ...item, isActive: item.id === connection.id })))
+            if (form.id === connection.id) setForm(detailToForm(updated))
             setError(null)
         } catch (nextError) {
-            setError(getErrorMessage(nextError, t('errors.deleteFailed')))
+            setError(errorMessage(nextError, t('errors.saveFailed')))
+        }
+    }
+
+    async function remove() {
+        if (!form.id) return startDraft('openai-official')
+        if (!window.confirm(t('confirmDelete'))) return
+        setDeleting(true)
+        try {
+            await codexApi.deleteConnection(form.id)
+            const remaining = connections.filter((item) => item.id !== form.id)
+            setConnections(remaining)
+            if (remaining[0]) await selectConnection(remaining[0].id)
+            else startDraft('openai-official')
+        } catch (nextError) {
+            setError(errorMessage(nextError, t('errors.deleteFailed')))
         } finally {
             setDeleting(false)
         }
     }
 
-    async function activateConnection(connectionId: string) {
+    async function authorize(type: 'chatgpt' | 'chatgptDeviceCode') {
+        setAuthorizing(true)
         try {
-            const detail =
-                form.id === connectionId
-                    ? {
-                        connection: {
-                            id: connectionId,
-                            name: form.name,
-                            providerType: form.providerType,
-                            isActive: form.isActive,
-                            note: null,
-                            authStatus: form.authStatus,
-                            authType: form.authType,
-                            accountEmail: form.accountEmail,
-                            accountPlan: form.accountPlan,
-                            lastAuthError: form.lastAuthError,
-                            createdAt: '',
-                            updatedAt: '',
-                        },
-                        authJson: form.authJson,
-                        configToml: form.configToml,
-                        rateLimits: form.rateLimits,
-                    }
-                    : await codexApi.getConnection(connectionId)
-
-            const updated = await codexApi.updateConnection(connectionId, {
-                name: detail.connection.name,
-                providerType: detail.connection.providerType as CodexConnectionProviderType,
-                isActive: true,
-                authJson: detail.authJson,
-                configToml: detail.configToml,
-            })
-
-            setConnections((current) =>
-                current.map((item) =>
-                    item.id === updated.connection.id
-                        ? updated.connection
-                        : { ...item, isActive: false }
-                )
-            )
-
-            setForm((current) => {
-                if (current.id === updated.connection.id) {
-                    const editable = fromDetail(updated)
-                    cacheDetail(editable)
-                    return editable
-                }
-                if (current.id) {
-                    return {
-                        ...current,
-                        isActive: false,
-                    }
-                }
-                return current
-            })
-
+            let connectionId = form.id
+            if (!connectionId) {
+                const detail = await codexApi.createConnection(payload())
+                connectionId = detail.connection.id
+                setForm(detailToForm(detail))
+                setSelectedId(connectionId)
+                setConnections((current) => [...current, detail.connection])
+            }
+            const result = await codexApi.startOfficialAuth(connectionId, type)
+            if (result.type === 'chatgpt') {
+                setDeviceCodeLogin(null)
+                window.open(result.authUrl, '_blank', 'noopener,noreferrer')
+            } else {
+                setDeviceCodeLogin({ verificationUrl: result.verificationUrl, userCode: result.userCode })
+            }
             setError(null)
         } catch (nextError) {
-            setError(getErrorMessage(nextError, t('errors.saveFailed')))
-        }
-    }
-
-    async function startOfficialAuthorization(type: 'chatgpt' | 'chatgptDeviceCode') {
-        setAuthorizingType(type)
-        try {
-            const connectionId = form.id ?? (await saveCurrent())
-            if (!connectionId) return
-
-            const result = await codexApi.startOfficialAuth(connectionId, type)
-            if (result.type === 'chatgptDeviceCode') {
-                setDeviceCodeLogin({
-                    loginId: result.loginId,
-                    verificationUrl: result.verificationUrl,
-                    userCode: result.userCode,
-                })
-                setCopiedDeviceCode(false)
-            } else {
-                setDeviceCodeLogin(null)
-                setCopiedDeviceCode(false)
-                window.open(result.authUrl, '_blank', 'noopener,noreferrer')
-            }
-            await pollAuthorizationStatus(connectionId, true)
-            stopPolling()
-            pollTimerRef.current = window.setInterval(() => {
-                void pollAuthorizationStatus(connectionId, false)
-            }, 2000)
-        } catch (nextError) {
-            setError(getErrorMessage(nextError, t('errors.authStartFailed')))
+            setError(errorMessage(nextError, t('errors.authStartFailed')))
         } finally {
-            setAuthorizingType(null)
+            setAuthorizing(false)
         }
     }
 
-    async function pollAuthorizationStatus(connectionId: string, refreshEditor: boolean) {
-        try {
-            const status = await codexApi.getOfficialAuthStatus(connectionId)
-            updateSummary(status.connection)
-
-            setForm((current) =>
-                current.id === connectionId
-                    ? {
-                        ...current,
-                        isActive: status.connection.isActive,
-                        authStatus: status.connection.authStatus,
-                        authType: status.connection.authType,
-                        accountEmail: status.connection.accountEmail,
-                        accountPlan: status.connection.accountPlan,
-                        lastAuthError: status.connection.lastAuthError,
-                        rateLimits: status.rateLimits,
-                    }
-                    : current
-            )
-
-            if (
-                status.connection.authStatus !== 'authorizing' &&
-                status.connection.authStatus !== 'unauthenticated'
-            ) {
-                stopPolling()
-                setDeviceCodeLogin(null)
-                setCopiedDeviceCode(false)
-            }
-
-            if (refreshEditor || status.connection.authStatus === 'authenticated') {
-                const detail = await codexApi.getConnection(connectionId)
-                const editable = fromDetail(detail)
-                cacheDetail(editable)
-                setForm(editable)
-            }
-        } catch (nextError) {
-            stopPolling()
-            setError(getErrorMessage(nextError, t('errors.authStatusFailed')))
-        }
-    }
-
-    async function fetchAvailableCustomModels() {
-        const apiKey = form.customApiKey.trim()
-        if (!apiKey) {
+    async function fetchModels() {
+        if (!form.apiKey.trim() && !form.hasApiKey) {
             setError(t('errors.missingCustomApiKey'))
             return
         }
-
-        setFetchingCustomModels(true)
+        setFetchingModels(true)
         try {
-            const response = await codexApi.fetchCustomModels({
-                apiKey,
-                baseUrl: form.customBaseUrl.trim(),
+            const result = await codexApi.fetchCustomModels({
+                apiKey: form.apiKey || undefined,
+                baseUrl: form.baseUrl,
+                connectionId: form.id || undefined,
             })
-            setCustomModels(response.models)
+            setDiscoveredModels(result.models)
+            setDiscoveredModelId(result.models[0]?.id || '')
             setError(null)
-
-            if (!form.customModel && response.models[0]?.id) {
-                setForm((current) =>
-                    current.providerType === 'custom'
-                        ? applyCustomSettings(current, {
-                            customModel: response.models[0].id,
-                        })
-                        : current
-                )
-            }
         } catch (nextError) {
-            setError(getErrorMessage(nextError, t('errors.fetchModelsFailed')))
+            setError(errorMessage(nextError, t('errors.fetchModelsFailed')))
         } finally {
-            setFetchingCustomModels(false)
+            setFetchingModels(false)
         }
     }
 
+    function addDiscoveredModel() {
+        const discovered = discoveredModels.find((model) => model.id === discoveredModelId)
+        if (!discovered || form.models.some((model) => model.id === discovered.id)) return
+        const model = createDefaultCodexProviderModel(discovered.id)
+        model.displayName = discovered.name || discovered.id
+        setForm((current) => ({
+            ...current,
+            models: [...current.models, model],
+            defaultModelId: current.defaultModelId || model.id,
+        }))
+    }
+
+    function updateModel(index: number, update: Partial<CodexProviderModel>) {
+        setForm((current) => {
+            const previous = current.models[index]
+            const models = current.models.map((model, modelIndex) => modelIndex === index ? { ...model, ...update } : model)
+            return {
+                ...current,
+                models,
+                defaultModelId: current.defaultModelId === previous.id && update.id ? update.id : current.defaultModelId,
+            }
+        })
+    }
+
+    function removeModel(index: number) {
+        setForm((current) => {
+            const models = current.models.filter((_, modelIndex) => modelIndex !== index)
+            return { ...current, models, defaultModelId: models.some((model) => model.id === current.defaultModelId) ? current.defaultModelId : models[0]?.id || '' }
+        })
+    }
+
     return (
-        <div className="space-y-6">
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Bot className="h-5 w-5" />
-                        {t('connectionsTitle')}
-                    </CardTitle>
+        <div className="grid min-h-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+            <Card className="min-h-0">
+                <CardHeader className="flex-row items-center justify-between">
+                    <CardTitle>{t('connectionsListTitle')}</CardTitle>
+                    <Button size="sm" variant="outline" onClick={() => startDraft('custom')}><Plus className="h-4 w-4" />{t('newConnection')}</Button>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                    <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <Label>{t('connectionsListTitle')}</Label>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => startDraft('openai-official')}
-                                >
-                                    <Plus className="h-4 w-4" />
-                                    {t('newConnection')}
-                                </Button>
-                            </div>
-
-                            <ScrollArea className="h-[440px] rounded-md border">
-                                <div className="space-y-2 p-2">
-                                    {hasUnsavedDraft ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelectedEntry(DRAFT_ENTRY_ID)}
-                                            className={cn(
-                                                'w-full rounded-md border px-3 py-3 text-left transition-colors',
-                                                selectedEntryId === DRAFT_ENTRY_ID
-                                                    ? 'border-primary bg-primary/5'
-                                                    : 'hover:bg-muted/60'
-                                            )}
-                                        >
-                                            <div className="italic font-medium text-muted-foreground">
-                                                {t('draftTitle')}
-                                            </div>
-                                        </button>
-                                    ) : null}
-
-                                    {loadingList && connections.length === 0 && !hasUnsavedDraft ? (
-                                        <div className="px-3 py-6 text-sm text-muted-foreground">
-                                            {t('loading')}
-                                        </div>
-                                    ) : connections.length === 0 && !hasUnsavedDraft ? (
-                                        <div className="px-3 py-6 text-sm text-muted-foreground">
-                                            {t('noConnections')}
-                                        </div>
-                                    ) : (
-                                        connections.map((connection) => (
-                                            (() => {
-                                                const isSelected = selectedEntryId === connection.id
-                                                const isActive = connection.isActive
-
-                                                return (
-                                            <div
-                                                key={connection.id}
-                                                role="button"
-                                                tabIndex={0}
-                                                onClick={() => {
-                                                    selectSavedConnection(connection.id)
-                                                }}
-                                                onKeyDown={(event) => {
-                                                    if (event.key === 'Enter' || event.key === ' ') {
-                                                        event.preventDefault()
-                                                        selectSavedConnection(connection.id)
-                                                    }
-                                                }}
-                                                className={cn(
-                                                    'w-full cursor-pointer rounded-md border px-3 py-3 transition-colors',
-                                                    isSelected
-                                                        ? 'border-blue-500 bg-blue-100 shadow-[0_0_0_2px_rgba(59,130,246,0.28)]'
-                                                        : isActive
-                                                            ? 'border-blue-300 bg-blue-50/50'
-                                                            : 'hover:bg-muted/60'
-                                                )}
-                                            >
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <div className="truncate font-medium">
-                                                            {connection.name}
-                                                        </div>
-                                                        <div className="mt-1 truncate text-xs text-muted-foreground">
-                                                            {connection.providerType === 'openai-official'
-                                                                ? t('providerTypes.openaiOfficial')
-                                                                : t('providerTypes.custom')}
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        {isActive ? (
-                                                            <span
-                                                                aria-label={t('active')}
-                                                                className="inline-flex h-2.5 w-2.5 rounded-full bg-blue-500"
-                                                            />
-                                                        ) : null}
-                                                        <Badge
-                                                            variant="outline"
-                                                            className={getStatusClassName(connection.authStatus)}
-                                                        >
-                                                            {getStatusLabel(connection.authStatus, label)}
-                                                        </Badge>
-                                                        {!isActive ? (
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={(event) => {
-                                                                    event.stopPropagation()
-                                                                    void activateConnection(connection.id)
-                                                                }}
-                                                                className="size-8 px-0"
-                                                                aria-label={t('enable')}
-                                                            >
-                                                                <ArrowRight className="h-4 w-4" />
-                                                            </Button>
-                                                        ) : null}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                                )
-                                            })()
-                                        ))
-                                    )}
+                <CardContent className="p-0">
+                    <ScrollArea className="h-[620px] px-3 pb-3">
+                        <div className="space-y-2">
+                            {connections.map((connection) => (
+                                <div key={connection.id} className={`flex h-16 items-center gap-2 rounded-lg border p-2 ${selectedId === connection.id ? 'border-primary bg-muted/50' : ''}`}>
+                                    <button
+                                        type="button"
+                                        onClick={() => void selectConnection(connection.id)}
+                                        className="min-w-0 flex-1 self-stretch rounded-md p-1 text-left"
+                                    >
+                                        <div className="truncate font-medium">{connection.name}</div>
+                                        <div className="mt-1 text-xs text-muted-foreground">{connection.providerType === 'custom' ? t('providerTypes.custom') : t('providerTypes.openaiOfficial')}</div>
+                                    </button>
+                                    <div className="flex w-24 shrink-0 justify-end">
+                                        {connection.isActive
+                                            ? <Badge>{t('active')}</Badge>
+                                            : <Button size="sm" variant="ghost" onClick={() => void activate(connection)}>{t('enable')}</Button>}
+                                    </div>
                                 </div>
-                            </ScrollArea>
+                            ))}
+                            {!loading && connections.length === 0 && <div className="p-4 text-sm text-muted-foreground">{t('noConnections')}</div>}
                         </div>
+                    </ScrollArea>
+                </CardContent>
+            </Card>
 
-                        {showEditor ? (
+            <Card className="min-h-0">
+                <CardHeader><CardTitle>{form.id ? form.name : t('draftTitle')}</CardTitle></CardHeader>
+                <CardContent>
+                    {loading ? <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{t('loading')}</div> : (
                         <div className="space-y-5">
-                            {isDraftSelected ? (
-                                <div className="grid gap-3 md:grid-cols-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setCustomModels([])
-                                            setForm(createDraft('openai-official', label))
-                                        }}
-                                        className={cn(
-                                            'rounded-md border px-3 py-3 text-left transition-colors',
-                                            form.providerType === 'openai-official'
-                                                ? 'border-primary bg-primary text-primary-foreground'
-                                                : 'hover:bg-muted/60'
-                                        )}
-                                    >
-                                        <div className="font-medium">{t('providerTypes.openaiOfficial')}</div>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setCustomModels([])
-                                            setForm(createDraft('custom', label))
-                                        }}
-                                        className={cn(
-                                            'rounded-md border px-3 py-3 text-left transition-colors',
-                                            form.providerType === 'custom'
-                                                ? 'border-primary bg-primary text-primary-foreground'
-                                                : 'hover:bg-muted/60'
-                                        )}
-                                    >
-                                        <div className="font-medium">{t('providerTypes.custom')}</div>
-                                    </button>
-                                </div>
-                            ) : null}
+                            <div className="space-y-2"><Label>{t('connectionName')}</Label><Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></div>
+                            <div className="space-y-2"><Label>{t('providerTypes.custom')}</Label><Select value={form.providerType} onValueChange={(value: CodexConnectionProviderType) => setForm({ ...newForm(value), id: form.id, name: form.name, note: form.note, isActive: form.isActive })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="openai-official">{t('providerTypes.openaiOfficial')}</SelectItem><SelectItem value="custom">{t('providerTypes.custom')}</SelectItem></SelectContent></Select></div>
 
-                            {isSavedConnectionSelected && !isSavedDetailReady ? (
-                                <div className="text-sm text-muted-foreground">{t('loadingDetail')}</div>
+                            {form.providerType === 'custom' ? (
+                                <>
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                        <div className="space-y-2"><Label>{t('upstreamFormat')}</Label><Select value={form.upstreamFormat} onValueChange={(value: CodexUpstreamFormat) => setForm({ ...form, upstreamFormat: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="responses">Responses API</SelectItem><SelectItem value="chat-completions">Chat Completions API</SelectItem></SelectContent></Select></div>
+                                        <div className="space-y-2"><Label>{t('customBaseUrl')}</Label><Input value={form.baseUrl} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} /></div>
+                                    </div>
+                                    <div className="space-y-2"><Label>{t('customApiKey')}</Label><div className="flex gap-2"><Input type={showApiKey ? 'text' : 'password'} value={form.apiKey} placeholder={form.hasApiKey ? t('apiKeySavedPlaceholder') : t('customApiKeyPlaceholder')} onChange={(event) => setForm({ ...form, apiKey: event.target.value })} /><Button type="button" variant="outline" size="icon" onClick={() => setShowApiKey((value) => !value)}>{showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</Button><Button type="button" variant="outline" onClick={() => void fetchModels()} disabled={fetchingModels}>{fetchingModels ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}{t('fetchModels')}</Button></div></div>
+                                    {discoveredModels.length > 0 && <div className="flex gap-2"><Select value={discoveredModelId} onValueChange={setDiscoveredModelId}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{discoveredModels.map((model) => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select><Button type="button" variant="outline" onClick={addDiscoveredModel}><Plus className="h-4 w-4" />{t('addModel')}</Button></div>}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between"><Label>{t('modelList')}</Label><Button type="button" size="sm" variant="outline" onClick={() => setForm((current) => ({ ...current, models: [...current.models, createDefaultCodexProviderModel(`model-${current.models.length + 1}`)] }))}><Plus className="h-4 w-4" />{t('addModel')}</Button></div>
+                                        {form.models.map((model, index) => <ModelEditor key={`${index}-${model.id}`} model={model} isDefault={form.defaultModelId === model.id} onDefault={() => setForm({ ...form, defaultModelId: model.id })} onChange={(update) => updateModel(index, update)} onRemove={() => removeModel(index)} t={t} />)}
+                                    </div>
+                                </>
                             ) : (
                                 <>
-                                    <div className="grid gap-4 md:grid-cols-1">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="codex-connection-name">{t('connectionName')}</Label>
-                                            <Input
-                                                id="codex-connection-name"
-                                                value={form.name}
-                                                onChange={(event) =>
-                                                    setForm((current) => ({ ...current, name: event.target.value }))
-                                                }
-                                                placeholder={t('connectionNamePlaceholder')}
-                                            />
-                                        </div>
-                                        {form.providerType === 'openai-official' ? (
-                                            <div className="space-y-2">
-                                                <Label htmlFor="codex-official-url">{t('officialUrl')}</Label>
-                                                <Input
-                                                    id="codex-official-url"
-                                                    value="https://chatgpt.com/codex"
-                                                    readOnly
-                                                />
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="codex-custom-base-url">{t('customBaseUrl')}</Label>
-                                                    <Input
-                                                        id="codex-custom-base-url"
-                                                        value={form.customBaseUrl}
-                                                        onChange={(event) =>
-                                                            setForm((current) =>
-                                                                current.providerType === 'custom'
-                                                                    ? applyCustomSettings(current, {
-                                                                        customBaseUrl: event.target.value,
-                                                                    })
-                                                                    : current
-                                                            )
-                                                        }
-                                                        placeholder={t('customBaseUrlPlaceholder')}
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="codex-custom-api-key">{t('customApiKey')}</Label>
-                                                    <div className="flex items-center gap-2">
-                                                        <Input
-                                                            id="codex-custom-api-key"
-                                                            value={form.customApiKey}
-                                                            type={showCustomApiKey ? 'text' : 'password'}
-                                                            onChange={(event) =>
-                                                                setForm((current) =>
-                                                                    current.providerType === 'custom'
-                                                                        ? applyCustomSettings(current, {
-                                                                            customApiKey: event.target.value,
-                                                                        })
-                                                                        : current
-                                                                )
-                                                            }
-                                                            placeholder={t('customApiKeyPlaceholder')}
-                                                        />
-                                                        <Button
-                                                            type="button"
-                                                            size="icon"
-                                                            variant="outline"
-                                                            onClick={() => setShowCustomApiKey((current) => !current)}
-                                                            aria-label={
-                                                                showCustomApiKey
-                                                                    ? t('hideCustomApiKey')
-                                                                    : t('showCustomApiKey')
-                                                            }
-                                                        >
-                                                            {showCustomApiKey ? (
-                                                                <EyeOff className="h-4 w-4" />
-                                                            ) : (
-                                                                <Eye className="h-4 w-4" />
-                                                            )}
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <Label htmlFor="codex-custom-model">{t('customModel')}</Label>
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => void fetchAvailableCustomModels()}
-                                                            disabled={fetchingCustomModels}
-                                                        >
-                                                            {fetchingCustomModels ? (
-                                                                <>
-                                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                                    {t('fetchingModels')}
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <RefreshCw className="h-4 w-4" />
-                                                                    {t('fetchModels')}
-                                                                </>
-                                                            )}
-                                                        </Button>
-                                                    </div>
-                                                    <Select
-                                                        value={form.customModel}
-                                                        onValueChange={(value) =>
-                                                            setForm((current) =>
-                                                                current.providerType === 'custom'
-                                                                    ? applyCustomSettings(current, {
-                                                                        customModel: value,
-                                                                    })
-                                                                    : current
-                                                            )
-                                                        }
-                                                    >
-                                                        <SelectTrigger
-                                                            id="codex-custom-model"
-                                                            className="w-full"
-                                                        >
-                                                            <SelectValue
-                                                                placeholder={t('customModelPlaceholder')}
-                                                            />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {customModelOptions.length === 0 ? (
-                                                                <SelectItem value="__empty__" disabled>
-                                                                    {t('noCustomModels')}
-                                                                </SelectItem>
-                                                            ) : (
-                                                                customModelOptions.map((model) => (
-                                                                    <SelectItem key={model.id} value={model.id}>
-                                                                        {model.name}
-                                                                    </SelectItem>
-                                                                ))
-                                                            )}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                            </>
-                                        )}
+                                    <div className="space-y-3 rounded-lg border p-3">
+                                        <div className="flex flex-wrap items-center gap-3"><span>{t('authStatus')}</span><Badge variant="outline">{t(`status.${form.authStatus}` as never)}</Badge><Button onClick={() => void authorize('chatgpt')} disabled={authorizing}>{authorizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}{t('authorize')}</Button><Button variant="secondary" onClick={() => void authorize('chatgptDeviceCode')} disabled={authorizing}><KeyRound className="h-4 w-4" />{t('authorizeDeviceCode')}</Button></div>
+                                        {deviceCodeLogin && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/40 p-3"><div><div className="text-sm text-muted-foreground">{t('deviceCodeTitle')}</div><div className="font-mono text-2xl font-semibold">{deviceCodeLogin.userCode}</div></div><div className="flex gap-2"><Button variant="outline" onClick={() => void navigator.clipboard?.writeText(deviceCodeLogin.userCode)}><Copy className="h-4 w-4" />{t('copyDeviceCode')}</Button><Button variant="outline" onClick={() => window.open(deviceCodeLogin.verificationUrl, '_blank', 'noopener,noreferrer')}><ExternalLink className="h-4 w-4" />{t('openDeviceCodeUrl')}</Button></div></div>}
+                                        {form.rateLimits && hasMeaningfulCodexRateLimits(form.rateLimits) && <div className="text-sm text-muted-foreground">{getCodexRateLimitSummary(form.rateLimits, t).join(' · ')}</div>}
                                     </div>
-
-                                    {form.providerType === 'openai-official' ? (
-                                        <div className="space-y-3 rounded-lg border p-4">
-                                            <div className="space-y-2">
-                                                <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3">
-                                                    <div className="text-sm font-medium">{t('authStatus')}</div>
-                                                    <Badge
-                                                        variant="outline"
-                                                        className={getStatusClassName(form.authStatus)}
-                                                    >
-                                                        {getStatusLabel(form.authStatus, label)}
-                                                    </Badge>
-                                                    {form.accountEmail ? (
-                                                        <div className="text-sm text-muted-foreground">
-                                                            {t('authorizedAs', {
-                                                                email: form.accountEmail,
-                                                                plan: form.accountPlan || t('unknownPlan'),
-                                                            })}
-                                                        </div>
-                                                    ) : null}
-                                                    {form.lastAuthError ? (
-                                                        <div className="text-sm text-destructive">{form.lastAuthError}</div>
-                                                    ) : null}
-                                                </div>
-                                            </div>
-
-                                            <div className="rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                                                {t('officialAuthDeploymentHint')}
-                                            </div>
-
-                                            <div className="flex flex-wrap gap-3">
-                                                <Button
-                                                    onClick={() => void startOfficialAuthorization('chatgpt')}
-                                                    disabled={saving || authorizingType !== null}
-                                                >
-                                                    {authorizingType === 'chatgpt' ? (
-                                                        <>
-                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                            {t('authorizing')}
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <ExternalLink className="h-4 w-4" />
-                                                            {t('authorize')}
-                                                        </>
-                                                    )}
-                                                </Button>
-                                                <Button
-                                                    variant="secondary"
-                                                    onClick={() => void startOfficialAuthorization('chatgptDeviceCode')}
-                                                    disabled={saving || authorizingType !== null}
-                                                >
-                                                    {authorizingType === 'chatgptDeviceCode' ? (
-                                                        <>
-                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                            {t('authorizing')}
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <KeyRound className="h-4 w-4" />
-                                                            {t('authorizeDeviceCode')}
-                                                        </>
-                                                    )}
-                                                </Button>
-                                            </div>
-
-                                            {deviceCodeLogin ? (
-                                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
-                                                    <div className="space-y-1">
-                                                        <div className="text-sm font-medium">{t('deviceCodeTitle')}</div>
-                                                        <div className="font-mono text-2xl font-semibold tracking-normal">
-                                                            {deviceCodeLogin.userCode}
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        <Button variant="outline" onClick={() => void copyDeviceCode()}>
-                                                            <Copy className="h-4 w-4" />
-                                                            {copiedDeviceCode ? t('copiedDeviceCode') : t('copyDeviceCode')}
-                                                        </Button>
-                                                        <Button
-                                                            variant="outline"
-                                                            onClick={() =>
-                                                                window.open(
-                                                                    deviceCodeLogin.verificationUrl,
-                                                                    '_blank',
-                                                                    'noopener,noreferrer'
-                                                                )
-                                                            }
-                                                        >
-                                                            <ExternalLink className="h-4 w-4" />
-                                                            {t('openDeviceCodeUrl')}
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                    ) : null}
-
-                                    {form.providerType === 'openai-official' &&
-                                    currentRateLimits &&
-                                    hasMeaningfulCodexRateLimits(currentRateLimits) ? (
-                                        <div className="rounded-lg border bg-muted/20 p-4">
-                                            <div className="text-sm font-medium">{t('remainingQuota')}</div>
-                                            <div className="mt-2 flex flex-wrap gap-4 text-sm text-muted-foreground">
-                                                {getCodexRateLimitSummary(currentRateLimits, t).map((summary, index) => (
-                                                    <div key={`${summary}-${index}`}>{summary}</div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ) : null}
-
-                                    <div className="space-y-2">
-                                        <Label htmlFor="codex-auth-json">{t('authJson')}</Label>
-                                        <Textarea
-                                            id="codex-auth-json"
-                                            value={form.authJson}
-                                            onChange={(event) =>
-                                                setForm((current) =>
-                                                    current.providerType === 'custom'
-                                                        ? syncCustomFieldsFromFiles(current, {
-                                                            authJson: event.target.value,
-                                                        })
-                                                        : { ...current, authJson: event.target.value }
-                                                )
-                                            }
-                                            className="min-h-[180px] font-mono text-sm"
-                                            spellCheck={false}
-                                        />
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <Label htmlFor="codex-config-toml">{t('configToml')}</Label>
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={() =>
-                                                    setForm((current) =>
-                                                        current.providerType === 'custom'
-                                                            ? applyCustomSettings(current, {
-                                                                customApiKey: getDefaultCodexCustomSettings().apiKey,
-                                                                customBaseUrl: getDefaultCodexCustomSettings().baseUrl,
-                                                                customModel: getDefaultCodexCustomSettings().model,
-                                                            })
-                                                            : {
-                                                                ...current,
-                                                                configToml: getDefaultCodexConfig('openai-official'),
-                                                            }
-                                                    )
-                                                }
-                                            >
-                                                {t('resetConfig')}
-                                            </Button>
-                                        </div>
-                                        <Textarea
-                                            id="codex-config-toml"
-                                            value={form.configToml}
-                                            onChange={(event) =>
-                                                setForm((current) =>
-                                                    current.providerType === 'custom'
-                                                        ? syncCustomFieldsFromFiles(current, {
-                                                            configToml: event.target.value,
-                                                        })
-                                                        : { ...current, configToml: event.target.value }
-                                                )
-                                            }
-                                            className="min-h-[180px] font-mono text-sm"
-                                            spellCheck={false}
-                                        />
-                                    </div>
-
-                                    {error ? <div className="text-sm text-destructive">{error}</div> : null}
-
-                                    <div className="flex flex-wrap justify-end gap-3">
-                                        <Button
-                                            variant="destructive"
-                                            onClick={() => void deleteCurrent()}
-                                            disabled={deleting || saving}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                            {t('deleteConnection')}
-                                        </Button>
-                                        <Button onClick={() => void saveCurrent()} disabled={saving || loadingDetail}>
-                                            {saving ? (
-                                                <>
-                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                    {t('saving')}
-                                                </>
-                                            ) : (
-                                                t(form.id ? 'save' : 'create')
-                                            )}
-                                        </Button>
-                                    </div>
-
-                                    {loadingDetail ? (
-                                        <div className="text-sm text-muted-foreground">{t('loadingDetail')}</div>
-                                    ) : null}
-                                    {selectedSummary ? (
-                                        <div className="text-xs text-muted-foreground">
-                                            {t('lastUpdated', {
-                                                value: new Date(selectedSummary.updatedAt).toLocaleString(),
-                                            })}
-                                        </div>
-                                    ) : null}
+                                    <div className="space-y-2"><Label>{t('authJson')}</Label><Textarea className="min-h-32 font-mono" value={form.authJson} onChange={(event) => setForm({ ...form, authJson: event.target.value })} /></div>
+                                    <div className="space-y-2"><Label>{t('configToml')}</Label><Textarea className="min-h-44 font-mono" value={form.configToml} onChange={(event) => setForm({ ...form, configToml: event.target.value })} /></div>
                                 </>
                             )}
+
+                            {error && <div className="text-sm text-destructive">{error}</div>}
+                            <div className="flex justify-end gap-3"><Button variant="destructive" onClick={() => void remove()} disabled={deleting || saving}><Trash2 className="h-4 w-4" />{t('deleteConnection')}</Button><Button onClick={() => void save()} disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{t(form.id ? 'save' : 'create')}</Button></div>
+                            {selectedSummary && <div className="text-xs text-muted-foreground">{t('lastUpdated', { value: new Date(selectedSummary.updatedAt).toLocaleString() })}</div>}
                         </div>
-                        ) : (
-                        <div />
-                        )}
-                    </div>
+                    )}
                 </CardContent>
             </Card>
         </div>
     )
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-    if (error instanceof ApiError) return error.message || fallback
-    if (error instanceof Error) return error.message || fallback
+function ModelEditor({ model, isDefault, onDefault, onChange, onRemove, t }: {
+    model: CodexProviderModel
+    isDefault: boolean
+    onDefault: () => void
+    onChange: (update: Partial<CodexProviderModel>) => void
+    onRemove: () => void
+    t: ReturnType<typeof useTranslations>
+}) {
+    return <div className="space-y-2 rounded-lg border p-3">
+        <div className="grid gap-3 md:grid-cols-2"><div className="space-y-1"><Label>{t('modelId')}</Label><Input value={model.id} onChange={(event) => onChange({ id: event.target.value })} /></div><div className="space-y-1"><Label>{t('modelDisplayName')}</Label><Input value={model.displayName} onChange={(event) => onChange({ displayName: event.target.value })} /></div></div>
+        <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,0.55fr)_minmax(0,1.25fr)]"><div className="min-w-0 space-y-1"><Label className="whitespace-nowrap text-sm">{t('contextWindow')}</Label><Input type="number" min={1} value={model.contextWindow} onChange={(event) => onChange({ contextWindow: Number(event.target.value) })} /></div><div className="min-w-0 space-y-1"><Label className="whitespace-nowrap text-sm">{t('defaultEffort')}</Label><Select value={model.defaultReasoningEffort} onValueChange={(value: CodexReasoningEffort) => onChange({ defaultReasoningEffort: value, supportedReasoningEfforts: model.supportedReasoningEfforts.includes(value) ? model.supportedReasoningEfforts : [...model.supportedReasoningEfforts, value] })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{EFFORTS.map((effort) => <SelectItem key={effort} value={effort}>{effort}</SelectItem>)}</SelectContent></Select></div><div className="min-w-0 space-y-1"><Label className="whitespace-nowrap text-sm">{t('supportedEfforts')}</Label><Input className="min-w-0" value={model.supportedReasoningEfforts.join(', ')} onChange={(event) => onChange({ supportedReasoningEfforts: event.target.value.split(',').map((item) => item.trim()).filter((item): item is CodexReasoningEffort => EFFORTS.includes(item as CodexReasoningEffort)) })} /></div></div>
+        <div className="flex flex-wrap items-center gap-5"><label className="flex items-center gap-2 text-sm"><Switch checked={isDefault} onCheckedChange={(checked) => checked && onDefault()} />{t('defaultModel')}</label><label className="flex items-center gap-2 text-sm"><Switch checked={model.supportsParallelToolCalls} onCheckedChange={(checked) => onChange({ supportsParallelToolCalls: checked })} />{t('parallelTools')}</label><label className="flex items-center gap-2 text-sm"><Switch checked={model.inputModalities.includes('image')} onCheckedChange={(checked) => onChange({ inputModalities: checked ? ['text', 'image'] : ['text'] })} />{t('imageInput')}</label><Button type="button" variant="ghost" className="ml-auto text-destructive" onClick={onRemove}><Trash2 className="h-4 w-4" />{t('removeModel')}</Button></div>
+    </div>
+}
+
+function errorMessage(error: unknown, fallback: string) {
+    if (error instanceof ApiError || error instanceof Error) return error.message || fallback
     return fallback
-}
-
-function getStatusLabel(status: string, t: (key: string) => string) {
-    switch (status) {
-        case 'authenticated':
-            return t('status.authenticated')
-        case 'authorizing':
-            return t('status.authorizing')
-        case 'error':
-            return t('status.error')
-        default:
-            return t('status.unauthenticated')
-    }
-}
-
-function getStatusClassName(status: string) {
-    switch (status) {
-        case 'authenticated':
-            return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
-        case 'authorizing':
-            return 'border-amber-500/40 bg-amber-500/10 text-amber-700'
-        case 'error':
-            return 'border-destructive/40 bg-destructive/10 text-destructive'
-        default:
-            return 'border-muted-foreground/30 bg-muted text-muted-foreground'
-    }
 }

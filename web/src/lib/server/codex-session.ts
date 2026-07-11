@@ -5,7 +5,7 @@ export type CodexSessionCategory = 'general' | 'scene_operation' | 'scene_contin
 export type CodexSessionStatus = 'idle' | 'running' | 'error'
 export type CodexSessionMessageRole = 'user' | 'assistant' | 'event'
 export type CodexReviewLevel = 'user_review' | 'auto_review' | 'no_review'
-export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
+export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
 export type CodexServiceTier = 'standard' | 'fast'
 
 export const DEFAULT_CODEX_REVIEW_LEVEL: CodexReviewLevel = 'user_review'
@@ -62,6 +62,8 @@ export function normalizeCodexReviewLevel(value: unknown): CodexReviewLevel | nu
 
 export function normalizeCodexReasoningEffort(value: unknown): CodexReasoningEffort | null {
     if (
+        value === 'none' ||
+        value === 'minimal' ||
         value === 'low' ||
         value === 'medium' ||
         value === 'high' ||

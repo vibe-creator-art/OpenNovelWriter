@@ -3,32 +3,7 @@ import { prisma } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { serializeScene } from '@/lib/scenes'
 import { syncNovelWorkspaceChapter, syncNovelWorkspaceOutline } from '@/lib/server/novel-workspace'
-
-// Helper function to strip HTML tags and get plain text
-function stripHtml(html: string): string {
-    return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-}
-
-// Helper function to calculate word count based on language
-// For CJK languages (Chinese, Japanese, Korean), count characters
-// For other languages, count words (separated by spaces)
-function calculateWordCount(content: string, language: string | null): number {
-    const text = stripHtml(content).trim()
-    if (!text) return 0
-
-    // Check if language is CJK (Chinese, Japanese, Korean)
-    const isCJK = language?.startsWith('zh') || language?.startsWith('ja') || language?.startsWith('ko')
-
-    if (isCJK) {
-        // For CJK: count all non-whitespace characters
-        // This includes Chinese characters, punctuation, and any embedded Latin characters
-        return text.replace(/\s/g, '').length
-    } else {
-        // For other languages: count words separated by whitespace
-        const words = text.split(/\s+/).filter(word => word.length > 0)
-        return words.length
-    }
-}
+import { calculateManuscriptWordCount } from '@/lib/server/manuscript-word-count'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -97,7 +72,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }
 
         // Calculate word count using language-aware counting
-        const wordCount = content ? calculateWordCount(content, novel.language) : 0
+        const wordCount = content ? calculateManuscriptWordCount(content) : 0
 
         const chapter = await prisma.chapter.create({
             data: {

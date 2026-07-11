@@ -55,8 +55,23 @@ model Novel {
   codexSessions CodexSession[]
   sceneEdits  SceneEdit[]
   continuationDrafts SceneContinuationDraft[]
+  writingDays NovelWritingDay[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+model NovelWritingDay {
+  id              String   @id @default(cuid())
+  novelId         String
+  novel           Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  dateKey         String
+  netWordCount    Int      @default(0)
+  endingWordCount Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([novelId, dateKey])
+  @@index([novelId, dateKey])
 }
 
 // A single AI-proposed manuscript edit (one search/replace hunk). It is applied
@@ -192,20 +207,25 @@ model AiConnection {
 }
 
 model CodexConnection {
-  id             String   @id @default(cuid())
-  name           String
-  providerType   String
-  isActive       Boolean  @default(false)
-  note           String?
-  authStatus     String   @default("unauthenticated")
-  authType       String?
-  accountEmail   String?
-  accountPlan    String?
-  lastAuthError  String?
-  ownerId        String
-  owner          User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(cuid())
+  name            String
+  providerType    String
+  upstreamFormat  String?
+  baseUrl          String?
+  encryptedApiKey String?
+  defaultModelId  String?
+  modelsJson       String   @default("[]")
+  isActive        Boolean  @default(false)
+  note            String?
+  authStatus      String   @default("unauthenticated")
+  authType        String?
+  accountEmail    String?
+  accountPlan     String?
+  lastAuthError   String?
+  ownerId         String
+  owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([ownerId])
   @@index([ownerId, authStatus])

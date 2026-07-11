@@ -1,128 +1,191 @@
 export type CodexConnectionProviderType = 'openai-official' | 'custom'
+export type CodexUpstreamFormat = 'responses' | 'chat-completions'
+
+export type CodexReasoningEffort =
+    | 'none'
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'xhigh'
+    | 'max'
+    | 'ultra'
+
+export type CodexChatReasoningConfig = {
+    supportsThinking: boolean
+    supportsEffort: boolean
+    thinkingParam: 'thinking' | 'enable_thinking' | 'none'
+    effortParam: 'reasoning_effort' | 'none'
+    outputFormat: 'reasoning_content' | 'think-tags'
+}
+
+export type CodexProviderModel = {
+    id: string
+    displayName: string
+    contextWindow: number
+    supportedReasoningEfforts: CodexReasoningEffort[]
+    defaultReasoningEffort: CodexReasoningEffort
+    supportsParallelToolCalls: boolean
+    inputModalities: Array<'text' | 'image'>
+    chatReasoning?: CodexChatReasoningConfig
+}
 
 export type CodexCustomProviderSettings = {
     apiKey: string
     baseUrl: string
-    model: string
+    upstreamFormat: CodexUpstreamFormat
+    defaultModelId: string
+    models: CodexProviderModel[]
 }
 
 export const DEFAULT_CODEX_CUSTOM_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol'
+export const DEFAULT_CODEX_CONTEXT_WINDOW = 300_000
 
 const DEFAULT_SHARED_CONFIG_LINES = [
+    `model = "${DEFAULT_CODEX_MODEL}"`,
     'model_context_window = 300000',
     'model_auto_compact_token_limit = 285000',
     'model_reasoning_effort = "high"',
     'disable_response_storage = true',
 ]
 
-export function getDefaultCodexCustomSettings(): CodexCustomProviderSettings {
-    return {
-        apiKey: '',
-        baseUrl: DEFAULT_CODEX_CUSTOM_BASE_URL,
-        model: DEFAULT_CODEX_MODEL,
-    }
-}
-
-export function getDefaultCodexAuthJson(
-    providerType: CodexConnectionProviderType = 'openai-official'
-) {
-    if (providerType === 'custom') {
-        return buildCustomCodexAuthJson(getDefaultCodexCustomSettings())
-    }
+export function getDefaultCodexAuthJson(_providerType: CodexConnectionProviderType = 'openai-official') {
+    void _providerType
     return '{}\n'
 }
 
-export function getDefaultCodexConfig(providerType: CodexConnectionProviderType) {
-    if (providerType === 'custom') {
-        return buildCustomCodexConfigToml(getDefaultCodexCustomSettings())
-    }
+export function getDefaultCodexConfig(_providerType: CodexConnectionProviderType = 'openai-official') {
+    void _providerType
     return [...DEFAULT_SHARED_CONFIG_LINES, ''].join('\n')
 }
 
-export function buildCustomCodexAuthJson(settings: CodexCustomProviderSettings) {
-    return `${JSON.stringify(
-        {
-            OPENAI_API_KEY: settings.apiKey,
-        },
-        null,
-        2
-    )}\n`
+export function createDefaultCodexProviderModel(modelId = DEFAULT_CODEX_MODEL): CodexProviderModel {
+    return {
+        id: modelId,
+        displayName: modelId,
+        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
+        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high',
+        supportsParallelToolCalls: true,
+        inputModalities: ['text', 'image'],
+    }
 }
 
-export function buildCustomCodexConfigToml(settings: CodexCustomProviderSettings) {
-    return [
-        'model_provider = "custom"',
-        `model = "${escapeTomlString(settings.model)}"`,
-        ...DEFAULT_SHARED_CONFIG_LINES,
-        '',
-        '[model_providers]',
-        '[model_providers.custom]',
-        'name = "custom"',
-        `base_url = "${escapeTomlString(normalizeBaseUrl(settings.baseUrl))}"`,
-        'wire_api = "responses"',
-        'requires_openai_auth = true',
-        '',
-    ].join('\n')
+export function getDefaultCodexCustomSettings(): CodexCustomProviderSettings {
+    const model = createDefaultCodexProviderModel()
+    return {
+        apiKey: '',
+        baseUrl: DEFAULT_CODEX_CUSTOM_BASE_URL,
+        upstreamFormat: 'responses',
+        defaultModelId: model.id,
+        models: [model],
+    }
 }
 
-export function parseCodexCustomSettingsFromFiles(input: {
-    authJson: string
-    configToml: string
-    fallback?: CodexCustomProviderSettings
-}) {
-    const fallback = input.fallback ?? getDefaultCodexCustomSettings()
-    const parsedAuthJson = parseJsonObject(input.authJson)
-    const customSection = extractTomlSection(input.configToml, 'model_providers.custom')
+export function parseCodexUpstreamFormat(value: unknown): CodexUpstreamFormat | null {
+    return value === 'responses' || value === 'chat-completions' ? value : null
+}
+
+export function normalizeCodexProviderModels(value: unknown): CodexProviderModel[] {
+    if (!Array.isArray(value)) return []
+
+    const seen = new Set<string>()
+    const models: CodexProviderModel[] = []
+    for (const item of value) {
+        if (!item || typeof item !== 'object') continue
+        const record = item as Record<string, unknown>
+        const id = typeof record.id === 'string' ? record.id.trim() : ''
+        if (!id || seen.has(id)) continue
+
+        const contextWindow = Number(record.contextWindow)
+        if (!Number.isFinite(contextWindow) || contextWindow <= 0) continue
+
+        const efforts = Array.isArray(record.supportedReasoningEfforts)
+            ? record.supportedReasoningEfforts.filter(isCodexReasoningEffort)
+            : []
+        const defaultReasoningEffort = isCodexReasoningEffort(record.defaultReasoningEffort)
+            ? record.defaultReasoningEffort
+            : efforts[0] ?? 'high'
+        const supportedReasoningEfforts = efforts.includes(defaultReasoningEffort)
+            ? efforts
+            : [defaultReasoningEffort, ...efforts]
+        const inputModalities: Array<'text' | 'image'> = Array.isArray(record.inputModalities)
+            ? record.inputModalities.filter((item): item is 'text' | 'image' => item === 'text' || item === 'image')
+            : ['text']
+
+        let chatReasoning: CodexChatReasoningConfig | undefined
+        if (record.chatReasoning && typeof record.chatReasoning === 'object') {
+            const reasoning = record.chatReasoning as Record<string, unknown>
+            chatReasoning = {
+                supportsThinking: reasoning.supportsThinking === true,
+                supportsEffort: reasoning.supportsEffort === true,
+                thinkingParam:
+                    reasoning.thinkingParam === 'enable_thinking' || reasoning.thinkingParam === 'none'
+                        ? reasoning.thinkingParam
+                        : 'thinking',
+                effortParam: reasoning.effortParam === 'none' ? 'none' : 'reasoning_effort',
+                outputFormat: reasoning.outputFormat === 'think-tags' ? 'think-tags' : 'reasoning_content',
+            }
+        }
+
+        seen.add(id)
+        models.push({
+            id,
+            displayName:
+                typeof record.displayName === 'string' && record.displayName.trim()
+                    ? record.displayName.trim()
+                    : id,
+            contextWindow: Math.floor(contextWindow),
+            supportedReasoningEfforts,
+            defaultReasoningEffort,
+            supportsParallelToolCalls: record.supportsParallelToolCalls === true,
+            inputModalities: inputModalities.length > 0 ? [...new Set(inputModalities)] : ['text'],
+            ...(chatReasoning ? { chatReasoning } : {}),
+        })
+    }
+    return models
+}
+
+export function parseCodexProviderModelsJson(value: string | null | undefined): CodexProviderModel[] {
+    try {
+        return normalizeCodexProviderModels(JSON.parse(value || '[]'))
+    } catch {
+        return []
+    }
+}
+
+export function validateCodexCustomSettings(settings: CodexCustomProviderSettings) {
+    const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '')
+    if (!baseUrl) throw new Error('Missing Codex upstream base URL.')
+    if (!settings.apiKey.trim()) throw new Error('Missing Codex upstream API key.')
+
+    const models = normalizeCodexProviderModels(settings.models)
+    if (models.length === 0) throw new Error('Add at least one Codex model.')
+
+    const defaultModelId = settings.defaultModelId.trim()
+    if (!models.some((model) => model.id === defaultModelId)) {
+        throw new Error('The default Codex model must be present in the model list.')
+    }
 
     return {
-        apiKey:
-            typeof parsedAuthJson?.OPENAI_API_KEY === 'string'
-                ? parsedAuthJson.OPENAI_API_KEY
-                : fallback.apiKey,
-        baseUrl:
-            extractTomlQuotedValue(customSection ?? input.configToml, 'base_url') ?? fallback.baseUrl,
-        model: extractTomlQuotedValue(input.configToml, 'model') ?? fallback.model,
+        apiKey: settings.apiKey.trim(),
+        baseUrl,
+        upstreamFormat: settings.upstreamFormat,
+        defaultModelId,
+        models,
     }
 }
 
-export function parseCodexModelFromConfig(configToml: string, fallback = DEFAULT_CODEX_MODEL) {
-    return extractTomlQuotedValue(configToml, 'model') ?? fallback
-}
-
-function parseJsonObject(value: string) {
-    try {
-        const parsed = JSON.parse(value)
-        return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
-    } catch {
-        return null
-    }
-}
-
-function extractTomlSection(content: string, sectionName: string) {
-    const escapedSectionName = sectionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const match = content.match(
-        new RegExp(`(?:^|\\n)\\[${escapedSectionName}\\]\\n([\\s\\S]*?)(?=\\n\\[[^\\n]+\\]|$)`)
+function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
+    return (
+        value === 'none' ||
+        value === 'minimal' ||
+        value === 'low' ||
+        value === 'medium' ||
+        value === 'high' ||
+        value === 'xhigh' ||
+        value === 'max' ||
+        value === 'ultra'
     )
-    return match?.[1] ?? null
-}
-
-function extractTomlQuotedValue(content: string, key: string) {
-    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const match = content.match(new RegExp(`^${escapedKey}\\s*=\\s*"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)"`, 'm'))
-    return match?.[1] ? unescapeTomlString(match[1]) : null
-}
-
-function normalizeBaseUrl(value: string) {
-    const trimmed = value.trim()
-    if (!trimmed) return DEFAULT_CODEX_CUSTOM_BASE_URL
-    return trimmed.replace(/\/+$/, '')
-}
-
-function escapeTomlString(value: string) {
-    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-}
-
-function unescapeTomlString(value: string) {
-    return value.replace(/\\"/g, '"').replace(/\\\\/g, '\\')
 }

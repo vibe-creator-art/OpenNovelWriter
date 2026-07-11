@@ -113,6 +113,22 @@ export const novelApi = {
         fetchApi<{ message: string }>(`/novels/${id}`, { method: 'DELETE' }),
 }
 
+export type NovelWritingDay = {
+    dateKey: string
+    netWordCount: number
+    endingWordCount: number
+}
+
+export type NovelReviewData = {
+    totalWordCount: number
+    todayWordCount: number
+    days: NovelWritingDay[]
+}
+
+export const novelReviewApi = {
+    get: (novelId: string) => fetchApi<NovelReviewData>(`/novels/${novelId}/review`),
+}
+
 // Labels API
 export interface NovelLabel {
     id: string
@@ -811,6 +827,23 @@ export interface AiConnection {
 }
 
 export type CodexConnectionProviderType = 'openai-official' | 'custom'
+export type CodexUpstreamFormat = 'responses' | 'chat-completions'
+export interface CodexProviderModel {
+    id: string
+    displayName: string
+    contextWindow: number
+    supportedReasoningEfforts: CodexReasoningEffort[]
+    defaultReasoningEffort: CodexReasoningEffort
+    supportsParallelToolCalls: boolean
+    inputModalities: Array<'text' | 'image'>
+    chatReasoning?: {
+        supportsThinking: boolean
+        supportsEffort: boolean
+        thinkingParam: 'thinking' | 'enable_thinking' | 'none'
+        effortParam: 'reasoning_effort' | 'none'
+        outputFormat: 'reasoning_content' | 'think-tags'
+    }
+}
 export type CodexConnectionAuthStatus =
     | 'unauthenticated'
     | 'authorizing'
@@ -821,6 +854,11 @@ export interface CodexConnectionSummary {
     id: string
     name: string
     providerType: CodexConnectionProviderType | string
+    upstreamFormat: CodexUpstreamFormat | null
+    baseUrl: string | null
+    hasApiKey: boolean
+    defaultModelId: string | null
+    models: CodexProviderModel[]
     isActive: boolean
     note: string | null
     authStatus: CodexConnectionAuthStatus | string
@@ -1074,7 +1112,7 @@ export interface CodexPromptArtifact {
 }
 export type CodexSessionStatus = 'idle' | 'running' | 'error'
 export type CodexReviewLevel = 'user_review' | 'auto_review' | 'no_review'
-export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
+export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
 export type CodexServiceTier = 'standard' | 'fast'
 
 export type CodexSessionMessage = {
@@ -1463,8 +1501,14 @@ export const codexApi = {
         name: string
         providerType: CodexConnectionProviderType
         isActive?: boolean
+        note?: string | null
         authJson?: string
         configToml?: string
+        upstreamFormat?: CodexUpstreamFormat
+        baseUrl?: string
+        apiKey?: string
+        defaultModelId?: string
+        models?: CodexProviderModel[]
     }) =>
         fetchApi<CodexConnectionDetail>('/codex/connections', {
             method: 'POST',
@@ -1477,8 +1521,14 @@ export const codexApi = {
             name: string
             providerType: CodexConnectionProviderType
             isActive?: boolean
+            note?: string | null
             authJson?: string
             configToml?: string
+            upstreamFormat?: CodexUpstreamFormat
+            baseUrl?: string
+            apiKey?: string
+            defaultModelId?: string
+            models?: CodexProviderModel[]
         }
     ) =>
         fetchApi<CodexConnectionDetail>(`/codex/connections/${id}`, {
@@ -1515,7 +1565,7 @@ export const codexApi = {
             `/codex/connections/${id}/auth/status`
         ),
 
-    fetchCustomModels: (data: { apiKey: string; baseUrl?: string }) =>
+    fetchCustomModels: (data: { apiKey?: string; baseUrl?: string; connectionId?: string }) =>
         fetchApi<{ models: CodexModel[] }>('/codex/models', {
             method: 'POST',
             body: JSON.stringify(data),

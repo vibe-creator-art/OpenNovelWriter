@@ -6,25 +6,11 @@ import { serializeScene } from '@/lib/scenes'
 import { normalizeTermIds } from '@/lib/term-ids'
 import { syncNovelWorkspaceChapter, syncNovelWorkspaceOutline } from '@/lib/server/novel-workspace'
 import { cascadeDeleteContinuationDraftsForScenes } from '@/lib/server/continuation-draft'
-
-// Helper function to count words
-function countWords(text: string): number {
-    if (!text || text.trim() === '') return 0
-
-    // Strip HTML tags - TipTap returns HTML content
-    const plainText = text.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ')
-    if (!plainText.trim()) return 0
-
-    // Handle Chinese/Japanese characters (count each character as a word)
-    // and English words (space-separated)
-    const chineseChars = plainText.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g)?.length || 0
-    const englishWords = plainText
-        .replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, ' ')
-        .trim()
-        .split(/\s+/)
-        .filter(w => w.length > 0).length
-    return chineseChars + englishWords
-}
+import {
+    recordNovelWritingDelta,
+    updateChapterWordCount,
+    updateSceneContentWithStats,
+} from '@/lib/server/manuscript-word-count'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -95,11 +81,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         }
 
         // Build update data
-        const updateData: { content?: string; summary?: string; wordCount?: number; labelIdsJson?: string; termIdsJson?: string } = {}
-        if (content !== undefined) {
-            updateData.content = content
-            updateData.wordCount = countWords(content)
-        }
+        const updateData: { summary?: string; labelIdsJson?: string; termIdsJson?: string } = {}
         if (summary !== undefined) {
             updateData.summary = summary
         }
@@ -128,21 +110,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             updateData.termIdsJson = JSON.stringify(normalized)
         }
 
-        const updated = await prisma.scene.update({
-            where: { id },
-            data: updateData,
-        })
-
-        // Also update chapter's total word count (sum of all scenes)
-        const allScenes = await prisma.scene.findMany({
-            where: { chapterId: scene.chapter.id },
-            select: { wordCount: true }
-        })
-        const totalWordCount = allScenes.reduce((sum, s) => sum + s.wordCount, 0)
-        await prisma.chapter.update({
-            where: { id: scene.chapter.id },
-            data: { wordCount: totalWordCount }
-        })
+        if (content !== undefined) {
+            await updateSceneContentWithStats(prisma, id, content)
+        }
+        const updated = Object.keys(updateData).length > 0
+            ? await prisma.scene.update({ where: { id }, data: updateData })
+            : await prisma.scene.findUniqueOrThrow({ where: { id } })
         const syncTasks = [
             syncNovelWorkspaceChapter(user.userId, scene.chapter.novelId, scene.chapter.id),
         ]
@@ -198,30 +171,18 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         // Tear down inline continuation panels in this scene (drafts + paired Codex sessions).
         await cascadeDeleteContinuationDraftsForScenes(user.userId, [id])
 
-        await prisma.scene.delete({ where: { id } })
-
-        // Re-order remaining scenes
-        const remainingScenes = await prisma.scene.findMany({
-            where: { chapterId: scene.chapterId },
-            orderBy: { order: 'asc' }
-        })
-
-        for (let i = 0; i < remainingScenes.length; i++) {
-            await prisma.scene.update({
-                where: { id: remainingScenes[i].id },
-                data: { order: i }
+        await prisma.$transaction(async (tx) => {
+            await tx.scene.delete({ where: { id } })
+            const remainingScenes = await tx.scene.findMany({
+                where: { chapterId: scene.chapterId },
+                orderBy: { order: 'asc' },
             })
-        }
-
-        // Update chapter's total word count
-        const allScenes = await prisma.scene.findMany({
-            where: { chapterId: scene.chapter.id },
-            select: { wordCount: true }
-        })
-        const totalWordCount = allScenes.reduce((sum, s) => sum + s.wordCount, 0)
-        await prisma.chapter.update({
-            where: { id: scene.chapter.id },
-            data: { wordCount: totalWordCount }
+            for (let i = 0; i < remainingScenes.length; i++) {
+                if (remainingScenes[i].order === i) continue
+                await tx.scene.update({ where: { id: remainingScenes[i].id }, data: { order: i } })
+            }
+            await updateChapterWordCount(tx, scene.chapter.id)
+            await recordNovelWritingDelta(tx, scene.chapter.novelId, -scene.wordCount)
         })
         await Promise.all([
             syncNovelWorkspaceOutline(user.userId, scene.chapter.novelId),

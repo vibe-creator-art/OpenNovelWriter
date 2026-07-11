@@ -83,6 +83,7 @@ type CodexModelPickerProps = {
     reasoningEffort: CodexReasoningEffort
     serviceTier: CodexServiceTier
     models: CodexModelCatalogEntry[]
+    includeBuiltinModels: boolean
     showServiceTier: boolean
     disabled?: boolean
     onChange: (settings: Partial<{
@@ -97,6 +98,7 @@ export function CodexModelPicker({
     reasoningEffort,
     serviceTier,
     models,
+    includeBuiltinModels,
     showServiceTier,
     disabled,
     onChange,
@@ -111,32 +113,22 @@ export function CodexModelPicker({
     const [ultraBurst, setUltraBurst] = useState(0)
 
     const availableModels = useMemo(() => {
-        const catalog = new Map(BUILTIN_56_MODELS.map((model) => [model.id, model]))
+        const catalog = new Map(
+            (includeBuiltinModels ? BUILTIN_56_MODELS : []).map((model) => [model.id, model])
+        )
         for (const model of models) catalog.set(model.id.toLowerCase(), model)
         return [...catalog.values()]
-    }, [models])
+    }, [includeBuiltinModels, models])
     const selectedModel = useMemo(
         () => availableModels.find((model) => model.id.toLowerCase() === modelId.trim().toLowerCase()),
         [availableModels, modelId]
     )
-    const isCustomModel = !selectedModel
-    const advanced = advancedSticky || isCustomModel || currentPresetIndex < 0
+    const advanced = advancedSticky || !includeBuiltinModels || !selectedModel || currentPresetIndex < 0
     const preview = PRESETS[previewIndex]
     const ultra = preview.effort === 'ultra'
     const max = preview.effort === 'max'
     const effortOptions = getModelEfforts(selectedModel)
-    const modelOptions = selectedModel
-        ? availableModels
-        : [
-            ...availableModels,
-            {
-                id: modelId,
-                displayName: modelId,
-                description: '',
-                supportedReasoningEfforts: GENERIC_CUSTOM_EFFORTS,
-                defaultReasoningEffort: 'medium' as const,
-            },
-        ]
+    const modelOptions = availableModels
 
     const setAdvanced = (value: boolean) => {
         setAdvancedSticky(value)
@@ -166,7 +158,11 @@ export function CodexModelPicker({
     }
 
     const resetToDefault = () => {
-        onChange({ modelId: 'gpt-5.6-sol', reasoningEffort: 'high' })
+        const defaultModel = includeBuiltinModels
+            ? BUILTIN_56_MODELS[0]
+            : availableModels[0]
+        if (!defaultModel) return
+        onChange({ modelId: defaultModel.id, reasoningEffort: defaultModel.defaultReasoningEffort })
         setPreviewIndex(3)
         setAdvanced(false)
         setOpen(false)
@@ -188,14 +184,14 @@ export function CodexModelPicker({
                     type="button"
                     size="sm"
                     variant="ghost"
-                    className="max-w-52 gap-1 text-muted-foreground"
+                    className="max-w-full min-w-0 gap-1 text-muted-foreground"
                     disabled={disabled}
                 >
-                    <span className="truncate text-foreground">{formatModelLabel(modelId)}</span>
-                    <span className={cn(reasoningEffort === 'ultra' && 'codex-ultra-text')}>
+                    <span className="min-w-0 flex-1 truncate text-foreground">{formatModelLabel(modelId)}</span>
+                    <span className={cn('shrink-0', reasoningEffort === 'ultra' && 'codex-ultra-text')}>
                         {t(`codex.reasoningEfforts.${reasoningEffort}`)}
                     </span>
-                    <ChevronDown className="h-4 w-4" />
+                    <ChevronDown className="h-4 w-4 shrink-0" />
                 </Button>
             </DropdownMenuTrigger>
             {advanced ? (
