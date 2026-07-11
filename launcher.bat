@@ -86,7 +86,7 @@ if errorlevel 1 (
 ) else (
     echo.
     echo ==^> Codex CLI detected:
-    codex --version 2>nul
+    call codex --version 2>nul
 )
 
 set "GIT_REPOSITORY=0"
