@@ -42,6 +42,72 @@ export const DEFAULT_CODEX_CUSTOM_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol'
 export const DEFAULT_CODEX_CONTEXT_WINDOW = 300_000
 
+export const CODEX_NATIVE_PROVIDER_MODELS: CodexProviderModel[] = [
+    {
+        id: 'gpt-5.6-sol',
+        displayName: 'GPT-5.6-Sol',
+        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
+        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'low',
+        supportsParallelToolCalls: true,
+        inputModalities: ['text', 'image'],
+    },
+    {
+        id: 'gpt-5.6-terra',
+        displayName: 'GPT-5.6-Terra',
+        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
+        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'medium',
+        supportsParallelToolCalls: true,
+        inputModalities: ['text', 'image'],
+    },
+    {
+        id: 'gpt-5.6-luna',
+        displayName: 'GPT-5.6-Luna',
+        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
+        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'medium',
+        supportsParallelToolCalls: true,
+        inputModalities: ['text', 'image'],
+    },
+    {
+        id: 'gpt-5.5',
+        displayName: 'GPT-5.5',
+        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
+        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium',
+        supportsParallelToolCalls: true,
+        inputModalities: ['text', 'image'],
+    },
+    {
+        id: 'gpt-5.4',
+        displayName: 'GPT-5.4',
+        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
+        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium',
+        supportsParallelToolCalls: true,
+        inputModalities: ['text', 'image'],
+    },
+    {
+        id: 'gpt-5.4-mini',
+        displayName: 'GPT-5.4-Mini',
+        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
+        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium',
+        supportsParallelToolCalls: true,
+        inputModalities: ['text', 'image'],
+    },
+    {
+        id: 'gpt-5.2',
+        displayName: 'GPT-5.2',
+        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
+        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium',
+        supportsParallelToolCalls: true,
+        inputModalities: ['text', 'image'],
+    },
+]
+
 const DEFAULT_SHARED_CONFIG_LINES = [
     `model = "${DEFAULT_CODEX_MODEL}"`,
     'model_context_window = 300000',
@@ -61,6 +127,8 @@ export function getDefaultCodexConfig(_providerType: CodexConnectionProviderType
 }
 
 export function createDefaultCodexProviderModel(modelId = DEFAULT_CODEX_MODEL): CodexProviderModel {
+    const nativeModel = getNativeCodexProviderModel(modelId)
+    if (nativeModel) return nativeModel
     return {
         id: modelId,
         displayName: modelId,
@@ -70,6 +138,42 @@ export function createDefaultCodexProviderModel(modelId = DEFAULT_CODEX_MODEL): 
         supportsParallelToolCalls: true,
         inputModalities: ['text', 'image'],
     }
+}
+
+export function isNativeCodexModelId(modelId: string) {
+    const normalized = modelId.trim().toLowerCase()
+    return CODEX_NATIVE_PROVIDER_MODELS.some((model) => model.id === normalized)
+}
+
+export function getNativeCodexProviderModel(modelId: string) {
+    const normalized = modelId.trim().toLowerCase()
+    const model = CODEX_NATIVE_PROVIDER_MODELS.find((candidate) => candidate.id === normalized)
+    return model ? structuredClone(model) : null
+}
+
+export function applyNativeCodexModelCapabilities(model: CodexProviderModel): CodexProviderModel {
+    const nativeModel = getNativeCodexProviderModel(model.id)
+    if (!nativeModel) return model
+    return {
+        ...model,
+        displayName: nativeModel.displayName,
+        supportedReasoningEfforts: nativeModel.supportedReasoningEfforts,
+        defaultReasoningEffort: nativeModel.supportedReasoningEfforts.includes(model.defaultReasoningEffort)
+            ? model.defaultReasoningEffort
+            : nativeModel.defaultReasoningEffort,
+        supportsParallelToolCalls: true,
+        inputModalities: nativeModel.inputModalities,
+    }
+}
+
+export function expandNativeCodexModels(models: CodexProviderModel[]) {
+    if (!models.some((model) => isNativeCodexModelId(model.id))) return models
+    const expanded = models.map(applyNativeCodexModelCapabilities)
+    const existing = new Set(expanded.map((model) => model.id.trim().toLowerCase()))
+    for (const nativeModel of CODEX_NATIVE_PROVIDER_MODELS) {
+        if (!existing.has(nativeModel.id)) expanded.push(structuredClone(nativeModel))
+    }
+    return expanded
 }
 
 export function getDefaultCodexCustomSettings(): CodexCustomProviderSettings {

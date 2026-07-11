@@ -26,6 +26,7 @@ import {
     type CodexUpstreamFormat,
 } from '@/lib/api'
 import {
+    applyNativeCodexModelCapabilities,
     createDefaultCodexProviderModel,
     getDefaultCodexAuthJson,
     getDefaultCodexConfig,
@@ -90,7 +91,7 @@ function detailToForm(detail: CodexConnectionDetail): FormState {
         apiKey: '',
         hasApiKey: connection.hasApiKey,
         defaultModelId: connection.defaultModelId || connection.models[0]?.id || '',
-        models: connection.models,
+        models: connection.models.map(applyNativeCodexModelCapabilities),
         rateLimits: detail.rateLimits,
     }
 }

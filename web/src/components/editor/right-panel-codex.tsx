@@ -65,7 +65,7 @@ import { useEditorCodexStore } from '@/components/editor/editor-codex-store'
 import { ModelGroupLogoIcon } from '@/components/ai/model-group-logo-icon'
 import { type ModelGroup } from '@/lib/ai-store'
 import { useAuthStore } from '@/lib/store'
-import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import { DEFAULT_CODEX_MODEL, isNativeCodexModelId } from '@/lib/codex-config'
 import {
     getCodexRateLimitSummary,
     hasMeaningfulCodexRateLimits,
@@ -4065,7 +4065,9 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                     reasoningEffort={reasoningEffort}
                                     serviceTier={serviceTier}
                                     models={activeModelCatalog}
-                                    includeBuiltinModels={sessionConnection?.providerType !== 'custom'}
+                                    includeBuiltinModels={
+                                        sessionConnection?.providerType !== 'custom' || isNativeCodexModelId(modelId)
+                                    }
                                     showServiceTier={showServiceTier}
                                     disabled={running}
                                     onChange={selectModelSetting}

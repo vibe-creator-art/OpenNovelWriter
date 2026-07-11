@@ -19,6 +19,7 @@ import {
     type CodexReasoningEffort,
     type CodexServiceTier,
 } from '@/lib/api'
+import { CODEX_NATIVE_PROVIDER_MODELS } from '@/lib/codex-config'
 import { cn } from '@/lib/utils'
 
 const ADVANCED_MODE_KEY = 'codex.modelPicker.advanced'
@@ -34,29 +35,13 @@ const PRESETS: Array<{ modelId: string; effort: CodexReasoningEffort }> = [
     { modelId: 'gpt-5.6-sol', effort: 'ultra' },
 ]
 
-const BUILTIN_56_MODELS: CodexModelCatalogEntry[] = [
-    {
-        id: 'gpt-5.6-sol',
-        displayName: 'GPT-5.6-Sol',
-        description: '',
-        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-        defaultReasoningEffort: 'low',
-    },
-    {
-        id: 'gpt-5.6-terra',
-        displayName: 'GPT-5.6-Terra',
-        description: '',
-        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-        defaultReasoningEffort: 'medium',
-    },
-    {
-        id: 'gpt-5.6-luna',
-        displayName: 'GPT-5.6-Luna',
-        description: '',
-        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        defaultReasoningEffort: 'medium',
-    },
-]
+const BUILTIN_MODELS: CodexModelCatalogEntry[] = CODEX_NATIVE_PROVIDER_MODELS.map((model) => ({
+    id: model.id,
+    displayName: model.displayName,
+    description: '',
+    supportedReasoningEfforts: model.supportedReasoningEfforts,
+    defaultReasoningEffort: model.defaultReasoningEffort,
+}))
 
 function formatModelLabel(modelId: string) {
     const normalized = modelId.trim().toLowerCase()
@@ -113,10 +98,10 @@ export function CodexModelPicker({
     const [ultraBurst, setUltraBurst] = useState(0)
 
     const availableModels = useMemo(() => {
-        const catalog = new Map(
-            (includeBuiltinModels ? BUILTIN_56_MODELS : []).map((model) => [model.id, model])
-        )
-        for (const model of models) catalog.set(model.id.toLowerCase(), model)
+        const catalog = new Map(models.map((model) => [model.id.toLowerCase(), model]))
+        if (includeBuiltinModels) {
+            for (const model of BUILTIN_MODELS) catalog.set(model.id, model)
+        }
         return [...catalog.values()]
     }, [includeBuiltinModels, models])
     const selectedModel = useMemo(
@@ -158,12 +143,14 @@ export function CodexModelPicker({
     }
 
     const resetToDefault = () => {
-        const defaultModel = includeBuiltinModels
-            ? BUILTIN_56_MODELS[0]
-            : availableModels[0]
-        if (!defaultModel) return
-        onChange({ modelId: defaultModel.id, reasoningEffort: defaultModel.defaultReasoningEffort })
-        setPreviewIndex(3)
+        if (includeBuiltinModels) {
+            onChange({ modelId: 'gpt-5.6-sol', reasoningEffort: 'high' })
+            setPreviewIndex(3)
+        } else {
+            const defaultModel = availableModels[0]
+            if (!defaultModel) return
+            onChange({ modelId: defaultModel.id, reasoningEffort: defaultModel.defaultReasoningEffort })
+        }
         setAdvanced(false)
         setOpen(false)
     }

@@ -2,6 +2,7 @@ import fs from 'fs/promises'
 import path from 'path'
 
 import {
+    expandNativeCodexModels,
     parseCodexProviderModelsJson,
     parseCodexUpstreamFormat,
     type CodexConnectionProviderType,
@@ -26,7 +27,7 @@ export async function syncCodexConnectionRuntimeFiles(connection: RuntimeConnect
 
     const upstreamFormat = parseCodexUpstreamFormat(connection.upstreamFormat)
     if (!upstreamFormat) throw new Error('Custom Codex connection is missing its upstream format.')
-    const models = parseCodexProviderModelsJson(connection.modelsJson)
+    const models = expandNativeCodexModels(parseCodexProviderModelsJson(connection.modelsJson))
     if (models.length === 0) throw new Error('Custom Codex connection has no models.')
     const defaultModelId = connection.defaultModelId?.trim() || ''
     const defaultModel = models.find((model) => model.id === defaultModelId)

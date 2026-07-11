@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { parseCodexProviderModelsJson, parseCodexUpstreamFormat } from '@/lib/codex-config'
+import { expandNativeCodexModels, parseCodexProviderModelsJson, parseCodexUpstreamFormat } from '@/lib/codex-config'
 import { getPrismaClient } from '@/lib/db'
 import { decryptApiKey } from '@/lib/server/ai-credentials'
 import { isValidCodexProxyToken } from '@/lib/server/codex-internal-auth'
@@ -43,7 +43,7 @@ export async function handleCodexUpstreamRequest(input: {
     const upstreamFormat = parseCodexUpstreamFormat(connection.upstreamFormat)
     const baseUrl = connection.baseUrl?.trim().replace(/\/+$/, '')
     const encryptedApiKey = connection.encryptedApiKey
-    const models = parseCodexProviderModelsJson(connection.modelsJson)
+    const models = expandNativeCodexModels(parseCodexProviderModelsJson(connection.modelsJson))
     if (!upstreamFormat || !baseUrl || !encryptedApiKey || models.length === 0) {
         return NextResponse.json({ error: { message: 'Codex connection is incomplete.' } }, { status: 500 })
     }
