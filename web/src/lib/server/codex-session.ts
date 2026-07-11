@@ -1,10 +1,11 @@
 import type { Prisma } from '@prisma/client'
+import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 
 export type CodexSessionCategory = 'general' | 'scene_operation' | 'scene_continuation'
 export type CodexSessionStatus = 'idle' | 'running' | 'error'
 export type CodexSessionMessageRole = 'user' | 'assistant' | 'event'
 export type CodexReviewLevel = 'user_review' | 'auto_review' | 'no_review'
-export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
+export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
 export type CodexServiceTier = 'standard' | 'fast'
 
 export const DEFAULT_CODEX_REVIEW_LEVEL: CodexReviewLevel = 'user_review'
@@ -60,7 +61,14 @@ export function normalizeCodexReviewLevel(value: unknown): CodexReviewLevel | nu
 }
 
 export function normalizeCodexReasoningEffort(value: unknown): CodexReasoningEffort | null {
-    if (value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') {
+    if (
+        value === 'low' ||
+        value === 'medium' ||
+        value === 'high' ||
+        value === 'xhigh' ||
+        value === 'max' ||
+        value === 'ultra'
+    ) {
         return value
     }
     return null
@@ -166,7 +174,7 @@ export function serializeCodexSession(record: CodexSessionRecord) {
         title: record.title,
         titleManuallyEdited: record.titleManuallyEdited,
         reviewLevel: normalizeCodexReviewLevel(record.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL,
-        modelId: normalizeCodexStringId(record.modelId) ?? 'gpt-5.4',
+        modelId: normalizeCodexStringId(record.modelId) ?? DEFAULT_CODEX_MODEL,
         reasoningEffort: normalizeCodexReasoningEffort(record.reasoningEffort) ?? DEFAULT_CODEX_REASONING_EFFORT,
         serviceTier: normalizeCodexServiceTier(record.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER,
         planMode: record.planMode,

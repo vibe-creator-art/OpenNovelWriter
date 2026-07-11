@@ -58,6 +58,9 @@ const DETAILED_OUTLINE_DIR_NAME = 'DetailedOutline'
 const DETAILED_OUTLINE_CHAPTERS_DIR_NAME = 'chapters'
 const DETAILED_OUTLINE_ACTS_DIR_NAME = 'acts'
 
+// Projection rebuilds remove and recreate directories, so mutations for one novel must run in order.
+const novelWorkspaceSyncTails = new Map<string, Promise<void>>()
+
 type NovelWorkspaceOutlineInput = {
     id: string
     title: string
@@ -212,59 +215,99 @@ export async function getNovelWorkspaceTermFileMap(
 }
 
 export async function deleteNovelWorkspace(ownerId: string, novelId: string) {
-    await fs.rm(getNovelWorkspacePath(ownerId, novelId), {
-        recursive: true,
-        force: true,
+    return withNovelWorkspaceSyncLock(ownerId, novelId, async () => {
+        await fs.rm(getNovelWorkspacePath(ownerId, novelId), {
+            recursive: true,
+            force: true,
+        })
     })
 }
 
-export async function ensureNovelWorkspace(ownerId: string, novelId: string) {
+async function ensureNovelWorkspaceUnlocked(ownerId: string, novelId: string) {
     const workspacePath = await ensureNovelWorkspaceDirectory(ownerId, novelId)
     await Promise.all([
         removeNovelWorkspaceAgent(ownerId, novelId),
-        syncNovelWorkspaceOutline(ownerId, novelId),
-        syncNovelWorkspaceSnippets(ownerId, novelId),
-        syncNovelWorkspaceDetailedOutlines(ownerId, novelId),
-        syncNovelWorkspaceMaterials(ownerId, novelId),
+        syncNovelWorkspaceOutlineUnlocked(ownerId, novelId),
+        syncNovelWorkspaceSnippetsUnlocked(ownerId, novelId),
+        syncNovelWorkspaceDetailedOutlinesUnlocked(ownerId, novelId),
+        syncNovelWorkspaceMaterialsUnlocked(ownerId, novelId),
     ])
 
     const chaptersPath = getNovelWorkspaceChaptersPath(ownerId, novelId)
     const hasChapterFiles = await hasMarkdownFiles(chaptersPath)
     if (!hasChapterFiles) {
-        await syncNovelWorkspaceChapters(ownerId, novelId)
+        await syncNovelWorkspaceChaptersUnlocked(ownerId, novelId)
     }
 
     const termsPath = getNovelWorkspaceTermsPath(ownerId, novelId)
     const hasTermFiles = await hasMarkdownFiles(termsPath)
     if (!hasTermFiles) {
-        await syncNovelWorkspaceTerms(ownerId, novelId)
+        await syncNovelWorkspaceTermsUnlocked(ownerId, novelId)
     }
 
     return workspacePath
 }
 
 export async function ensureNovelWorkspaces(ownerId: string, novelIds: string[]) {
-    await Promise.all(novelIds.map(async (novelId) => {
-        await ensureNovelWorkspaceDirectory(ownerId, novelId)
-        await removeNovelWorkspaceAgent(ownerId, novelId)
-        await Promise.all([
-            syncNovelWorkspaceOutline(ownerId, novelId),
-            syncNovelWorkspaceSnippets(ownerId, novelId),
-            syncNovelWorkspaceDetailedOutlines(ownerId, novelId),
-            syncNovelWorkspaceMaterials(ownerId, novelId),
-        ])
-        const chaptersPath = getNovelWorkspaceChaptersPath(ownerId, novelId)
-        if (!(await hasMarkdownFiles(chaptersPath))) {
-            await syncNovelWorkspaceChapters(ownerId, novelId)
-        }
-        const termsPath = getNovelWorkspaceTermsPath(ownerId, novelId)
-        if (!(await hasMarkdownFiles(termsPath))) {
-            await syncNovelWorkspaceTerms(ownerId, novelId)
-        }
-    }))
+    await Promise.all(novelIds.map((novelId) => ensureNovelWorkspace(ownerId, novelId)))
+}
+
+export async function ensureNovelWorkspace(ownerId: string, novelId: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => ensureNovelWorkspaceUnlocked(ownerId, novelId))
 }
 
 export async function syncNovelWorkspaceOutline(ownerId: string, novelId: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => syncNovelWorkspaceOutlineUnlocked(ownerId, novelId))
+}
+
+export async function syncNovelWorkspaceDetailedOutlines(ownerId: string, novelId: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => syncNovelWorkspaceDetailedOutlinesUnlocked(ownerId, novelId))
+}
+
+export async function syncNovelWorkspaceChapter(ownerId: string, novelId: string, chapterId: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => syncNovelWorkspaceChapterUnlocked(ownerId, novelId, chapterId))
+}
+
+export async function syncNovelWorkspaceChapters(ownerId: string, novelId: string, chapterIds?: string[]) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => syncNovelWorkspaceChaptersUnlocked(ownerId, novelId, chapterIds))
+}
+
+export async function syncNovelWorkspaceTerms(
+    ownerId: string,
+    novelId: string,
+    options?: {
+        previousState?: unknown
+        nextState?: unknown
+    }
+) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => syncNovelWorkspaceTermsUnlocked(ownerId, novelId, options))
+}
+
+export async function syncNovelWorkspaceSnippets(ownerId: string, novelId: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => syncNovelWorkspaceSnippetsUnlocked(ownerId, novelId))
+}
+
+export async function syncNovelWorkspaceSnippet(ownerId: string, novelId: string, snippetId: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => syncNovelWorkspaceSnippetUnlocked(ownerId, novelId, snippetId))
+}
+
+export async function syncNovelWorkspaceMaterials(ownerId: string, novelId: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => syncNovelWorkspaceMaterialsUnlocked(ownerId, novelId))
+}
+
+export async function removeNovelWorkspaceChapter(ownerId: string, novelId: string, chapterId: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => removeNovelWorkspaceChapterUnlocked(ownerId, novelId, chapterId))
+}
+
+export async function removeNovelWorkspaceSnippet(ownerId: string, novelId: string, snippetId: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => removeNovelWorkspaceSnippetUnlocked(ownerId, novelId, snippetId))
+}
+
+export async function removeNovelWorkspaceTerm(ownerId: string, novelId: string, title: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => removeNovelWorkspaceTermUnlocked(ownerId, novelId, title))
+}
+
+async function syncNovelWorkspaceOutlineUnlocked(ownerId: string, novelId: string) {
     const workspacePath = await ensureNovelWorkspaceDirectory(ownerId, novelId)
     const novel = await prisma.novel.findFirst({
         where: { id: novelId, ownerId },
@@ -310,7 +353,7 @@ export async function syncNovelWorkspaceOutline(ownerId: string, novelId: string
  * `novel/DetailedOutline/{chapters,acts}/`. Only outlines with non-empty content get a file.
  * Full rebuild: the folder is wiped first, so emptied/deleted outlines disappear automatically.
  */
-export async function syncNovelWorkspaceDetailedOutlines(ownerId: string, novelId: string) {
+async function syncNovelWorkspaceDetailedOutlinesUnlocked(ownerId: string, novelId: string) {
     const workspacePath = await ensureNovelWorkspaceDirectory(ownerId, novelId)
     const novel = await prisma.novel.findFirst({
         where: { id: novelId, ownerId },
@@ -377,7 +420,7 @@ export async function syncNovelWorkspaceDetailedOutlines(ownerId: string, novelI
     return { rootPath, written }
 }
 
-export async function syncNovelWorkspaceChapter(ownerId: string, novelId: string, chapterId: string) {
+async function syncNovelWorkspaceChapterUnlocked(ownerId: string, novelId: string, chapterId: string) {
     const workspacePath = await ensureNovelWorkspaceDirectory(ownerId, novelId)
     const novel = await prisma.novel.findFirst({
         where: { id: novelId, ownerId },
@@ -416,7 +459,7 @@ export async function syncNovelWorkspaceChapter(ownerId: string, novelId: string
     return chapterPath
 }
 
-export async function syncNovelWorkspaceChapters(ownerId: string, novelId: string, chapterIds?: string[]) {
+async function syncNovelWorkspaceChaptersUnlocked(ownerId: string, novelId: string, chapterIds?: string[]) {
     const workspacePath = await ensureNovelWorkspaceDirectory(ownerId, novelId)
     const novel = await prisma.novel.findFirst({
         where: { id: novelId, ownerId },
@@ -456,7 +499,7 @@ export async function syncNovelWorkspaceChapters(ownerId: string, novelId: strin
     return chapterPaths
 }
 
-export async function syncNovelWorkspaceTerms(
+async function syncNovelWorkspaceTermsUnlocked(
     ownerId: string,
     novelId: string,
     options?: {
@@ -526,7 +569,7 @@ export async function syncNovelWorkspaceTerms(
     return termsPath
 }
 
-export async function syncNovelWorkspaceSnippets(ownerId: string, novelId: string) {
+async function syncNovelWorkspaceSnippetsUnlocked(ownerId: string, novelId: string) {
     const workspacePath = await ensureNovelWorkspaceDirectory(ownerId, novelId)
     const novel = await prisma.novel.findFirst({
         where: { id: novelId, ownerId },
@@ -578,7 +621,7 @@ export async function syncNovelWorkspaceSnippets(ownerId: string, novelId: strin
     }
 }
 
-export async function syncNovelWorkspaceSnippet(ownerId: string, novelId: string, snippetId: string) {
+async function syncNovelWorkspaceSnippetUnlocked(ownerId: string, novelId: string, snippetId: string) {
     const workspacePath = await ensureNovelWorkspaceDirectory(ownerId, novelId)
     const novel = await prisma.novel.findFirst({
         where: { id: novelId, ownerId },
@@ -632,7 +675,7 @@ export async function syncNovelWorkspaceSnippet(ownerId: string, novelId: string
  * large (a whole novel), so the agent is told in AGENTS.md to open one only when the author
  * @-mentions it — never to browse this folder on its own.
  */
-export async function syncNovelWorkspaceMaterials(ownerId: string, novelId: string) {
+async function syncNovelWorkspaceMaterialsUnlocked(ownerId: string, novelId: string) {
     await ensureNovelWorkspaceDirectory(ownerId, novelId)
     const materials = await prisma.material.findMany({
         where: { novelId, novel: { ownerId } },
@@ -654,7 +697,7 @@ export async function syncNovelWorkspaceMaterials(ownerId: string, novelId: stri
     return { materialsPath, written }
 }
 
-export async function removeNovelWorkspaceChapter(ownerId: string, novelId: string, chapterId: string) {
+async function removeNovelWorkspaceChapterUnlocked(ownerId: string, novelId: string, chapterId: string) {
     const chapterPath = getNovelWorkspaceChapterPath(ownerId, novelId, chapterId)
     await fs.rm(chapterPath, {
         force: true,
@@ -662,14 +705,14 @@ export async function removeNovelWorkspaceChapter(ownerId: string, novelId: stri
     return chapterPath
 }
 
-export async function removeNovelWorkspaceSnippet(ownerId: string, novelId: string, snippetId: string) {
+async function removeNovelWorkspaceSnippetUnlocked(ownerId: string, novelId: string, snippetId: string) {
     const snippetPath = getNovelWorkspaceSnippetPath(ownerId, novelId, snippetId)
     await removeWorkspaceFile(snippetPath)
-    await syncNovelWorkspaceSnippets(ownerId, novelId)
+    await syncNovelWorkspaceSnippetsUnlocked(ownerId, novelId)
     return snippetPath
 }
 
-export async function removeNovelWorkspaceTerm(ownerId: string, novelId: string, title: string) {
+async function removeNovelWorkspaceTermUnlocked(ownerId: string, novelId: string, title: string) {
     const termPath = getNovelWorkspaceTermPath(ownerId, novelId, title)
     await fs.rm(termPath, {
         force: true,
@@ -693,6 +736,31 @@ async function removeWorkspaceFile(filePath: string) {
     await fs.rm(filePath, {
         force: true,
     })
+}
+
+async function withNovelWorkspaceSyncLock<T>(
+    ownerId: string,
+    novelId: string,
+    operation: () => Promise<T>
+): Promise<T> {
+    const key = JSON.stringify([ownerId, novelId])
+    const previous = novelWorkspaceSyncTails.get(key) ?? Promise.resolve()
+    let release!: () => void
+    const current = new Promise<void>((resolve) => {
+        release = resolve
+    })
+    const tail = previous.then(() => current, () => current)
+    novelWorkspaceSyncTails.set(key, tail)
+
+    await previous.catch(() => undefined)
+    try {
+        return await operation()
+    } finally {
+        release()
+        if (novelWorkspaceSyncTails.get(key) === tail) {
+            novelWorkspaceSyncTails.delete(key)
+        }
+    }
 }
 
 function getNovelWorkspaceProjectionPath(ownerId: string, novelId: string, ...segments: string[]) {

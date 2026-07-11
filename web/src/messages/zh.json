@@ -991,16 +991,24 @@
             },
             "intelligence": "智能",
             "model": "模型",
+            "effort": "思考强度",
+            "advanced": "高级",
+            "faster": "更快",
+            "smarter": "更智能",
+            "usageLimitWarning": "会更快消耗用量额度",
+            "resetToDefault": "恢复默认设置",
             "speed": "速度",
             "remainingQuota": "剩余额度",
             "quotaWindow": "{window}: {remaining}%",
             "creditsUnlimited": "额度：无限制",
             "creditsBalance": "额度：{balance}",
             "reasoningEfforts": {
-                "low": "低",
-                "medium": "中",
-                "high": "高",
-                "xhigh": "超高"
+                "low": "low",
+                "medium": "medium",
+                "high": "high",
+                "xhigh": "xhigh",
+                "max": "max",
+                "ultra": "ultra"
             },
             "serviceTiers": {
                 "standard": "标准",

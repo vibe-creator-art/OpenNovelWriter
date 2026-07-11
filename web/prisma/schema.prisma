@@ -437,7 +437,7 @@ model CodexSession {
   title               String?
   titleManuallyEdited Boolean  @default(false)
   reviewLevel         String   @default("user_review")
-  modelId             String   @default("gpt-5.4")
+  modelId             String   @default("gpt-5.6-sol")
   reasoningEffort     String   @default("high")
   serviceTier         String   @default("standard")
   planMode            Boolean  @default(false)

@@ -52,6 +52,19 @@ EPERM: operation not permitted, symlink
 - **开启开发者模式（推荐）**：设置 → 隐私和安全性 → 开发者选项 → 打开「开发人员模式」。
 - **以管理员身份运行**：用「以管理员身份运行」打开 VS Code、PowerShell 或终端，再启动本项目。
 
+## 一键启动（推荐）
+
+首次安装 Node.js 20 或更新版本后，可以直接使用根目录 launcher；它会检查运行环境、首次安装依赖和数据库、检查 Git 更新，并在检测到更新时显示最新提交名、询问是否更新。已有可用构建时会直接启动，代码更新或没有构建时才会重新构建。
+
+- **Windows**：双击 `launcher.bat`。
+- **macOS / Linux**：在项目根目录运行：
+
+```bash
+./launcher.sh
+```
+
+如果没有安装 Codex CLI，launcher 会提示，但仍会启动编辑器；只有 Codex 会话功能不可用。若 Git 不存在、网络不可用、当前分支没有上游，或存在未提交的本地代码修改，launcher 会跳过自动更新并启动当前本地版本。
+
 ## 安装依赖
 
 ```bash
@@ -172,6 +185,19 @@ Grant the permission to create symlinks in either of the following ways, then re
 
 - **Enable Developer Mode (recommended)**: Settings → Privacy & security → For developers → turn on "Developer Mode".
 - **Run as Administrator**: open VS Code, PowerShell, or the terminal via "Run as administrator", then start the project.
+
+## One-Click Launcher (Recommended)
+
+After installing Node.js 20 or newer, use the launcher in the repository root. It checks the runtime, installs dependencies and prepares the database on first run, checks for Git updates, and shows the newest commit message before asking whether to update. It starts an existing current build directly and rebuilds only when the code changed or no build exists.
+
+- **Windows**: double-click `launcher.bat`.
+- **macOS / Linux**: from the repository root, run:
+
+```bash
+./launcher.sh
+```
+
+If the Codex CLI is not installed, the launcher warns but still starts the editor; only Codex session features are unavailable. If Git is missing, the network is unavailable, the current branch has no upstream, or tracked local code changes exist, the launcher skips automatic updates and starts the local version.
 
 ## Install Dependencies
 

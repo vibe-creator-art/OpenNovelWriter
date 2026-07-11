@@ -17,6 +17,7 @@ import {
 import { dispatchNovelRefreshRequested } from '@/lib/novel-refresh-events'
 import { emitSceneEditsChanged } from '@/components/editor/scene-edit-events'
 import { emitContinuationPanelRemoved } from '@/lib/continuation-panel-events'
+import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 
 export const EDITOR_CODEX_FALLBACK_NOVEL_ID = '__default__'
 
@@ -392,7 +393,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             title: null,
             titleManuallyEdited: false,
             reviewLevel,
-            modelId: 'gpt-5.4',
+            modelId: DEFAULT_CODEX_MODEL,
             reasoningEffort: 'high',
             serviceTier: 'standard',
             planMode: false,

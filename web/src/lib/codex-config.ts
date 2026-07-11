@@ -7,13 +7,7 @@ export type CodexCustomProviderSettings = {
 }
 
 export const DEFAULT_CODEX_CUSTOM_BASE_URL = 'https://api.openai.com/v1'
-export const DEFAULT_CODEX_CUSTOM_MODEL = 'gpt-5.4'
-export const DEFAULT_CODEX_MODEL = DEFAULT_CODEX_CUSTOM_MODEL
-
-// Mini models (e.g. gpt-5.4-mini) cap reasoning effort at "high"; the API rejects xhigh.
-export function codexModelSupportsXhighEffort(modelId: string) {
-    return !modelId.trim().toLowerCase().includes('mini')
-}
+export const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol'
 
 const DEFAULT_SHARED_CONFIG_LINES = [
     'model_context_window = 300000',
@@ -26,7 +20,7 @@ export function getDefaultCodexCustomSettings(): CodexCustomProviderSettings {
     return {
         apiKey: '',
         baseUrl: DEFAULT_CODEX_CUSTOM_BASE_URL,
-        model: DEFAULT_CODEX_CUSTOM_MODEL,
+        model: DEFAULT_CODEX_MODEL,
     }
 }
 

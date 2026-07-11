@@ -59,17 +59,13 @@ import {
     DropdownMenuItem,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
-    DropdownMenuSeparator,
-    DropdownMenuSub,
-    DropdownMenuSubContent,
-    DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useEditorCodexStore } from '@/components/editor/editor-codex-store'
 import { ModelGroupLogoIcon } from '@/components/ai/model-group-logo-icon'
 import { type ModelGroup } from '@/lib/ai-store'
 import { useAuthStore } from '@/lib/store'
-import { DEFAULT_CODEX_MODEL, codexModelSupportsXhighEffort, parseCodexModelFromConfig } from '@/lib/codex-config'
+import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import {
     getCodexRateLimitSummary,
     hasMeaningfulCodexRateLimits,
@@ -83,6 +79,7 @@ import { normalizeSkillCategory } from '@/lib/skills'
 import { useStoredTermEntries } from '@/components/editor/terms/use-stored-term-entries'
 import type { TermEntry } from '@/components/editor/terms/types'
 import { CodexSkillTweakDialog, type CodexRenderedBlock } from '@/components/editor/codex-skill-tweak-dialog'
+import { CodexModelPicker } from '@/components/editor/codex-model-picker'
 import { emitSceneEditsChanged } from '@/components/editor/scene-edit-events'
 import {
     codexApi,
@@ -92,6 +89,7 @@ import {
     type CodexConnectionSummary,
     type CodexContextWindow,
     type CodexRateLimits,
+    type CodexModelCatalogEntry,
     type CodexReasoningEffort,
     type CodexReviewLevel,
     type CodexServiceTier,
@@ -131,10 +129,6 @@ type QueuedCodexMessage = {
 }
 
 const CODEX_REVIEW_LEVELS: CodexReviewLevel[] = ['user_review', 'auto_review', 'no_review']
-const CODEX_REASONING_EFFORTS: CodexReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
-const RECOMMENDED_CODEX_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
-const CODEX_SERVICE_TIERS: CodexServiceTier[] = ['standard', 'fast']
-const COMPOSER_TRAILING_LINE_MARKER = '\u200B'
 const PLAN_COMPOSER_ACTION_OPTIONS: CodexComposerActionOption[] = [
     { id: 'implement', label: 'Yes, implement this plan', kind: 'submit' },
     { id: 'revise', label: 'No, and tell Codex what to do differently', kind: 'input' },
@@ -499,7 +493,11 @@ function mentionItemName(item: MentionItem) {
     return item.chapter.label
 }
 
-type ComposerSegment = { type: 'text' | 'mention'; text: string }
+type ComposerMentionKind = MentionItem['kind']
+type ComposerMentionTarget = { name: string; kind: ComposerMentionKind }
+type ComposerSegment =
+    | { type: 'text'; text: string }
+    | { type: 'mention'; text: string; kind: ComposerMentionKind }
 
 const MENTION_BOUNDARY_CHARS = '，。、,.!?;:；'
 
@@ -509,9 +507,9 @@ const MENTION_BOUNDARY_CHARS = '，。、,.!?;:；'
  * back to the exact original text so the overlay stays glyph-aligned with the
  * textarea (the caret depends on this). Longer names win to avoid prefix shadowing.
  */
-function buildComposerSegments(value: string, mentionNames: string[]): ComposerSegment[] {
+function buildComposerSegments(value: string, mentionTargets: ComposerMentionTarget[]): ComposerSegment[] {
     if (!value) return []
-    const names = [...mentionNames].sort((a, b) => b.length - a.length)
+    const targets = [...mentionTargets].sort((a, b) => b.name.length - a.name.length)
     const segments: ComposerSegment[] = []
     let buffer = ''
     let index = 0
@@ -525,16 +523,16 @@ function buildComposerSegments(value: string, mentionNames: string[]): ComposerS
 
     while (index < value.length) {
         const atBoundary = index === 0 || /\s/.test(value[index - 1])
-        if (value[index] === '@' && atBoundary && names.length > 0) {
-            const matched = names.find((name) => {
-                if (!value.startsWith(`@${name}`, index)) return false
-                const after = value[index + 1 + name.length]
+        if (value[index] === '@' && atBoundary && targets.length > 0) {
+            const matched = targets.find((target) => {
+                if (!value.startsWith(`@${target.name}`, index)) return false
+                const after = value[index + 1 + target.name.length]
                 return after === undefined || /\s/.test(after) || MENTION_BOUNDARY_CHARS.includes(after)
             })
             if (matched) {
                 flush()
-                segments.push({ type: 'mention', text: `@${matched}` })
-                index += 1 + matched.length
+                segments.push({ type: 'mention', text: `@${matched.name}`, kind: matched.kind })
+                index += 1 + matched.name.length
                 continue
             }
         }
@@ -577,10 +575,10 @@ function detectMentionAtCaret(value: string, caret: number): { start: number; qu
 function findMentionTokenToDeleteBeforeCaret(
     value: string,
     caret: number,
-    mentionNames: string[]
+    mentionTargets: ComposerMentionTarget[]
 ): { start: number; end: number } | null {
-    if (caret <= 0 || mentionNames.length === 0) return null
-    const segments = buildComposerSegments(value, mentionNames)
+    if (caret <= 0 || mentionTargets.length === 0) return null
+    const segments = buildComposerSegments(value, mentionTargets)
     let offset = 0
     for (const segment of segments) {
         const start = offset
@@ -593,6 +591,17 @@ function findMentionTokenToDeleteBeforeCaret(
         offset = end
     }
     return null
+}
+
+function getComposerMentionTextClass(kind: ComposerMentionKind) {
+    if (kind === 'model') return 'text-sky-700 dark:text-sky-300'
+    if (kind === 'skill') return 'text-violet-700 dark:text-violet-300'
+    if (kind === 'term') return 'text-emerald-700 dark:text-emerald-300'
+    if (kind === 'snippet') return 'text-amber-700 dark:text-amber-300'
+    if (kind === 'material') return 'text-cyan-700 dark:text-cyan-300'
+    if (kind === 'detailedOutline') return 'text-rose-700 dark:text-rose-300'
+    if (kind === 'act') return 'text-indigo-700 dark:text-indigo-300'
+    return 'text-orange-700 dark:text-orange-300'
 }
 
 function createOptimisticSteerMessage(content: string, attachments: string[]): CodexSessionMessage {
@@ -613,22 +622,6 @@ function mergeTimelineMessages(
     if (optimisticSteerMessages.length === 0) return messages
 
     return [...messages, ...optimisticSteerMessages]
-}
-
-function formatCodexModelLabel(modelId: string) {
-    const normalized = modelId.trim()
-    if (normalized.toLowerCase() === 'gpt-5.5') return 'GPT-5.5'
-    if (normalized.toLowerCase() === 'gpt-5.4') return 'GPT-5.4'
-    if (normalized.toLowerCase() === 'gpt-5.4-mini') return 'GPT-5.4 Mini'
-    return normalized || 'gpt-5.4'
-}
-
-function formatCodexModelCompact(modelId: string) {
-    const normalized = modelId.trim().toLowerCase()
-    if (normalized === 'gpt-5.5') return '5.5'
-    if (normalized === 'gpt-5.4') return '5.4'
-    if (normalized === 'gpt-5.4-mini') return '5.4 Mini'
-    return formatCodexModelLabel(modelId)
 }
 
 function normalizePlanStepStatus(value: unknown): CodexPlanStepStatus {
@@ -2395,7 +2388,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const resolveApproval = useEditorCodexStore((state) => state.resolveApproval)
     const [runError, setRunError] = useState<string | null>(null)
     const [connections, setConnections] = useState<CodexConnectionSummary[]>([])
-    const [connectionModels, setConnectionModels] = useState<Record<string, string>>({})
+    const [activeModelCatalog, setActiveModelCatalog] = useState<CodexModelCatalogEntry[]>([])
     const [activeConnectionRateLimits, setActiveConnectionRateLimits] = useState<CodexRateLimits | null>(null)
     const [planHintDismissed, setPlanHintDismissed] = useState(false)
     const [dismissedComposerActions, setDismissedComposerActions] = useState<Record<string, true>>({})
@@ -2414,13 +2407,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const queueProcessingRef = useRef<string | null>(null)
     const composerRef = useRef<HTMLTextAreaElement | null>(null)
     const composerOverlayRef = useRef<HTMLDivElement | null>(null)
+    const composerOverlayTextRef = useRef<HTMLDivElement | null>(null)
     const composerFileInputRef = useRef<HTMLInputElement | null>(null)
     const syncComposerOverlayScroll = useCallback(() => {
         const textarea = composerRef.current
-        const overlay = composerOverlayRef.current
-        if (!textarea || !overlay) return
-        overlay.scrollTop = textarea.scrollTop
-        overlay.scrollLeft = textarea.scrollLeft
+        const overlayText = composerOverlayTextRef.current
+        if (!textarea || !overlayText) return
+        overlayText.style.width = `${textarea.clientWidth}px`
+        overlayText.style.transform = `translate(${-textarea.scrollLeft}px, ${-textarea.scrollTop}px)`
     }, [])
     const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
     const [mentionIndex, setMentionIndex] = useState(0)
@@ -2794,7 +2788,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null
     const draft = selectedSession?.draftContent ?? ''
     const reviewLevel = selectedSession?.reviewLevel ?? 'user_review'
-    const modelId = selectedSession?.modelId ?? 'gpt-5.4'
+    const modelId = selectedSession?.modelId ?? DEFAULT_CODEX_MODEL
     const reasoningEffort = selectedSession?.reasoningEffort ?? 'high'
     const serviceTier = selectedSession?.serviceTier ?? 'standard'
     const planMode = selectedSession?.planMode ?? false
@@ -2843,27 +2837,31 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [draft, modelGroups, skills, snippets, materials, acts, chapters, outlines])
 
-    const mentionNames = useMemo(
+    const mentionTargets = useMemo<ComposerMentionTarget[]>(
         () => [
-            ...(modelGroups ?? []).map((group) => group.name),
-            ...(skills ?? []).map((skill) => skill.name),
-            ...termEntries.map((term) => term.title).filter(Boolean),
-            ...snippetMentions.map((snippet) => snippet.label),
-            ...materialMentions.map((material) => material.label),
-            ...detailedOutlineMentions.map((outline) => outline.label),
-            ...actMentions.map((act) => act.label),
-            ...chapterMentions.map((chapter) => chapter.label),
+            ...(modelGroups ?? []).map((group) => ({ name: group.name, kind: 'model' as const })),
+            ...(skills ?? []).map((skill) => ({ name: skill.name, kind: 'skill' as const })),
+            ...termEntries
+                .map((term) => term.title)
+                .filter(Boolean)
+                .map((name) => ({ name, kind: 'term' as const })),
+            ...snippetMentions.map((snippet) => ({ name: snippet.label, kind: 'snippet' as const })),
+            ...materialMentions.map((material) => ({ name: material.label, kind: 'material' as const })),
+            ...detailedOutlineMentions.map((outline) => ({ name: outline.label, kind: 'detailedOutline' as const })),
+            ...actMentions.map((act) => ({ name: act.label, kind: 'act' as const })),
+            ...chapterMentions.map((chapter) => ({ name: chapter.label, kind: 'chapter' as const })),
         ],
         [modelGroups, skills, termEntries, snippetMentions, materialMentions, detailedOutlineMentions, actMentions, chapterMentions]
     )
 
     const composerSegments = useMemo(
-        () => buildComposerSegments(draft, mentionNames),
-        [draft, mentionNames]
+        () => buildComposerSegments(draft, mentionTargets),
+        [draft, mentionTargets]
     )
 
     useLayoutEffect(() => {
         let secondFrame = 0
+        syncComposerOverlayScroll()
         const firstFrame = window.requestAnimationFrame(() => {
             syncComposerOverlayScroll()
             secondFrame = window.requestAnimationFrame(syncComposerOverlayScroll)
@@ -2872,7 +2870,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             window.cancelAnimationFrame(firstFrame)
             if (secondFrame) window.cancelAnimationFrame(secondFrame)
         }
-    }, [draft, syncComposerOverlayScroll])
+    }, [composerSegments, syncComposerOverlayScroll])
 
     // The first `@`-mentioned ai_chat skill that carries a bound prompt — it gets a Tweak dialog.
     const activePromptSkill = useMemo(() => {
@@ -2923,7 +2921,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         : PLAN_COMPOSER_ACTION_OPTIONS[0].id
     const activeConnection = useMemo(() => connections.find((connection) => connection.isActive) ?? null, [connections])
     const showServiceTier = activeConnection?.providerType === 'openai-official' && activeConnection.authStatus === 'authenticated'
-    const activeConnectionModel = activeConnection ? connectionModels[activeConnection.id] ?? DEFAULT_CODEX_MODEL : DEFAULT_CODEX_MODEL
     const quotaSummary = useMemo(
         () =>
             getCodexRateLimitSummary(
@@ -2934,15 +2931,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     )
     const quotaSummaryText = quotaSummary.join(', ')
     const showQuotaSummary = showServiceTier && hasMeaningfulCodexRateLimits(activeConnectionRateLimits) && quotaSummary.length > 0
-    const modelOptions = [...RECOMMENDED_CODEX_MODELS]
-    for (const customModel of [activeConnectionModel, modelId]) {
-        if (customModel && !modelOptions.some((option) => option.toLowerCase() === customModel.toLowerCase())) {
-            modelOptions.push(customModel)
-        }
-    }
-    const reasoningEffortOptions = codexModelSupportsXhighEffort(modelId)
-        ? CODEX_REASONING_EFFORTS
-        : CODEX_REASONING_EFFORTS.filter((effort) => effort !== 'xhigh')
     const showPlanHint = !planMode && !planHintDismissed && !running && !planSlash && /\bplan\b/iu.test(draft)
     const approvalOptions = pendingApproval ? getApprovalComposerOptions(pendingApproval, t) : []
     const selectedApprovalOptionId =
@@ -2961,20 +2949,23 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         let cancelled = false
         if (!activeConnection?.id) return
 
+        setActiveModelCatalog([])
         void codexApi.getConnection(activeConnection.id)
             .then((detail) => {
                 if (cancelled) return
-                const nextModel = parseCodexModelFromConfig(detail.configToml)
-                setConnectionModels((current) => ({
-                    ...current,
-                    [activeConnection.id]: nextModel,
-                }))
                 setActiveConnectionRateLimits(detail.rateLimits)
             })
             .catch((error) => {
                 if (!cancelled) {
                     console.error('Failed to load active Codex connection detail:', error)
                 }
+            })
+        void codexApi.listConnectionModels(activeConnection.id)
+            .then((catalog) => {
+                if (!cancelled) setActiveModelCatalog(catalog.models)
+            })
+            .catch((error) => {
+                if (!cancelled) console.error('Failed to load Codex model catalog:', error)
             })
 
         return () => {
@@ -3658,29 +3649,35 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                     <div
                         ref={composerOverlayRef}
                         aria-hidden
-                        className="pointer-events-none absolute inset-0 max-h-48 min-h-10 overflow-hidden whitespace-pre-wrap break-words px-1 py-1 text-sm text-foreground"
+                        className="pointer-events-none absolute inset-0 z-[2] max-h-48 min-h-10 overflow-hidden"
                     >
-                        {composerSegments.map((segment, index) =>
-                            segment.type === 'mention' ? (
-                                <span
-                                    key={index}
-                                    className="rounded-sm bg-primary/10 text-primary [box-decoration-break:clone]"
-                                >
-                                    {segment.text}
-                                </span>
-                            ) : (
-                                <span key={index}>{segment.text}</span>
-                            )
-                        )}
-                        {draft.endsWith('\n') && <span>{COMPOSER_TRAILING_LINE_MARKER}</span>}
+                        <div
+                            ref={composerOverlayTextRef}
+                            className="whitespace-pre-wrap break-words px-1 py-1 text-sm text-transparent will-change-transform"
+                        >
+                            {composerSegments.map((segment, index) =>
+                                segment.type === 'mention' ? (
+                                    <span
+                                        key={index}
+                                        className={cn(
+                                            'rounded-sm bg-muted [box-decoration-break:clone]',
+                                            getComposerMentionTextClass(segment.kind)
+                                        )}
+                                    >
+                                        {segment.text}
+                                    </span>
+                                ) : (
+                                    <span key={index}>{segment.text}</span>
+                                )
+                            )}
+                        </div>
                     </div>
                     <AutoResizeTextarea
                         ref={composerRef}
                         value={draft}
                         rows={1}
                         placeholder={t('codex.composerPlaceholder')}
-                        className="onw-editor-scrollbar relative z-[1] max-h-48 min-h-10 overflow-auto border-0 bg-transparent px-1 py-1 text-sm text-transparent shadow-none selection:bg-primary/30 focus-visible:ring-0"
-                        style={{ caretColor: 'var(--color-foreground)' }}
+                        className="onw-editor-scrollbar relative z-[1] max-h-48 min-h-10 overflow-auto border-0 bg-transparent px-1 py-1 text-sm text-foreground shadow-none selection:bg-primary/30 focus-visible:ring-0"
                         onScroll={syncComposerOverlayScroll}
                         onChange={(event) => {
                             const { value, selectionStart } = event.target
@@ -3756,7 +3753,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             if (event.key === 'Backspace' && !event.metaKey && !event.ctrlKey && !event.altKey) {
                                 const { selectionStart, selectionEnd } = event.currentTarget
                                 if (selectionStart !== null && selectionStart === selectionEnd) {
-                                    const removal = findMentionTokenToDeleteBeforeCaret(draft, selectionStart, mentionNames)
+                                    const removal = findMentionTokenToDeleteBeforeCaret(draft, selectionStart, mentionTargets)
                                     if (removal) {
                                         event.preventDefault()
                                         const nextValue = draft.slice(0, removal.start) + draft.slice(removal.end)
@@ -3918,88 +3915,15 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         )}
                         <div className="ml-auto flex min-w-0 items-center gap-2">
                             <ContextWindowIndicator contextWindow={latestContextWindow} />
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        className="max-w-40 gap-1 text-muted-foreground"
-                                        disabled={running}
-                                    >
-                                        <span className="truncate">{formatCodexModelCompact(modelId)}</span>
-                                        <span>{t(`codex.reasoningEfforts.${reasoningEffort}`)}</span>
-                                        <ChevronDown className="h-4 w-4" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-56">
-                                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                        {t('codex.intelligence')}
-                                    </div>
-                                    {reasoningEffortOptions.map((effort) => (
-                                        <DropdownMenuItem
-                                            key={effort}
-                                            onSelect={() => selectModelSetting({ reasoningEffort: effort })}
-                                        >
-                                            <span>{t(`codex.reasoningEfforts.${effort}`)}</span>
-                                            {reasoningEffort === effort && <Check className="ml-auto h-4 w-4" />}
-                                        </DropdownMenuItem>
-                                    ))}
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuSub>
-                                        <DropdownMenuSubTrigger>
-                                            <span>{formatCodexModelLabel(modelId)}</span>
-                                        </DropdownMenuSubTrigger>
-                                        <DropdownMenuSubContent className="w-52">
-                                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                                {t('codex.model')}
-                                            </div>
-                                            {modelOptions.map((model) => (
-                                                <DropdownMenuItem
-                                                    key={model}
-                                                    onSelect={() => selectModelSetting(
-                                                        reasoningEffort === 'xhigh' && !codexModelSupportsXhighEffort(model)
-                                                            ? { modelId: model, reasoningEffort: 'high' }
-                                                            : { modelId: model }
-                                                    )}
-                                                >
-                                                    <span>{formatCodexModelLabel(model)}</span>
-                                                    {modelId.toLowerCase() === model.toLowerCase() && (
-                                                        <Check className="ml-auto h-4 w-4" />
-                                                    )}
-                                                </DropdownMenuItem>
-                                            ))}
-                                        </DropdownMenuSubContent>
-                                    </DropdownMenuSub>
-                                    {showServiceTier && (
-                                        <DropdownMenuSub>
-                                            <DropdownMenuSubTrigger>
-                                                <span>{t('codex.speed')}</span>
-                                            </DropdownMenuSubTrigger>
-                                            <DropdownMenuSubContent className="w-72">
-                                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                                    {t('codex.speed')}
-                                                </div>
-                                                {CODEX_SERVICE_TIERS.map((tier) => (
-                                                    <DropdownMenuItem
-                                                        key={tier}
-                                                        onSelect={() => selectModelSetting({ serviceTier: tier })}
-                                                        className="items-start"
-                                                    >
-                                                        <div className="min-w-0">
-                                                            <div>{t(`codex.serviceTiers.${tier}`)}</div>
-                                                            <div className="text-xs leading-5 text-muted-foreground">
-                                                                {t(`codex.serviceTierDescriptions.${tier}`)}
-                                                            </div>
-                                                        </div>
-                                                        {serviceTier === tier && <Check className="ml-auto mt-0.5 h-4 w-4" />}
-                                                    </DropdownMenuItem>
-                                                ))}
-                                            </DropdownMenuSubContent>
-                                        </DropdownMenuSub>
-                                    )}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                            <CodexModelPicker
+                                modelId={modelId}
+                                reasoningEffort={reasoningEffort}
+                                serviceTier={serviceTier}
+                                models={activeModelCatalog}
+                                showServiceTier={showServiceTier}
+                                disabled={running}
+                                onChange={selectModelSetting}
+                            />
                             <Button
                                 type="button"
                                 size="icon-sm"

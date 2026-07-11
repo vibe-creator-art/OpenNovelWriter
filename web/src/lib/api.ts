@@ -844,6 +844,14 @@ export interface CodexModel {
     name: string
 }
 
+export interface CodexModelCatalogEntry {
+    id: string
+    displayName: string
+    description: string
+    supportedReasoningEfforts: CodexReasoningEffort[]
+    defaultReasoningEffort: CodexReasoningEffort
+}
+
 export interface CodexAuthSessionStatus {
     loginId: string
     type?: 'chatgpt' | 'chatgptDeviceCode'
@@ -1066,7 +1074,7 @@ export interface CodexPromptArtifact {
 }
 export type CodexSessionStatus = 'idle' | 'running' | 'error'
 export type CodexReviewLevel = 'user_review' | 'auto_review' | 'no_review'
-export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
+export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
 export type CodexServiceTier = 'standard' | 'fast'
 
 export type CodexSessionMessage = {
@@ -1447,6 +1455,9 @@ export const codexApi = {
 
     getConnection: (id: string) =>
         fetchApi<CodexConnectionDetail>(`/codex/connections/${id}`),
+
+    listConnectionModels: (id: string) =>
+        fetchApi<{ models: CodexModelCatalogEntry[] }>(`/codex/connections/${id}/models`),
 
     createConnection: (data: {
         name: string

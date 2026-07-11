@@ -39,8 +39,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         if (!novel) {
             return NextResponse.json({ detail: 'Novel not found' }, { status: 404 })
         }
-        await ensureNovelWorkspace(user.userId, novel.id)
-
         return NextResponse.json({
             ...novel,
             chapters: novel.chapters.map((chapter) => ({

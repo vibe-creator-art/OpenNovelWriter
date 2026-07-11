@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { getPrismaClient } from '@/lib/db'
 import { resolveManagedUploadPath, saveImageBuffer } from '@/lib/server/storage'
-import { codexModelSupportsXhighEffort } from '@/lib/codex-config'
+import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
 import { ensureCodexSessionWorkspace } from '@/lib/server/codex-session-workspace'
@@ -1010,13 +1010,9 @@ export async function runNovelCodexTurn(input: {
     await mountCodexCoreSkills(client)
     const modelId = typeof input.modelId === 'string' && input.modelId.trim()
         ? input.modelId.trim()
-        : 'gpt-5.4'
-    const requestedReasoningEffort =
-        normalizeCodexReasoningEffort(input.reasoningEffort) ?? DEFAULT_CODEX_REASONING_EFFORT
+        : DEFAULT_CODEX_MODEL
     const reasoningEffort =
-        requestedReasoningEffort === 'xhigh' && !codexModelSupportsXhighEffort(modelId)
-            ? 'high'
-            : requestedReasoningEffort
+        normalizeCodexReasoningEffort(input.reasoningEffort) ?? DEFAULT_CODEX_REASONING_EFFORT
     const requestedServiceTier = normalizeCodexServiceTier(input.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
     const serviceTier =
         requestedServiceTier === 'fast' &&
@@ -1146,22 +1142,7 @@ export async function runNovelCodexTurn(input: {
         }
         registerActiveCodexRun(activeRunHandle)
 
-        // Idle-timeout guard. Official Codex has no total-turn cap — its clients wait for
-        // `turn/completed` indefinitely (the SDK's wait_for_turn_completed is an unbounded
-        // loop). So we only defend against a genuinely stuck turn: reject after
-        // IDLE_TURN_TIMEOUT_MS of zero activity. Every notification and approval handoff
-        // re-arms it via bumpTurnActivity(), so an actively-streaming turn — long writing
-        // tasks, chained run_llm calls — is never killed mid-flight the way the old fixed
-        // 10-minute total cap did.
-        const IDLE_TURN_TIMEOUT_MS = 10 * 60 * 1000
-        let lastTurnActivityAt = Date.now()
-        const bumpTurnActivity = () => {
-            lastTurnActivityAt = Date.now()
-        }
-
         client.setServerRequestHandler(async (message) => {
-            // A server-side request (approval/elicitation) means Codex is making progress.
-            bumpTurnActivity()
             const method = typeof message.method === 'string' ? message.method : ''
             const params = message.params && typeof message.params === 'object'
                 ? message.params as Record<string, unknown>
@@ -1191,11 +1172,7 @@ export async function runNovelCodexTurn(input: {
             }
 
             input.stream?.onApprovalRequest?.(approvalRequest)
-            // Reset the idle clock at handoff so the human gets the full window to respond,
-            // then again once they do, so their think time never counts against the next turn.
-            bumpTurnActivity()
             const decision = await waitForCodexApprovalDecision(approvalRequest)
-            bumpTurnActivity()
             if (decision.decision === 'acceptForSession') {
                 rememberCodexApprovalForSession(approvalRequest)
             }
@@ -1234,20 +1211,10 @@ export async function runNovelCodexTurn(input: {
         })
 
         await new Promise<void>((resolve, reject) => {
-            const idleTimer = setInterval(() => {
-                if (Date.now() - lastTurnActivityAt >= IDLE_TURN_TIMEOUT_MS) {
-                    clearInterval(idleTimer)
-                    reject(new Error('Codex turn timed out after 10 minutes with no activity.'))
-                }
-            }, 30 * 1000)
-
             client.setNotificationHandler((message) => {
                 const params = message.params as Record<string, unknown> | undefined
                 if (!params) return
                 if (params.threadId && params.threadId !== threadId) return
-                // Any notification for this thread is progress — keep the idle timer alive.
-                bumpTurnActivity()
-
                 const nextContextWindow = getContextWindowFromTokenCount(params)
                 if (nextContextWindow) {
                     contextWindow = nextContextWindow
@@ -1355,7 +1322,6 @@ export async function runNovelCodexTurn(input: {
                 if (message.method === 'turn/completed') {
                     const turn = params.turn as Record<string, unknown> | undefined
                     if (turn?.id !== turnId) return
-                    clearInterval(idleTimer)
                     const status = (turn.status as Record<string, unknown> | undefined)?.type
                     if (status === 'failed') {
                         const error = turn.error as Record<string, unknown> | undefined
@@ -1367,7 +1333,6 @@ export async function runNovelCodexTurn(input: {
             })
 
             client.setExitHandler((error) => {
-                clearInterval(idleTimer)
                 if (activeRunHandle) clearActiveCodexRun(input.sessionId, activeRunHandle)
                 reject(error)
             })
@@ -1443,7 +1408,7 @@ export async function runNovelCodexCompaction(input: {
     const client = await CodexAppServerClient.create(codexHome)
     const modelId = typeof input.modelId === 'string' && input.modelId.trim()
         ? input.modelId.trim()
-        : 'gpt-5.4'
+        : DEFAULT_CODEX_MODEL
     const requestedServiceTier = normalizeCodexServiceTier(input.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
     const serviceTier =
         requestedServiceTier === 'fast' &&
@@ -1485,12 +1450,6 @@ export async function runNovelCodexCompaction(input: {
         }
         registerActiveCodexRun(activeRunHandle)
 
-        const IDLE_TURN_TIMEOUT_MS = 10 * 60 * 1000
-        let lastTurnActivityAt = Date.now()
-        const bumpTurnActivity = () => {
-            lastTurnActivityAt = Date.now()
-        }
-
         let compactionItemId: string | null = null
         let compactionDone = false
         const emitCompaction = (id: string, status: 'running' | 'done') => {
@@ -1509,18 +1468,10 @@ export async function runNovelCodexCompaction(input: {
         await client.request('thread/compact/start', { threadId })
 
         await new Promise<void>((resolve, reject) => {
-            const idleTimer = setInterval(() => {
-                if (Date.now() - lastTurnActivityAt >= IDLE_TURN_TIMEOUT_MS) {
-                    clearInterval(idleTimer)
-                    reject(new Error('Codex compaction timed out after 10 minutes with no activity.'))
-                }
-            }, 30 * 1000)
-
             let settled = false
             const finish = () => {
                 if (settled) return
                 settled = true
-                clearInterval(idleTimer)
                 // Always settle on a visible "compacted" divider — even an interrupted compaction
                 // shows "Context compacted" in the official app, so we match that.
                 if (compactionItemId && !compactionDone) emitCompaction(compactionItemId, 'done')
@@ -1532,7 +1483,6 @@ export async function runNovelCodexCompaction(input: {
                 const params = message.params as Record<string, unknown> | undefined
                 if (!params) return
                 if (params.threadId && params.threadId !== threadId) return
-                bumpTurnActivity()
 
                 if (typeof params.turnId === 'string' && !turnId) {
                     turnId = params.turnId
@@ -1576,7 +1526,6 @@ export async function runNovelCodexCompaction(input: {
             })
 
             client.setExitHandler((error) => {
-                clearInterval(idleTimer)
                 if (activeRunHandle) clearActiveCodexRun(input.sessionId, activeRunHandle)
                 reject(error)
             })
@@ -1715,6 +1664,48 @@ export async function readCodexRateLimits(codexHome: string) {
         }
 
         throw error
+    } finally {
+        client.close()
+    }
+}
+
+export async function listCodexModels(codexHome: string) {
+    const client = await CodexAppServerClient.create(codexHome)
+
+    try {
+        const response = await client.request<{
+            data?: Array<{
+                model?: string
+                displayName?: string
+                description?: string
+                hidden?: boolean
+                supportedReasoningEfforts?: Array<{ reasoningEffort?: string }>
+                defaultReasoningEffort?: string
+            }>
+        }>('model/list', { limit: 100, includeHidden: false })
+
+        return (response.data ?? []).flatMap((model) => {
+            const id = typeof model.model === 'string' ? model.model.trim() : ''
+            if (!id || model.hidden) return []
+
+            const supportedReasoningEfforts = (model.supportedReasoningEfforts ?? [])
+                .map((option) => normalizeCodexReasoningEffort(option.reasoningEffort))
+                .filter((effort): effort is NonNullable<typeof effort> => effort !== null)
+            const defaultReasoningEffort =
+                normalizeCodexReasoningEffort(model.defaultReasoningEffort) ?? supportedReasoningEfforts[0]
+            if (!defaultReasoningEffort) return []
+
+            return [{
+                id,
+                displayName:
+                    typeof model.displayName === 'string' && model.displayName.trim()
+                        ? model.displayName.trim()
+                        : id,
+                description: typeof model.description === 'string' ? model.description : '',
+                supportedReasoningEfforts,
+                defaultReasoningEffort,
+            }]
+        })
     } finally {
         client.close()
     }

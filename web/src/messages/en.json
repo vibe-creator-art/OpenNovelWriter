@@ -991,16 +991,24 @@
             },
             "intelligence": "Intelligence",
             "model": "Model",
+            "effort": "Effort",
+            "advanced": "Advanced",
+            "faster": "Faster",
+            "smarter": "Smarter",
+            "usageLimitWarning": "Consumes usage limits faster",
+            "resetToDefault": "Reset to default",
             "speed": "Speed",
             "remainingQuota": "Remaining quota",
             "quotaWindow": "{window}: {remaining}%",
             "creditsUnlimited": "Credits: unlimited",
             "creditsBalance": "Credits: {balance}",
             "reasoningEfforts": {
-                "low": "Low",
-                "medium": "Medium",
-                "high": "High",
-                "xhigh": "Extra High"
+                "low": "low",
+                "medium": "medium",
+                "high": "high",
+                "xhigh": "xhigh",
+                "max": "max",
+                "ultra": "ultra"
             },
             "serviceTiers": {
                 "standard": "Standard",
