@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db'
 import { htmlToText } from '@/lib/html-to-text'
 import { buildNovelOutlineTexts } from '@/lib/novel-outline'
-import { renderPromptTemplateText, type PromptTemplateRenderResolvers } from '@/lib/prompt-template-render'
+import { renderPromptTemplateMessages, type PromptTemplateRenderResolvers } from '@/lib/prompt-template-render'
 import type { PromptInputDefinition } from '@/lib/prompt-inputs'
 import { getTermStateEntries } from '@/lib/term-state'
 import {
@@ -392,10 +392,15 @@ export async function composeSceneContinuation(params: {
         instructionTerms: instructionTermIds,
     }
 
-    const renderedBlocks = (prompt.messages ?? []).map((message) => {
-        const rendered = renderPromptTemplateText({ text: message.content ?? '', context, resolvers })
-        return { role: message.role, text: rendered.text.trim() }
+    const renderedMessages = renderPromptTemplateMessages({
+        texts: (prompt.messages ?? []).map((message) => message.content ?? ''),
+        context,
+        resolvers,
     })
+    const renderedBlocks = (prompt.messages ?? []).map((message, index) => ({
+        role: message.role,
+        text: (renderedMessages.texts[index] ?? '').trim(),
+    }))
 
     const groups = await resolveBoundGroups(params.ownerId, prompt.modelGroupIds ?? [])
     const markdown = buildConversationMarkdown({

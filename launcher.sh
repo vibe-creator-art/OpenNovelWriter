@@ -51,6 +51,102 @@ confirm_update() {
     esac
 }
 
+semver_is_older() {
+    node - "$1" "$2" <<'NODE'
+const [current, latest] = process.argv.slice(2)
+const parse = (value) => {
+  const match = String(value ?? '').match(/^(\d+)\.(\d+)\.(\d+)/)
+  return match ? match.slice(1).map(Number) : null
+}
+const a = parse(current)
+const b = parse(latest)
+if (!a || !b) process.exit(2)
+for (let i = 0; i < 3; i += 1) {
+  if (a[i] < b[i]) process.exit(0)
+  if (a[i] > b[i]) process.exit(1)
+}
+process.exit(1)
+NODE
+}
+
+detect_codex_npm_prefix() {
+    local codex_path="$1"
+    node - "$codex_path" <<'NODE'
+const fs = require('fs')
+const path = require('path')
+
+let commandPath = process.argv[2]
+try {
+  commandPath = fs.realpathSync(commandPath)
+} catch {
+  process.exit(0)
+}
+
+const marker = `${path.sep}node_modules${path.sep}@openai${path.sep}codex${path.sep}`
+const markerIndex = commandPath.indexOf(marker)
+if (markerIndex < 0) process.exit(0)
+
+const nodeModulesPath = commandPath.slice(0, markerIndex + `${path.sep}node_modules`.length)
+const libNodeModulesSuffix = `${path.sep}lib${path.sep}node_modules`
+const nodeModulesSuffix = `${path.sep}node_modules`
+
+if (nodeModulesPath.endsWith(libNodeModulesSuffix)) {
+  process.stdout.write(nodeModulesPath.slice(0, -libNodeModulesSuffix.length))
+} else if (nodeModulesPath.endsWith(nodeModulesSuffix)) {
+  process.stdout.write(nodeModulesPath.slice(0, -nodeModulesSuffix.length))
+}
+NODE
+}
+
+check_codex_cli() {
+    if ! command -v codex >/dev/null 2>&1; then
+        warn 'Codex CLI was not found. The editor can start, but Codex sessions will be unavailable. Install it with: npm install -g @openai/codex'
+        return
+    fi
+
+    local current_output current_version latest_version codex_path codex_prefix
+    current_output="$(codex --version 2>/dev/null || true)"
+    info "Codex CLI detected: ${current_output:-installed}"
+
+    command -v npm >/dev/null 2>&1 || {
+        warn 'npm was not found, so the Codex CLI update check was skipped.'
+        return
+    }
+
+    current_version="$(printf '%s\n' "$current_output" | sed -nE 's/.*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)"
+    if [[ -z "$current_version" ]]; then
+        warn 'Could not determine the installed Codex CLI version; skipping the Codex CLI update check.'
+        return
+    fi
+
+    latest_version="$(npm view @openai/codex version --silent 2>/dev/null || true)"
+    if [[ -z "$latest_version" ]]; then
+        warn 'Could not check the latest Codex CLI version. The installed version will be used.'
+        return
+    fi
+
+    if semver_is_older "$current_version" "$latest_version"; then
+        info "Detected Codex CLI update: $current_version -> $latest_version"
+        codex_path="$(command -v codex)"
+        codex_prefix="$(detect_codex_npm_prefix "$codex_path")"
+        if [[ -n "$codex_prefix" ]]; then
+            info "Updating Codex CLI with npm prefix: $codex_prefix"
+            if ! npm install -g --prefix "$codex_prefix" @openai/codex@latest; then
+                warn 'Codex CLI update failed. The installed version will be used.'
+                return
+            fi
+        else
+            info 'Updating Codex CLI with npm...'
+            if ! npm install -g @openai/codex@latest; then
+                warn 'Codex CLI update failed. The installed version will be used.'
+                return
+            fi
+        fi
+        hash -r 2>/dev/null || true
+        info "Codex CLI updated: $(codex --version 2>/dev/null || printf 'installed')"
+    fi
+}
+
 require_node
 [[ -d "$WEB_DIR" ]] || fail "Missing web directory: $WEB_DIR"
 [[ -f "$WEB_DIR/package.json" ]] || fail "Missing package manifest: $WEB_DIR/package.json"
@@ -73,11 +169,7 @@ else
     info 'Using npm.'
 fi
 
-if command -v codex >/dev/null 2>&1; then
-    info "Codex CLI detected: $(codex --version 2>/dev/null || printf 'installed')"
-else
-    warn 'Codex CLI was not found. The editor can start, but Codex sessions will be unavailable. Install it with: npm install -g @openai/codex'
-fi
+check_codex_cli
 
 GIT_REPOSITORY=0
 UPDATED=0

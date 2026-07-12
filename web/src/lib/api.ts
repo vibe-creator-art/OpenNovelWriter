@@ -1122,6 +1122,7 @@ export type CodexSessionMessage = {
     kind?: string | null
     contextWindow?: CodexContextWindow | null
     attachments?: string[]
+    jsonArtifacts?: string[]
     createdAt: string
 }
 
@@ -1334,6 +1335,26 @@ export const codexSessionApi = {
             method: 'DELETE',
         }),
 
+    uploadJsonArtifact: async (id: string, file: File) => {
+        const token = useAuthStore.getState().token
+        if (!token) throw new ApiError(401, 'Not authenticated - no token available')
+        const form = new FormData()
+        form.set('file', file)
+        const response = await fetch(`${API_BASE}/codex/sessions/${encodeURIComponent(id)}/artifacts`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: form,
+        })
+        if (!response.ok) {
+            if (response.status === 401) useAuthStore.getState().logout()
+            const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+            throw new ApiError(response.status, error.detail || 'Artifact upload failed', error)
+        }
+        return response.json() as Promise<{
+            artifact: { fileName: string; originalName: string; size: number }
+        }>
+    },
+
     resolveApproval: (
         sessionId: string,
         approvalId: string,
@@ -1361,7 +1382,7 @@ export const codexSessionApi = {
     sendMessage: (
         id: string,
         content: string,
-        options?: { signal?: AbortSignal; skillIds?: string[]; promptArtifact?: CodexPromptArtifact; attachments?: string[] }
+        options?: { signal?: AbortSignal; skillIds?: string[]; promptArtifact?: CodexPromptArtifact; attachments?: string[]; artifactFiles?: string[] }
     ) =>
         fetchApi<{ session: CodexSession }>(`/codex/sessions/${encodeURIComponent(id)}/messages`, {
             method: 'POST',
@@ -1370,6 +1391,7 @@ export const codexSessionApi = {
                 skillIds: options?.skillIds,
                 promptArtifact: options?.promptArtifact,
                 attachments: options?.attachments,
+                artifactFiles: options?.artifactFiles,
             }),
             signal: options?.signal,
         }),
@@ -1382,6 +1404,7 @@ export const codexSessionApi = {
             skillIds?: string[]
             promptArtifact?: CodexPromptArtifact
             attachments?: string[]
+            artifactFiles?: string[]
             onEvent: (event: CodexSessionStreamEvent) => void
         }
     ) => {
@@ -1401,6 +1424,7 @@ export const codexSessionApi = {
                 skillIds: options.skillIds,
                 promptArtifact: options.promptArtifact,
                 attachments: options.attachments,
+                artifactFiles: options.artifactFiles,
             }),
             signal: options.signal,
         })

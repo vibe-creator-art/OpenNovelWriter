@@ -13,6 +13,7 @@
 - 创建、修改、删除章/卷的细纲（DetailedOutline，章纲/卷纲）→ `edit-outlines`
 - 创建、修改、删除片段（snippet）→ `edit-snippets`
 - 创建、修改、删除词条（角色/地点/物品等设定卡，含经历时间线）→ `edit-terms`
+- 创建、修改、删除提示词，或转换外部提示词预设 → `edit-prompts`
 
 调用工具时使用工作区投影中标注的 `novel_id`、`act_number`、`chapter_id`、`scene_id`、`term_id`。
 

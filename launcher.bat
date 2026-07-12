@@ -78,16 +78,7 @@ if "!USE_BUN!"=="1" (
     echo ==^> Using npm.
 )
 
-where codex >nul 2>nul
-if errorlevel 1 (
-    echo.
-    echo Warning: Codex CLI was not found. The editor can start, but Codex sessions will be unavailable.
-    echo Install it with: npm install -g @openai/codex
-) else (
-    echo.
-    echo ==^> Codex CLI detected:
-    call codex --version 2>nul
-)
+call :check_codex_cli
 
 set "GIT_REPOSITORY=0"
 set "UPDATED=0"
@@ -246,6 +237,61 @@ if not "!EXIT_CODE!"=="0" (
 )
 popd >nul 2>&1
 endlocal & exit /b %EXIT_CODE%
+
+:check_codex_cli
+where codex >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo Warning: Codex CLI was not found. The editor can start, but Codex sessions will be unavailable.
+    echo Install it with: npm install -g @openai/codex
+    exit /b 0
+)
+
+set "CODEX_CURRENT_OUTPUT="
+for /f "delims=" %%A in ('codex --version 2^>nul') do if not defined CODEX_CURRENT_OUTPUT set "CODEX_CURRENT_OUTPUT=%%A"
+if not defined CODEX_CURRENT_OUTPUT set "CODEX_CURRENT_OUTPUT=installed"
+echo.
+echo ==^> Codex CLI detected: !CODEX_CURRENT_OUTPUT!
+
+where npm >nul 2>nul
+if errorlevel 1 (
+    echo Warning: npm was not found, so the Codex CLI update check was skipped.
+    exit /b 0
+)
+
+set "CODEX_CURRENT_VERSION="
+for /f "delims=" %%A in ('node -e "const s=process.argv.slice(1).join(' '); const m=s.match(/\d+\.\d+\.\d+/); if (m) console.log(m[0])" "!CODEX_CURRENT_OUTPUT!"') do set "CODEX_CURRENT_VERSION=%%A"
+if not defined CODEX_CURRENT_VERSION (
+    echo Warning: Could not determine the installed Codex CLI version; skipping the Codex CLI update check.
+    exit /b 0
+)
+
+set "CODEX_LATEST_VERSION="
+for /f "delims=" %%A in ('npm view @openai/codex version --silent 2^>nul') do if not defined CODEX_LATEST_VERSION set "CODEX_LATEST_VERSION=%%A"
+if not defined CODEX_LATEST_VERSION (
+    echo Warning: Could not check the latest Codex CLI version. The installed version will be used.
+    exit /b 0
+)
+
+set "CODEX_UPDATE_NEEDED=0"
+for /f "delims=" %%A in ('node -e "const c=process.argv[1], l=process.argv[2]; function p(v){const m=String(v).match(/^(\d+)\.(\d+)\.(\d+)/); return m ? [+m[1], +m[2], +m[3]] : null} const a=p(c), b=p(l); let older=0; if (a && b) { for (let i=0; i<3; i+=1) { if (a[i]<b[i]) { older=1; break } if (a[i]>b[i]) break } } console.log(older)" "!CODEX_CURRENT_VERSION!" "!CODEX_LATEST_VERSION!"') do set "CODEX_UPDATE_NEEDED=%%A"
+
+if "!CODEX_UPDATE_NEEDED!"=="1" (
+    echo.
+    echo ==^> Detected Codex CLI update: !CODEX_CURRENT_VERSION! -^> !CODEX_LATEST_VERSION!
+    echo ==^> Updating Codex CLI with npm...
+    call npm install -g @openai/codex@latest
+    if errorlevel 1 (
+        echo Warning: Codex CLI update failed. The installed version will be used.
+        exit /b 0
+    )
+
+    set "CODEX_UPDATED_OUTPUT="
+    for /f "delims=" %%A in ('codex --version 2^>nul') do if not defined CODEX_UPDATED_OUTPUT set "CODEX_UPDATED_OUTPUT=%%A"
+    if not defined CODEX_UPDATED_OUTPUT set "CODEX_UPDATED_OUTPUT=installed"
+    echo ==^> Codex CLI updated: !CODEX_UPDATED_OUTPUT!
+)
+exit /b 0
 
 :fail
 echo.

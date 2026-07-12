@@ -36,6 +36,11 @@ export type PromptTemplateRenderOptions = {
     maxDepth?: number
 }
 
+export type PromptTemplateRenderMessagesResult = {
+    texts: string[]
+    warnings: PromptTemplateRenderWarning[]
+}
+
 export type PromptTemplateRenderListItem = {
     text?: string | null
     value?: string | null
@@ -430,16 +435,41 @@ function toSyntaxWarning(error: unknown): PromptTemplateRenderWarning {
     }
 }
 
-export function renderPromptTemplateText(params: {
-    text: string
+function rollDice(expression: unknown) {
+    const match = String(expression ?? '').trim().match(/^(\d*)d(\d+)$/i)
+    if (!match) return ''
+
+    const count = match[1] ? Number(match[1]) : 1
+    const sides = Number(match[2])
+    if (!Number.isSafeInteger(count) || !Number.isSafeInteger(sides) || count < 1 || count > 1000 || sides < 1) return ''
+
+    let total = 0
+    for (let index = 0; index < count; index += 1) {
+        total += Math.floor(Math.random() * sides) + 1
+    }
+    return total
+}
+
+function createMessageDelimiter(texts: string[]) {
+    const source = texts.join('\n')
+    let nonce = 0
+    while (true) {
+        const delimiter = `__ONW_TEMPLATE_MESSAGE_BOUNDARY_${nonce}__`
+        if (!source.includes(delimiter)) return delimiter
+        nonce += 1
+    }
+}
+
+export function renderPromptTemplateMessages(params: {
+    texts: string[]
     context: PromptTemplateRenderContext
     resolvers: PromptTemplateRenderResolvers
     options?: PromptTemplateRenderOptions
     depth?: number
     includeStack?: string[]
-}): { text: string; warnings: PromptTemplateRenderWarning[] } {
+}): PromptTemplateRenderMessagesResult {
     const {
-        text,
+        texts,
         context,
         resolvers,
         options,
@@ -447,12 +477,16 @@ export function renderPromptTemplateText(params: {
         includeStack = [],
     } = params
 
+    if (texts.length === 0) return { texts: [], warnings: [] }
+
+    const delimiter = createMessageDelimiter(texts)
+    const text = `${delimiter}${texts.join(delimiter)}${delimiter}`
     const maxDepth = options?.maxDepth ?? 5
     const inputNames = new Set<string>()
     const warnings: PromptTemplateRenderWarning[] = []
 
     collectTemplateAnalysis({
-        text: text ?? '',
+        text,
         resolvers,
         maxDepth,
         depth,
@@ -476,15 +510,44 @@ export function renderPromptTemplateText(params: {
         lstripBlocks: false,
     })
     environment.addFilter('union', (left: unknown, right: unknown) => unionTemplateTermCollections(left, right, resolvers))
+    environment.addGlobal('roll', rollDice)
 
     try {
         const rendered = environment.renderString(
-            rewriteIncludeTagsForLoader(text ?? '', { depth, stack: includeStack }),
+            rewriteIncludeTagsForLoader(text, { depth, stack: includeStack }),
             templateContext
         )
-        return { text: rendered, warnings: dedupeWarnings(warnings) }
+        const sections = rendered.split(delimiter)
+        if (sections.length !== texts.length + 2) {
+            warnings.push({
+                type: 'unsupported_template_syntax',
+                name: 'Prompt output contains an internal message separator.',
+                expr: delimiter,
+            })
+            return { texts, warnings: dedupeWarnings(warnings) }
+        }
+        return { texts: sections.slice(1, -1), warnings: dedupeWarnings(warnings) }
     } catch (error) {
         warnings.push(toSyntaxWarning(error))
-        return { text: text ?? '', warnings: dedupeWarnings(warnings) }
+        return { texts, warnings: dedupeWarnings(warnings) }
     }
+}
+
+export function renderPromptTemplateText(params: {
+    text: string
+    context: PromptTemplateRenderContext
+    resolvers: PromptTemplateRenderResolvers
+    options?: PromptTemplateRenderOptions
+    depth?: number
+    includeStack?: string[]
+}): { text: string; warnings: PromptTemplateRenderWarning[] } {
+    const rendered = renderPromptTemplateMessages({
+        texts: [params.text ?? ''],
+        context: params.context,
+        resolvers: params.resolvers,
+        options: params.options,
+        depth: params.depth,
+        includeStack: params.includeStack,
+    })
+    return { text: rendered.texts[0] ?? '', warnings: rendered.warnings }
 }

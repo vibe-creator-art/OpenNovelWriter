@@ -481,6 +481,43 @@ const tools = [
         },
     },
     {
+        name: 'export_prompt_library',
+        description:
+            'Export the current author\'s complete OpenNovelWriter prompt library plus the three built-in base prompt presets into a new directory under this Codex session\'s artifacts. Use only after reading the built-in edit-prompts skill. The manifest records prompt ids, updatedAt values, includes, reverse usages, user-skill bindings, defaults, and per-prompt JSON paths. Model bindings and revision history are intentionally excluded. This tool only writes artifacts; it does not change prompts.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                directoryPath: {
+                    type: 'string',
+                    description: 'Absolute path for a new directory under this Codex session artifacts directory, for example /.../artifacts/prompt-library. The directory must not already exist.',
+                },
+            },
+            required: ['directoryPath'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'apply_prompt_changes',
+        description:
+            'Validate or atomically apply an OpenNovelWriter prompt change-set JSON written under this Codex session artifacts directory. Use only after reading the built-in edit-prompts skill. Always call mode=validate first and show the resulting plan to the author; call mode=apply only after approval. Creates start without model bindings, updates preserve existing bindings, and deletes are destructive. The service checks ownership, optimistic updatedAt locks, prompt/category/message/input rules, component includes, cycles, official-preset read-only state, user-skill bindings, and defaults.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                jsonPath: {
+                    type: 'string',
+                    description: 'Absolute path to an open-novel-writer/prompt-change-set .json file under this Codex session artifacts directory.',
+                },
+                mode: {
+                    type: 'string',
+                    enum: ['validate', 'apply'],
+                    description: 'validate performs no database writes; apply commits the whole change-set atomically.',
+                },
+            },
+            required: ['jsonPath', 'mode'],
+            additionalProperties: false,
+        },
+    },
+    {
         name: 'compose_scene_continuation',
         description:
             'Assemble a scene-continuation prompt into a conversation artifact, exactly as the scene-continuation panel would — without a real panel. Use this only when a skill tells you to assemble a specific prompt. Call `describe_prompt` first to learn the inputs. This tool renders the prompt (`promptName`) against a concrete scene plus your `instruction` and `inputs`, pulling in the scene\'s previous/following text, the terms mentioned in your instruction, outlines, etc., and writes a `## system` / `## user` markdown file to `mdPath` under this Codex session artifacts directory. Its job ends there: it does NOT call a model and does NOT touch the manuscript. What happens next (run_llm, showing the result, editing the scene) is decided by the skill / author. Returns the written `mdPath`, the bound `groups`, and any `missingInputs` / `unsupportedRequiredContentSelection` warnings.',
@@ -694,6 +731,10 @@ async function callTool(params) {
                 return toolResult(await setContinuationDraft(args))
             case 'describe_prompt':
                 return toolResult(await describePrompt(args))
+            case 'export_prompt_library':
+                return toolResult(await exportPromptLibrary(args))
+            case 'apply_prompt_changes':
+                return toolResult(await applyPromptChanges(args))
             case 'compose_scene_continuation':
                 return toolResult(await composeSceneContinuation(args))
             default:
@@ -2198,6 +2239,88 @@ async function describePrompt(args) {
     return { ok: true, prompt: payload.prompt }
 }
 
+async function exportPromptLibrary(args) {
+    const directoryPath = requireNonEmptyString(args.directoryPath, 'directoryPath')
+    const output = await resolveArtifactDirectoryOutputPath(directoryPath)
+    const session = await prisma.codexSession.findFirst({
+        where: { id: output.sessionId, ownerId },
+        select: { id: true },
+    })
+    if (!session) throw new Error(`Codex session ${output.sessionId} was not found for this connection.`)
+
+    const payload = await callInternalCodexEndpoint('/api/internal/codex/prompt-library', { ownerId }, 30_000)
+    const library = payload.library
+    await fs.mkdir(output.realPath)
+    await Promise.all([
+        fs.mkdir(path.join(output.realPath, 'prompts')),
+        fs.mkdir(path.join(output.realPath, 'examples')),
+    ])
+    await fs.writeFile(path.join(output.realPath, 'manifest.json'), `${JSON.stringify(library.manifest, null, 2)}\n`, 'utf8')
+    await Promise.all((library.prompts ?? []).map((prompt) =>
+        fs.writeFile(path.join(output.realPath, 'prompts', `${prompt.id}.json`), `${JSON.stringify(prompt, null, 2)}\n`, 'utf8')
+    ))
+    await Promise.all((library.examples ?? []).map((example) =>
+        fs.writeFile(path.join(output.realPath, 'examples', example.fileName), `${JSON.stringify(example.preset, null, 2)}\n`, 'utf8')
+    ))
+
+    return {
+        ok: true,
+        directoryPath: output.realPath,
+        manifestPath: path.join(output.realPath, 'manifest.json'),
+        promptCount: library.manifest?.promptCount ?? 0,
+        exampleCount: library.examples?.length ?? 0,
+        unresolvedSkillBindings: library.unresolvedSkillBindings ?? [],
+    }
+}
+
+async function applyPromptChanges(args) {
+    const jsonPath = requireNonEmptyString(args.jsonPath, 'jsonPath')
+    const mode = requireOneOf(args.mode, 'mode', ['validate', 'apply'])
+    const artifact = await resolveArtifactJsonPath(jsonPath)
+    const session = await prisma.codexSession.findFirst({
+        where: { id: artifact.sessionId, ownerId },
+        select: { id: true },
+    })
+    if (!session) throw new Error(`Codex session ${artifact.sessionId} was not found for this connection.`)
+
+    const text = await fs.readFile(artifact.realPath, 'utf8')
+    if (Buffer.byteLength(text, 'utf8') > 10 * 1024 * 1024) {
+        throw new Error('Prompt change-set JSON must not exceed 10 MB.')
+    }
+    let changeSet
+    try {
+        changeSet = JSON.parse(text)
+    } catch (error) {
+        throw new Error(`Invalid prompt change-set JSON: ${error instanceof Error ? error.message : String(error)}`)
+    }
+
+    if (mode === 'apply') {
+        const validation = await callInternalCodexEndpoint(
+            '/api/internal/codex/prompt-changes',
+            { ownerId, mode: 'validate', changeSet },
+            60_000
+        )
+        if (!validation?.ok) return { ...validation, jsonPath: artifact.realPath }
+    }
+
+    if (mode === 'apply' && Array.isArray(changeSet?.operations)) {
+        const deletes = changeSet.operations.filter((operation) => operation && operation.action === 'delete')
+        if (deletes.length > 0) {
+            await requireStructureDeletionApproval(
+                'apply_prompt_changes',
+                `run tool "apply_prompt_changes"：永久删除 ${deletes.length} 个提示词，并原子应用同一 change-set 中的其他提示词修改？删除不可撤销。`
+            )
+        }
+    }
+
+    const result = await callInternalCodexEndpoint(
+        '/api/internal/codex/prompt-changes',
+        { ownerId, mode, changeSet },
+        60_000
+    )
+    return { ...result, jsonPath: artifact.realPath }
+}
+
 async function composeSceneContinuation(args) {
     const promptName = requireNonEmptyString(args.promptName, 'promptName')
     const novelId = requireNonEmptyString(args.novelId, 'novelId')
@@ -2599,6 +2722,14 @@ function requireNonEmptyString(value, name) {
     return normalized
 }
 
+function requireOneOf(value, name, allowed) {
+    const normalized = requireNonEmptyString(value, name)
+    if (!allowed.includes(normalized)) {
+        throw new Error(`${name} must be one of: ${allowed.join(', ')}.`)
+    }
+    return normalized
+}
+
 function requirePositiveInteger(value, name) {
     if (!Number.isInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer.`)
     return value
@@ -2698,6 +2829,34 @@ async function resolveArtifactMarkdownPath(rawPath) {
     return { realPath, sessionId }
 }
 
+async function resolveArtifactJsonPath(rawPath) {
+    if (!path.isAbsolute(rawPath)) {
+        throw new Error('jsonPath must be an absolute path inside this Codex session artifacts directory.')
+    }
+    const resolvedPath = path.resolve(rawPath)
+    if (path.extname(resolvedPath).toLowerCase() !== '.json') {
+        throw new Error('jsonPath must point to a .json file.')
+    }
+    const realPath = await fs.realpath(resolvedPath)
+    const sessionsOwnerRoot = path.join(getOpenNovelWriterDataDir(), 'codex', 'sessions', ownerId)
+    const realSessionsOwnerRoot = await fs.realpath(sessionsOwnerRoot)
+    const relativeToSessions = path.relative(realSessionsOwnerRoot, realPath)
+    if (!relativeToSessions || relativeToSessions.startsWith('..') || path.isAbsolute(relativeToSessions)) {
+        throw new Error('jsonPath must be inside this user Codex sessions directory.')
+    }
+    const segments = relativeToSessions.split(path.sep)
+    const sessionId = segments[0]
+    if (!sessionId || segments[1] !== 'artifacts' || segments.length < 3) {
+        throw new Error('jsonPath must be inside a Codex session artifacts directory.')
+    }
+    const realArtifactsRoot = await fs.realpath(path.join(realSessionsOwnerRoot, sessionId, 'artifacts'))
+    const relativeToArtifacts = path.relative(realArtifactsRoot, realPath)
+    if (!relativeToArtifacts || relativeToArtifacts.startsWith('..') || path.isAbsolute(relativeToArtifacts)) {
+        throw new Error('jsonPath must be inside this Codex session artifacts directory.')
+    }
+    return { realPath, sessionId }
+}
+
 // Like resolveArtifactMarkdownPath, but for a file that may not exist yet (an output target): we
 // realpath the parent directory instead of the file, so compose_scene_continuation can write a new
 // `.md` while still guaranteeing the path stays inside a session this connection owns.
@@ -2725,6 +2884,35 @@ async function resolveArtifactOutputPath(rawPath) {
     }
 
     return { realPath: path.join(realParent, path.basename(resolvedPath)), sessionId: segments[0] }
+}
+
+async function resolveArtifactDirectoryOutputPath(rawPath) {
+    if (!path.isAbsolute(rawPath)) {
+        throw new Error('directoryPath must be an absolute path inside this Codex session artifacts directory.')
+    }
+    const resolvedPath = path.resolve(rawPath)
+    const realParent = await fs.realpath(path.dirname(resolvedPath))
+    const realSessionsOwnerRoot = await fs.realpath(path.join(getOpenNovelWriterDataDir(), 'codex', 'sessions', ownerId))
+    const relativeToSessions = path.relative(realSessionsOwnerRoot, realParent)
+    const segments = relativeToSessions.split(path.sep)
+    if (
+        !relativeToSessions ||
+        relativeToSessions.startsWith('..') ||
+        path.isAbsolute(relativeToSessions) ||
+        segments.length < 2 ||
+        segments[1] !== 'artifacts'
+    ) {
+        throw new Error('directoryPath must be inside a Codex session artifacts directory.')
+    }
+    const target = path.join(realParent, path.basename(resolvedPath))
+    try {
+        await fs.access(target)
+        throw new Error('directoryPath already exists. Choose a new directory name.')
+    } catch (error) {
+        if (error instanceof Error && error.message.startsWith('directoryPath already exists')) throw error
+        if (error && error.code !== 'ENOENT') throw error
+    }
+    return { realPath: target, sessionId: segments[0] }
 }
 
 function toSnippetProjectionInput(snippet) {

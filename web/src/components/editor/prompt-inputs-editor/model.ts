@@ -58,7 +58,7 @@ import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { countChatUserInputReferencesInText, extractStringArgCallsFromMessages } from '@/lib/prompt-template'
 import { buildNovelOutlineTexts } from '@/lib/novel-outline'
 import { NOVEL_OUTLINE_DATA_CHANGED_EVENT, type NovelOutlineDataChangedDetail } from '@/lib/novel-outline-events'
-import { renderPromptTemplateText, type PromptTemplateRenderWarning } from '@/lib/prompt-template-render'
+import { renderPromptTemplateMessages, renderPromptTemplateText, type PromptTemplateRenderWarning } from '@/lib/prompt-template-render'
 import { getContentSelectionTemplateItems } from '@/lib/content-selection-template'
 import { findPreviousSceneContent } from '@/lib/scene-continuation'
 
@@ -2304,28 +2304,27 @@ export function useInputsEditorModel({
 
     const renderedMessages = useMemo(() => {
         if (isComponentPrompt) return [] as Array<{ id: string; role: PromptMessage['role']; content: string }>
-        return (messages ?? EMPTY_MESSAGES).map((message) => {
-            const rendered = renderPromptTemplateText({
-                text: message.content ?? '',
-                context: templateContext,
-                resolvers: {
-                    resolveInput: resolveInputValue,
-                    resolveInclude: resolveIncludeContent,
-                    resolveInputTermIds,
-                    resolveInputTermTagTermIds,
-                    resolveInputSnippets,
-                    resolveInputFullNovels: (name) => resolveInputContentSelectionItems(name, 'fullNovel'),
-                    resolveInputActs: (name) => resolveInputContentSelectionItems(name, 'act'),
-                    resolveInputChapters: (name) => resolveInputContentSelectionItems(name, 'chapter'),
-                    resolveInputScenes: (name) => resolveInputContentSelectionItems(name, 'scene'),
-                    resolveInputActOutlines: (name) => resolveInputContentSelectionItems(name, 'actOutline'),
-                    resolveInputChapterOutlines: (name) => resolveInputContentSelectionItems(name, 'chapterOutline'),
-                    resolveTermText,
-                    resolveTermValue,
-                },
-            })
-            return { id: message.id, role: message.role, content: rendered.text }
+        const sourceMessages = messages ?? EMPTY_MESSAGES
+        const rendered = renderPromptTemplateMessages({
+            texts: sourceMessages.map((message) => message.content ?? ''),
+            context: templateContext,
+            resolvers: {
+                resolveInput: resolveInputValue,
+                resolveInclude: resolveIncludeContent,
+                resolveInputTermIds,
+                resolveInputTermTagTermIds,
+                resolveInputSnippets,
+                resolveInputFullNovels: (name) => resolveInputContentSelectionItems(name, 'fullNovel'),
+                resolveInputActs: (name) => resolveInputContentSelectionItems(name, 'act'),
+                resolveInputChapters: (name) => resolveInputContentSelectionItems(name, 'chapter'),
+                resolveInputScenes: (name) => resolveInputContentSelectionItems(name, 'scene'),
+                resolveInputActOutlines: (name) => resolveInputContentSelectionItems(name, 'actOutline'),
+                resolveInputChapterOutlines: (name) => resolveInputContentSelectionItems(name, 'chapterOutline'),
+                resolveTermText,
+                resolveTermValue,
+            },
         })
+        return sourceMessages.map((message, index) => ({ id: message.id, role: message.role, content: rendered.texts[index] ?? '' }))
     }, [
         isComponentPrompt,
         messages,
@@ -2342,29 +2341,26 @@ export function useInputsEditorModel({
 
     const renderedWarnings = useMemo(() => {
         if (isComponentPrompt) return [] as PromptTemplateRenderWarning[]
-        const all: PromptTemplateRenderWarning[] = []
-        for (const message of messages ?? EMPTY_MESSAGES) {
-            const rendered = renderPromptTemplateText({
-                text: message.content ?? '',
-                context: templateContext,
-                resolvers: {
-                    resolveInput: resolveInputValue,
-                    resolveInclude: resolveIncludeContent,
-                    resolveInputTermIds,
-                    resolveInputTermTagTermIds,
-                    resolveInputSnippets,
-                    resolveInputFullNovels: (name) => resolveInputContentSelectionItems(name, 'fullNovel'),
-                    resolveInputActs: (name) => resolveInputContentSelectionItems(name, 'act'),
-                    resolveInputChapters: (name) => resolveInputContentSelectionItems(name, 'chapter'),
-                    resolveInputScenes: (name) => resolveInputContentSelectionItems(name, 'scene'),
-                    resolveInputActOutlines: (name) => resolveInputContentSelectionItems(name, 'actOutline'),
-                    resolveInputChapterOutlines: (name) => resolveInputContentSelectionItems(name, 'chapterOutline'),
-                    resolveTermText,
-                    resolveTermValue,
-                },
-            })
-            all.push(...rendered.warnings)
-        }
+        const rendered = renderPromptTemplateMessages({
+            texts: (messages ?? EMPTY_MESSAGES).map((message) => message.content ?? ''),
+            context: templateContext,
+            resolvers: {
+                resolveInput: resolveInputValue,
+                resolveInclude: resolveIncludeContent,
+                resolveInputTermIds,
+                resolveInputTermTagTermIds,
+                resolveInputSnippets,
+                resolveInputFullNovels: (name) => resolveInputContentSelectionItems(name, 'fullNovel'),
+                resolveInputActs: (name) => resolveInputContentSelectionItems(name, 'act'),
+                resolveInputChapters: (name) => resolveInputContentSelectionItems(name, 'chapter'),
+                resolveInputScenes: (name) => resolveInputContentSelectionItems(name, 'scene'),
+                resolveInputActOutlines: (name) => resolveInputContentSelectionItems(name, 'actOutline'),
+                resolveInputChapterOutlines: (name) => resolveInputContentSelectionItems(name, 'chapterOutline'),
+                resolveTermText,
+                resolveTermValue,
+            },
+        })
+        const all = rendered.warnings
         const unique: PromptTemplateRenderWarning[] = []
         const seen = new Set<string>()
         for (const warning of all) {

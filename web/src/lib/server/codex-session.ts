@@ -20,6 +20,8 @@ export type CodexSessionMessage = {
     contextWindow?: CodexContextWindow | null
     /** Managed `/uploads/...` image URLs attached to this message. */
     attachments?: string[]
+    /** JSON artifact file names attached to this message's Codex turn. */
+    jsonArtifacts?: string[]
     createdAt: string
 }
 
@@ -161,7 +163,12 @@ export function parseCodexSessionMessages(value: string | null | undefined): Cod
                 const attachments = Array.isArray(record.attachments)
                     ? record.attachments.filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
                     : []
-                return { id, role, content, kind, contextWindow, attachments, createdAt }
+                const jsonArtifacts = Array.isArray(record.jsonArtifacts)
+                    ? record.jsonArtifacts.filter((fileName): fileName is string =>
+                        typeof fileName === 'string' && /^[^/\\]+\.json$/i.test(fileName)
+                    )
+                    : []
+                return { id, role, content, kind, contextWindow, attachments, jsonArtifacts, createdAt }
             })
             .filter((message): message is CodexSessionMessage => message !== null)
     } catch {

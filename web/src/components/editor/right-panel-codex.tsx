@@ -19,10 +19,10 @@ import {
     FileText,
     FoldVertical,
     ImageIcon,
-    ImagePlus,
     Layers,
     ListChecks,
     ListTree,
+    Paperclip,
     Pin,
     Plus,
     Pencil,
@@ -127,6 +127,37 @@ type QueuedCodexMessage = {
     content: string
     attachments: string[]
     createdAt: string
+}
+
+type CodexJsonArtifact = {
+    fileName: string
+    originalName: string
+    size: number
+}
+
+function JsonArtifactChips({
+    fileNames,
+    className,
+}: {
+    fileNames: string[] | null | undefined
+    className?: string
+}) {
+    if (!fileNames || fileNames.length === 0) return null
+
+    return (
+        <div className={cn('flex flex-wrap justify-end gap-1.5', className)}>
+            {fileNames.map((fileName) => (
+                <span
+                    key={fileName}
+                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-primary-foreground/25 bg-primary-foreground/10 px-2 py-1 text-xs text-primary-foreground"
+                    title={fileName}
+                >
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span className="max-w-52 truncate">{fileName}</span>
+                </span>
+            ))}
+        </div>
+    )
 }
 
 const CODEX_REVIEW_LEVELS: CodexReviewLevel[] = ['user_review', 'auto_review', 'no_review']
@@ -1972,6 +2003,7 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
                     )}
                 >
                     <ImageThumbnails urls={message.attachments} className={cn(message.content.trim() && 'mb-1.5')} />
+                    {isUser && <JsonArtifactChips fileNames={message.jsonArtifacts} className={message.content.trim() ? 'mb-1.5' : undefined} />}
                     {isUser ? (
                         <UserMessageContent content={message.content} />
                     ) : (
@@ -2509,6 +2541,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const updateReviewLevel = useEditorCodexStore((state) => state.updateReviewLevel)
     const updateModelSettings = useEditorCodexStore((state) => state.updateModelSettings)
     const updatePlanMode = useEditorCodexStore((state) => state.updatePlanMode)
+    const ensureSessionPersisted = useEditorCodexStore((state) => state.ensureSessionPersisted)
     const sendMessage = useEditorCodexStore((state) => state.sendMessage)
     const compact = useEditorCodexStore((state) => state.compact)
     const pendingApprovalsBySession = useEditorCodexStore((state) => state.pendingApprovalsBySession)
@@ -2528,6 +2561,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const [queuedMessagesBySession, setQueuedMessagesBySession] = useState<Record<string, QueuedCodexMessage[]>>({})
     const [queueingEnabledBySession, setQueueingEnabledBySession] = useState<Record<string, boolean>>({})
     const [optimisticSteerMessagesBySession, setOptimisticSteerMessagesBySession] = useState<Record<string, CodexSessionMessage[]>>({})
+    const [jsonArtifactsBySession, setJsonArtifactsBySession] = useState<Record<string, CodexJsonArtifact[]>>({})
+    const [jsonArtifactUploading, setJsonArtifactUploading] = useState(false)
     const scrollRef = useRef<HTMLDivElement | null>(null)
     const previousRunningRef = useRef(false)
     const resolvingApprovalRef = useRef<string | null>(null)
@@ -2583,6 +2618,50 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         setRunError(t(`infoPanel.${key}`))
     }
     const imageAttachments = useImageAttachments({ onError: handleAttachmentError })
+
+    const handleComposerDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+        if (!Array.from(event.dataTransfer.types).includes('Files')) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+    }
+
+    const handleComposerDrop = (event: React.DragEvent<HTMLDivElement>) => {
+        const files = Array.from(event.dataTransfer.files)
+        if (files.length === 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        void addComposerFiles(files)
+    }
+
+    const addComposerFiles = async (files: File[]) => {
+        const images = files.filter((file) => file.type.startsWith('image/'))
+        const jsonFiles = files.filter((file) => file.name.toLowerCase().endsWith('.json'))
+        const unsupported = files.length - images.length - jsonFiles.length
+        if (images.length > 0) imageAttachments.addFiles(images)
+        if (unsupported > 0) setRunError(t('codex.artifactJsonOnly'))
+        if (jsonFiles.length === 0) return
+        if (running) {
+            setRunError(t('codex.artifactWhileRunning'))
+            return
+        }
+        setJsonArtifactUploading(true)
+        try {
+            const sessionId = selectedSession?.id ?? await ensureSession()
+            if (!sessionId) return
+            await ensureSessionPersisted(novelId, sessionId)
+            for (const file of jsonFiles) {
+                const result = await codexSessionApi.uploadJsonArtifact(sessionId, file)
+                setJsonArtifactsBySession((current) => ({
+                    ...current,
+                    [sessionId]: [...(current[sessionId] ?? []), result.artifact],
+                }))
+            }
+        } catch (error) {
+            setRunError(error instanceof Error ? error.message : String(error))
+        } finally {
+            setJsonArtifactUploading(false)
+        }
+    }
 
     useEffect(() => {
         void loadSessions(novelId)
@@ -2923,6 +3002,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const pendingApproval = selectedSession ? pendingApprovalsBySession[selectedSession.id] ?? null : null
     const queuedMessages = selectedSession ? queuedMessagesBySession[selectedSession.id] ?? [] : []
     const queueingEnabled = selectedSession ? queueingEnabledBySession[selectedSession.id] ?? true : true
+    const jsonArtifacts = selectedSessionId ? jsonArtifactsBySession[selectedSessionId] ?? [] : []
     const draftIsEmpty = !draft.trim()
 
     useEffect(() => {
@@ -3153,14 +3233,15 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         sessionId?: string | null,
         skillIds?: string[],
         promptArtifact?: CodexPromptArtifact,
-        attachments?: string[]
+        attachments?: string[],
+        artifactFiles?: string[]
     ) => {
         if (!content.trim() || running) return
         setRunError(null)
         const targetSessionId = sessionId ?? await ensureSession()
         if (!targetSessionId) return
         try {
-            await sendMessage(novelId, targetSessionId, content.trim(), { skillIds, promptArtifact, attachments })
+            await sendMessage(novelId, targetSessionId, content.trim(), { skillIds, promptArtifact, attachments, artifactFiles })
         } catch (error) {
             setRunError(error instanceof Error ? error.message : String(error))
         }
@@ -3357,7 +3438,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             runPlanSlash()
             return
         }
-        if (!draft.trim() || imageAttachments.uploading) return
+        if (!draft.trim() || imageAttachments.uploading || jsonArtifactUploading) return
 
         void (async () => {
             const targetSessionId = selectedSession?.id ?? await ensureSession()
@@ -3384,6 +3465,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             const content = expandedText.trim()
             if (!content) return
             const attachments = imageAttachments.readyUrls
+            const artifactFiles = jsonArtifacts.map((artifact) => artifact.fileName)
 
             if (running) {
                 if (queueingEnabled) {
@@ -3409,7 +3491,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
 
             setTweakOpen(false)
             imageAttachments.clear()
-            await sendContent(content, targetSessionId, skillIds, promptArtifact, attachments)
+            setJsonArtifactsBySession((current) => ({ ...current, [targetSessionId]: [] }))
+            await sendContent(content, targetSessionId, skillIds, promptArtifact, attachments, artifactFiles)
             setTweakBlocks(null)
             setTweakChatInput('')
         })().catch((error) => {
@@ -3733,10 +3816,38 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                     )}
                     <div
                         className="relative rounded-[1.6rem] border bg-background px-3 py-3 shadow-sm"
-                        onDrop={imageAttachments.handleDrop}
-                        onDragOver={imageAttachments.handleDragOver}
+                        onDrop={handleComposerDrop}
+                        onDragOver={handleComposerDragOver}
                     >
                     <AttachmentStrip items={imageAttachments.items} onRemove={imageAttachments.removeItem} className="mb-2" />
+                    {jsonArtifacts.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-1.5">
+                            {jsonArtifacts.map((artifact) => (
+                                <span
+                                    key={artifact.fileName}
+                                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border bg-muted/60 px-2 py-1 text-xs text-foreground"
+                                >
+                                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span className="truncate">{artifact.originalName}</span>
+                                    <button
+                                        type="button"
+                                        className="shrink-0 text-muted-foreground hover:text-foreground"
+                                        title={t('codex.artifactRemove')}
+                                        aria-label={t('codex.artifactRemove')}
+                                        onClick={() => {
+                                            if (!selectedSessionId) return
+                                            setJsonArtifactsBySession((current) => ({
+                                                ...current,
+                                                [selectedSessionId]: (current[selectedSessionId] ?? []).filter((item) => item.fileName !== artifact.fileName),
+                                            }))
+                                        }}
+                                    >
+                                        <X className="h-3.5 w-3.5" />
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
                     {mention !== null && (
                         <CodexMentionMenu
                             items={mentionMatches}
@@ -3937,10 +4048,10 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                     type="button"
                                     size="icon-sm"
                                     variant="ghost"
-                                    title={t('codex.attach')}
-                                    aria-label={t('codex.attach')}
+                                    title={t('codex.composerSettings')}
+                                    aria-label={t('codex.composerSettings')}
                                 >
-                                    <Plus className="h-4 w-4" />
+                                    <SlidersHorizontal className="h-4 w-4" />
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="start" className="w-52">
@@ -3978,11 +4089,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         <input
                             ref={composerFileInputRef}
                             type="file"
-                            accept="image/jpeg,image/png,image/webp"
+                            accept="image/jpeg,image/png,image/webp,application/json,.json"
                             multiple
                             className="hidden"
                             onChange={(event) => {
-                                imageAttachments.addFiles(Array.from(event.target.files ?? []))
+                                void addComposerFiles(Array.from(event.target.files ?? []))
                                 event.target.value = ''
                             }}
                         />
@@ -3990,11 +4101,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             type="button"
                             size="icon-sm"
                             variant="ghost"
-                            title={t('infoPanel.attachmentAdd')}
-                            aria-label={t('infoPanel.attachmentAdd')}
+                            title={t('codex.artifactAdd')}
+                            aria-label={t('codex.artifactAdd')}
                             onClick={() => composerFileInputRef.current?.click()}
                         >
-                            <ImagePlus className="h-4 w-4" />
+                            <Paperclip className="h-4 w-4" />
                         </Button>
                         {planMode && (
                             <Button

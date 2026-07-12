@@ -1,3 +1,6 @@
+import fs from 'fs/promises'
+import path from 'path'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { normalizeManagedAttachmentUrls } from '@/lib/server/storage'
@@ -6,6 +9,7 @@ import { runNovelCodexTurn } from '@/lib/server/codex-app-server'
 import { readSkill } from '@/lib/server/skill-storage'
 import { getNovelWorkspaceTermFileMap } from '@/lib/server/novel-workspace'
 import { seedSkillSessionArtifact } from '@/lib/server/codex-skill-session'
+import { getCodexSessionWorkspacePath } from '@/lib/server/codex-session-workspace'
 import {
     type CodexContextWindow,
     createCodexMessageId,
@@ -139,6 +143,22 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     if (!content) return NextResponse.json({ detail: 'Message content is required.' }, { status: 400 })
     const stream = body?.stream === true
     const attachments = normalizeManagedAttachmentUrls(body?.attachments)
+    const artifactFiles = Array.isArray(body?.artifactFiles)
+        ? [...new Set((body.artifactFiles as unknown[]).filter((value): value is string =>
+            typeof value === 'string' && /^[^/\\]+\.json$/i.test(value)
+        ))].slice(0, 10)
+        : []
+    if (artifactFiles.length !== (Array.isArray(body?.artifactFiles) ? body.artifactFiles.length : 0)) {
+        return NextResponse.json({ detail: 'artifactFiles must contain unique JSON file names.' }, { status: 400 })
+    }
+    const artifactsPath = path.join(getCodexSessionWorkspacePath(user.userId, existing.id), 'artifacts')
+    for (const fileName of artifactFiles) {
+        const filePath = path.join(artifactsPath, fileName)
+        const stat = await fs.lstat(filePath).catch(() => null)
+        if (!stat?.isFile() || stat.isSymbolicLink()) {
+            return NextResponse.json({ detail: `Artifact ${fileName} was not found in this session.` }, { status: 400 })
+        }
+    }
 
     // Skill mentions are stored in the message as `[name](skill:SKILL_ID)` (parallel to model
     // mentions). Collect their ids from the content (and any explicit `skillIds` in the body),
@@ -305,9 +325,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         }
     }
 
-    const finalPromptText = seededArtifactFileName
+    let finalPromptText = seededArtifactFileName
         ? `${promptText}\n\n[OpenNovelWriter] The prompt for the skill above is pre-assembled with the author's inputs (overview + referenced terms included) in artifacts/${seededArtifactFileName}. Follow the skill's instructions — call run_llm against that file, or read it for context.`
         : promptText
+    if (artifactFiles.length > 0) {
+        finalPromptText += `\n\n[OpenNovelWriter] The author attached these JSON files to this turn: ${artifactFiles.map((fileName) => `artifacts/${fileName}`).join(', ')}. Read them as source material for the request.`
+    }
 
     const now = new Date()
     const startedAt = now.toISOString()
@@ -317,6 +340,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         role: 'user',
         content,
         attachments,
+        jsonArtifacts: artifactFiles,
         createdAt: startedAt,
     }
     const optimisticMessages = [...currentMessages, userMessage]

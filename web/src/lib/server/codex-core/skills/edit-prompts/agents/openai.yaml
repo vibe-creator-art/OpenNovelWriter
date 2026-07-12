@@ -1,0 +1,4 @@
+interface:
+  display_name: "编辑提示词"
+  short_description: "创建、修改、删除和转换 OpenNovelWriter 提示词"
+  default_prompt: "请帮我创建、修改、删除或转换 OpenNovelWriter 提示词。"

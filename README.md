@@ -54,7 +54,7 @@ EPERM: operation not permitted, symlink
 
 ## 一键启动（推荐）
 
-首次安装 Node.js 20 或更新版本后，可以直接使用根目录 launcher；它会检查运行环境、首次安装依赖和数据库、检查 Git 更新，并在检测到更新时显示最新提交名、询问是否更新。已有可用构建时会直接启动，代码更新或没有构建时才会重新构建。
+首次安装 Node.js 20 或更新版本后，可以直接使用根目录 launcher；它会检查运行环境、首次安装依赖和数据库、检查 Git 更新，并在检测到更新时显示最新提交名、询问是否更新。launcher 也会检测本机 Codex CLI 的版本，若 npm registry 上有新版，会尝试更新到 `@openai/codex@latest`。已有可用构建时会直接启动，代码更新或没有构建时才会重新构建。
 
 - **Windows**：双击 `launcher.bat`。
 - **macOS / Linux**：在项目根目录运行：
@@ -63,7 +63,7 @@ EPERM: operation not permitted, symlink
 ./launcher.sh
 ```
 
-如果没有安装 Codex CLI，launcher 会提示，但仍会启动编辑器；只有 Codex 会话功能不可用。若 Git 不存在、网络不可用、当前分支没有上游，或存在未提交的本地代码修改，launcher 会跳过自动更新并启动当前本地版本。
+如果没有安装 Codex CLI，launcher 会提示，但仍会启动编辑器；只有 Codex 会话功能不可用。若 Git 不存在、网络不可用、当前分支没有上游，或存在未提交的本地代码修改，launcher 会跳过项目代码自动更新并启动当前本地版本。若 Codex CLI 更新检查失败，launcher 也会继续使用已安装版本启动。
 
 ## 安装依赖
 
@@ -150,6 +150,10 @@ npm run build
 
 如果你使用进程管理工具部署，例如 pm2、systemd、Docker 或其他平台，请在构建成功后重启对应服务。
 
+## 致谢
+
+感谢 cc Switch 项目。OpenNovelWriter 的 Codex connection 隔离配置与存储设计参考了 cc Switch 的实现思路。
+
 ## License
 
 This project uses the GNU Affero General Public License v3.0, matching the license used by Cherry Studio. See [LICENSE](./LICENSE).
@@ -188,7 +192,7 @@ Grant the permission to create symlinks in either of the following ways, then re
 
 ## One-Click Launcher (Recommended)
 
-After installing Node.js 20 or newer, use the launcher in the repository root. It checks the runtime, installs dependencies and prepares the database on first run, checks for Git updates, and shows the newest commit message before asking whether to update. It starts an existing current build directly and rebuilds only when the code changed or no build exists.
+After installing Node.js 20 or newer, use the launcher in the repository root. It checks the runtime, installs dependencies and prepares the database on first run, checks for Git updates, and shows the newest commit message before asking whether to update. The launcher also checks the installed Codex CLI version and, when npm reports a newer stable release, attempts to update it to `@openai/codex@latest`. It starts an existing current build directly and rebuilds only when the code changed or no build exists.
 
 - **Windows**: double-click `launcher.bat`.
 - **macOS / Linux**: from the repository root, run:
@@ -197,7 +201,7 @@ After installing Node.js 20 or newer, use the launcher in the repository root. I
 ./launcher.sh
 ```
 
-If the Codex CLI is not installed, the launcher warns but still starts the editor; only Codex session features are unavailable. If Git is missing, the network is unavailable, the current branch has no upstream, or tracked local code changes exist, the launcher skips automatic updates and starts the local version.
+If the Codex CLI is not installed, the launcher warns but still starts the editor; only Codex session features are unavailable. If Git is missing, the network is unavailable, the current branch has no upstream, or tracked local code changes exist, the launcher skips automatic project-code updates and starts the local version. If the Codex CLI update check fails, the launcher continues with the installed version.
 
 ## Install Dependencies
 
@@ -283,3 +287,7 @@ npm run build
 ```
 
 If you deploy with pm2, systemd, Docker, or another process manager, restart the corresponding service after the build succeeds.
+
+## Acknowledgements
+
+Thanks to the cc Switch project. OpenNovelWriter's isolated Codex connection configuration and storage design were inspired by cc Switch.
