@@ -26,7 +26,7 @@ node scripts/extract-sillytavern-preset.mjs <preset.json> <artifact.json> --prof
 2. 只改写 Tavern 宏和 ONW 无法承载的 marker；其余源文字、称呼（例如 `Haruki`）、中文标签、特殊 token、伪造对话、role 和默认开关必须保留。不要翻译、概括或补写。
 3. 不得从三个基础示例、其他用户提示词或自身惯例借入 prose、XML 标签、默认值、输入或规则。基础示例仅用于确认可用 ONW 上下文宏和输入类型。
 4. 不得凭空添加 `<Role>`、`<CoreRules>`、额外信息、字数档位、成人内容开关、文风或任何未出现在源 profile 的内容。默认迁移所需的 `<Planning>` / `<Content>` 输出分离按本参考的“标签、格式与 regex”规则处理。
-5. 源 profile 中关闭的项也必须在结果中存在。可独立开关的项保留为 checkbox；真正互斥的一组保留为单选 dropdown，默认选择源 profile 当前启用项。候选项 `content` 必须保持原文。
+5. 源 profile 中关闭的项也必须在结果中存在。可独立开关的项保留为 checkbox；真正互斥的一组保留为单选 dropdown，默认选择源 profile 当前启用项。候选项 `content` 必须保持原文。源 profile 已给出当前启用项或原始值时，必须将其填入输入默认值；有此默认值的输入不设为必填。
 6. 每个不能迁移的条目必须在生成 change-set 前逐项列出原因。不要静默删除。用户确认后才可舍弃。
 
 ## 迁移计划与结果检查
@@ -41,18 +41,18 @@ ONW 模板用 Nunjucks：`{{ ... }}` 输出，`{% ... %}` 为控制语句，`{# 
 
 | Tavern 内容 | ONW 转换 |
 | --- | --- |
-| `{{setvar::name::value}}` | `{% set name = "value" %}`，保持值原意；同一提示词的后续消息可读取。 |
+| `{{setvar::name::value}}` | `{%- set name = "value" -%}`，保持值原意且不留下变量声明的空行；同一提示词的后续消息可读取。 |
 | `{{getvar::name}}` | `{{ name }}`。 |
 | `{{random::a,b,c}}` | `{{ ["a", "b", "c"] \| random }}`。 |
 | `{{roll 1d999999}}` | `{{ roll("1d999999") }}`。 |
 | Tavern 注释 | `{# ... #}`，不发送给模型。 |
 | `{{trim}}` | 不向模型输出文本；依实际空白需求使用 Nunjucks 的 `-{%` / `-%}` 或值过滤器 `\| trim`。 |
 
-不要把 `setvar/getvar` 变成未来源于预设的自定义输入，也不要把变量声明拆成一批组件。模型专用 token、伪造 user/assistant 消息和原有角色默认原样保留；只在 ONW 传输层确实不能表达时报告限制。
+不要把 `setvar/getvar` 变成未来源于预设的自定义输入，也不要把变量声明拆成一批组件。空变量使用 `""` 而不是输出空白字符，并使用 `{%- ... -%}` 避免预览产生空行。模型专用 token、伪造 user/assistant 消息和原有角色默认原样保留；只在 ONW 传输层确实不能表达时报告限制。
 
 ## Marker 与小说上下文
 
-marker 不是可自由重写的内容。以其所在原始位置替换为对应 ONW 宏：世界书/角色信息通常用 `instruction.terms.value`，前文/后文用 `scene.previousText` / `scene.followText`，剧情记忆用 `novel.outline`，卷章规划用 `scene.actOutline` / `scene.chapterOutline`。根据用户的目标类别和实际 marker 决定，保留原位置，不额外创建“资料”输入。
+marker 不是可自由重写的内容。对于 `scene_continuation`，除非用户明确要求省略，默认在相应的原始位置完整注入：世界书/角色信息用 `instruction.terms.value`，前文用 `scene.previousText`，剧情记忆用 `novel.outline`，卷章规划用 `scene.actOutline` 与 `scene.chapterOutline`。有后文 marker 或续写锚点后仍有正文时，再使用 `scene.followText`。不要因为原预设的一个 marker 未单独列出，就遗漏上述其余小说上下文；保留每一段原有插入位置，不额外创建“资料”输入。
 
 对于 `scene_continuation`，固定玩家身份、`Persona Description`、`USER设定` 这类专为角色扮演用户而设的条目通常不适用；说明 ONW 用词条与作者指令承载人物和设定后，逐项标为舍弃。集中 AI 角色、防抢话和小总结也必须说明为何不适用于小说续写，不能悄悄删除。用户要求 AI 聊天/RP 时，不应按续写规则舍弃这些项。
 
