@@ -92,6 +92,20 @@ AI 聊天入口的最后一条消息必须是 user，并且整份提示词中只
 {% if inputs["启用planning"].value %}...{% endif %}
 ```
 
+dropdown 的每个选项应把真正送给模型的完整提示词放进 `content`。无论单选还是多选，模板通常只需直接输出一次 `.value`；多选值会按选择顺序以空行拼接，不要为每个候选生成一组 `if`：
+
+```nunjucks
+{{ inputs["文风"].value }}
+```
+
+只有输出结构确实取决于是否包含某个值时才做成员判断。Nunjucks 使用 `in`，不支持 `contains` 或 JavaScript 的 `includes`：
+
+```nunjucks
+{% if "腿部" in inputs["部位符号"].value %}...{% endif %}
+```
+
+不要使用本参考未列出的语言方法或运算符。生成 change-set 后必须先通过工具的模板语法校验。
+
 ### 内容选择
 
 每个子集合都有 `.count`、`.text`、`.value`：

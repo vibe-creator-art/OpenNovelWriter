@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db'
 import { normalizePromptInputs, type PromptInputDefinition } from '@/lib/prompt-inputs'
 import { extractIncludeNamesFromMessages, toPromptNameKey } from '@/lib/prompt-bundle'
 import { analyzeChatPromptMessages } from '@/lib/prompt-template'
+import { renderPromptTemplateMessages, type PromptTemplateRenderWarning } from '@/lib/prompt-template-render'
 import {
     normalizePromptAgentCallMode,
     normalizePromptCategory,
@@ -28,6 +29,13 @@ type PromptRecord = Prisma.PromptGetPayload<Record<string, never>>
 const CHANGE_SET_SCHEMA = 'open-novel-writer/prompt-change-set'
 const CHANGE_SET_VERSION = 1
 const MAX_INCLUDE_DEPTH = 5
+const TEMPLATE_ERROR_TYPES = new Set<PromptTemplateRenderWarning['type']>([
+    'invalid_input_syntax',
+    'invalid_include_syntax',
+    'unsupported_template_syntax',
+    'unclosed_template_expr',
+    'unsupported_variable_expr',
+])
 const WRITABLE_FIELDS = new Set([
     'name',
     'category',
@@ -187,6 +195,30 @@ function validateInputs(value: unknown, label: string, errors: string[]) {
         }
     }
     return normalized
+}
+
+function validateTemplateSyntax(params: {
+    prompt: WritablePrompt
+    componentsByName: Map<string, WritablePrompt>
+    errors: string[]
+}) {
+    const rendered = renderPromptTemplateMessages({
+        texts: params.prompt.messages.map((message) => message.content ?? ''),
+        context: {},
+        resolvers: {
+            resolveInput: () => '',
+            resolveInclude: (name) => {
+                const component = params.componentsByName.get(toPromptNameKey(name))
+                return component ? getPromptPrimaryMessageContent(component.messages) : null
+            },
+        },
+        options: { maxDepth: MAX_INCLUDE_DEPTH },
+    })
+
+    for (const warning of rendered.warnings) {
+        if (!TEMPLATE_ERROR_TYPES.has(warning.type)) continue
+        params.errors.push(`Prompt "${params.prompt.name}" has invalid Nunjucks syntax: ${warning.name}.`)
+    }
 }
 
 function parseWritablePrompt(
@@ -409,7 +441,9 @@ async function prepareChangeSet(db: DbClient, ownerId: string, changeSet: unknow
     }
     for (const id of affectedIds) {
         const prompt = finalById.get(id)
-        if (prompt) visitIncludes(prompt, 0, [])
+        if (!prompt) continue
+        visitIncludes(prompt, 0, [])
+        validateTemplateSyntax({ prompt, componentsByName, errors })
     }
 
     const skills = await listSkills(ownerId)

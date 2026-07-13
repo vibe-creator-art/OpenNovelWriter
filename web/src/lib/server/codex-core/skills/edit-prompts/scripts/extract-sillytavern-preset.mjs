@@ -124,29 +124,15 @@ if (!Number.isInteger(selectedProfileIndex) || selectedProfileIndex < 0 || selec
 }
 
 const selectedProfile = profiles[selectedProfileIndex]
-const selectedPrompts = selectedProfile.items
-    .filter((item) => item.found)
-    .map((item) => ({
-        sourceIndex: item.sourceIndex,
-        identifier: item.identifier,
-        name: item.name,
-        role: item.role,
-        marker: item.marker,
-        systemPrompt: item.systemPrompt,
-        injection: item.injection,
-        content: item.content,
-        macros: item.macros,
-    }))
-
 const extensions = preset.extensions && typeof preset.extensions === 'object' && !Array.isArray(preset.extensions)
     ? preset.extensions
     : {}
 const regexes = extractRegexes(extensions)
-const choiceGroupCandidates = detectChoiceGroups(selectedPrompts, [selectedProfile])
+const choiceGroupCandidates = detectChoiceGroups(selectedProfile.items.filter((item) => item.found), [selectedProfile])
 
 const output = {
     schema: 'open-novel-writer/sillytavern-extract',
-    version: 2,
+    version: 3,
     source: {
         fileName: path.basename(inputPath),
         promptDefinitionCount: prompts.length,
@@ -160,7 +146,6 @@ const output = {
         enabledCount: selectedProfile.enabledCount,
         items: selectedProfile.items,
     },
-    prompts: selectedPrompts,
     choiceGroupCandidates,
     specialFields: collectSpecialFields(preset),
     regexes,
@@ -172,7 +157,7 @@ await fs.writeFile(outputPath, `${JSON.stringify(output, null, 2)}\n`, 'utf8')
 console.log(JSON.stringify({
     outputPath,
     profile: selectedProfile.index,
-    prompts: selectedPrompts.length,
+    prompts: selectedProfile.items.filter((item) => item.found).length,
     enabledPrompts: selectedProfile.enabledCount,
     choiceGroupCandidates: choiceGroupCandidates.length,
     regexes: regexes.length,
@@ -239,7 +224,6 @@ function detectChoiceGroups(allPrompts, allProfiles) {
             members: members.map((member) => ({
                 identifier: member.identifier,
                 name: member.name,
-                content: member.content,
                 positions: profilePositions.get(member.identifier) ?? [],
             })),
         })

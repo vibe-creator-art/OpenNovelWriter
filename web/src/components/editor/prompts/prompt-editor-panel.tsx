@@ -229,6 +229,7 @@ export function PromptEditorPanel({
         { key: '{{ instruction.terms.value }}', description: t('editor.templateReference.instructionTermsValue') },
         { key: '{% set wordsCloud = "不少于1000" %}', description: t('editor.templateReference.setVariable') },
         { key: '{{ ["a", "b", "c"] | random }}', description: t('editor.templateReference.randomChoice') },
+        { key: '{% if "选项" in inputs["模式"].value %}...{% endif %}', description: t('editor.templateReference.membershipTest') },
         { key: '{{ roll("1d6") }}', description: t('editor.templateReference.rollDice') },
         { key: '{{ value | trim }}', description: t('editor.templateReference.trimValue') },
         { key: '{# 注释不会发送给模型 #}', description: t('editor.templateReference.comment') },

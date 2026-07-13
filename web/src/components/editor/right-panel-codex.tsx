@@ -2023,7 +2023,7 @@ function WorkEventGroup({
     messages: CodexSessionMessage[]
     defaultCollapsed: boolean
 }) {
-    const [collapsed, setCollapsed] = useState(defaultCollapsed)
+    const [collapsed, setCollapsed] = useState(defaultCollapsed || messages.length > 8)
     const summary = formatWorkEventSummary(messages)
 
     return (
@@ -2256,7 +2256,7 @@ function CodexTurnBody({ messages, running }: { messages: CodexSessionMessage[];
             const defaultCollapsed = hasLaterAssistant || !running
             nodes.push(
                 <WorkEventGroup
-                    key={`work-${group[0]?.id ?? index}-${defaultCollapsed ? 'collapsed' : 'expanded'}`}
+                    key={`work-${group[0]?.id ?? index}-${defaultCollapsed ? 'collapsed' : 'expanded'}-${group.length > 8 ? 'large' : 'small'}`}
                     messages={group}
                     defaultCollapsed={defaultCollapsed}
                 />
@@ -2306,7 +2306,7 @@ function CodexTurnWorkGroup({
     running: boolean
     now: number
 }) {
-    const [collapsed, setCollapsed] = useState(() => !running)
+    const [collapsed, setCollapsed] = useState(() => !running || messages.length > 8)
     const summary = getTurnDurationLabel(durationMessages, running, now)
 
     return (
@@ -2354,7 +2354,7 @@ function CodexTurnGroup({
             <MessageBubble message={userMessage} />
             {workMessages.length > 0 && (
                 <CodexTurnWorkGroup
-                    key={`${userMessage.id}-${running ? 'running' : 'done'}`}
+                    key={`${userMessage.id}-${running ? 'running' : 'done'}-${workMessages.length > 8 ? 'large' : 'small'}`}
                     messages={workMessages}
                     durationMessages={messages.slice(0, lastAssistantIndex + 1)}
                     running={running}
@@ -2571,6 +2571,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const composerOverlayRef = useRef<HTMLDivElement | null>(null)
     const composerOverlayTextRef = useRef<HTMLDivElement | null>(null)
     const composerFileInputRef = useRef<HTMLInputElement | null>(null)
+    const composerDragDepthRef = useRef(0)
+    const [composerDragActive, setComposerDragActive] = useState(false)
     const syncComposerOverlayScroll = useCallback(() => {
         const textarea = composerRef.current
         const overlayText = composerOverlayTextRef.current
@@ -2619,13 +2621,28 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     }
     const imageAttachments = useImageAttachments({ onError: handleAttachmentError })
 
+    const handleComposerDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
+        if (!Array.from(event.dataTransfer.types).includes('Files')) return
+        event.preventDefault()
+        composerDragDepthRef.current += 1
+        setComposerDragActive(true)
+    }
+
     const handleComposerDragOver = (event: React.DragEvent<HTMLDivElement>) => {
         if (!Array.from(event.dataTransfer.types).includes('Files')) return
         event.preventDefault()
         event.dataTransfer.dropEffect = 'copy'
     }
 
+    const handleComposerDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+        if (!Array.from(event.dataTransfer.types).includes('Files')) return
+        composerDragDepthRef.current = Math.max(0, composerDragDepthRef.current - 1)
+        if (composerDragDepthRef.current === 0) setComposerDragActive(false)
+    }
+
     const handleComposerDrop = (event: React.DragEvent<HTMLDivElement>) => {
+        composerDragDepthRef.current = 0
+        setComposerDragActive(false)
         const files = Array.from(event.dataTransfer.files)
         if (files.length === 0) return
         event.preventDefault()
@@ -3815,10 +3832,28 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         </div>
                     )}
                     <div
-                        className="relative rounded-[1.6rem] border bg-background px-3 py-3 shadow-sm"
+                        className={cn(
+                            'relative rounded-[1.6rem] border bg-background px-3 py-3 shadow-sm transition-colors',
+                            composerDragActive && 'border-primary/70'
+                        )}
                         onDrop={handleComposerDrop}
+                        onDragEnter={handleComposerDragEnter}
                         onDragOver={handleComposerDragOver}
+                        onDragLeave={handleComposerDragLeave}
                     >
+                    {composerDragActive && (
+                        <div className="pointer-events-none absolute inset-0 z-[60] flex items-center justify-center rounded-[1.6rem] border-2 border-dashed border-primary bg-background/95 px-6 text-center shadow-sm backdrop-blur-sm">
+                            <div className="flex items-center gap-3 text-primary">
+                                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                                    <Paperclip className="h-5 w-5" />
+                                </span>
+                                <div className="text-left">
+                                    <div className="text-sm font-medium">{t('codex.dropFilesTitle')}</div>
+                                    <div className="mt-0.5 text-xs text-muted-foreground">{t('codex.dropFilesDescription')}</div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     <AttachmentStrip items={imageAttachments.items} onRemove={imageAttachments.removeItem} className="mb-2" />
                     {jsonArtifacts.length > 0 && (
                         <div className="mb-2 flex flex-wrap gap-1.5">

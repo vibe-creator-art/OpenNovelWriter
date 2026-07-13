@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import {
     Background,
@@ -11,11 +11,10 @@ import {
     MiniMap,
     Position,
     ReactFlow,
-    useEdgesState,
     useNodesState,
-    type Edge,
-    type Node,
     type NodeProps,
+    type ReactFlowInstance,
+    useStore,
 } from '@xyflow/react'
 import { BookText, CalendarDays, ChevronDown, LayoutGrid, MapPin, Network, Shapes, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -41,6 +40,9 @@ import {
     toMentionPhraseKey,
 } from '@/components/editor/terms/term-mentions-utils'
 import type { TermEntry } from '@/components/editor/terms/types'
+import { RelationshipGraphEdge } from '@/components/editor/relationship-graph-edge'
+import { buildRelationshipGraphLayout } from '@/components/editor/relationship-graph-layout'
+import type { TermGraphEdge, TermGraphNode } from '@/components/editor/relationship-graph-types'
 
 type TimelineScene = {
     id: string
@@ -57,15 +59,6 @@ type MentionMatrix = {
     sceneCountsByTermId: Map<string, number[]>
 }
 
-type TermNodeData = {
-    entry: TermEntry
-    size: number
-    selected: boolean
-    dimmed: boolean
-}
-
-type TermGraphNode = Node<TermNodeData, 'term'>
-
 function formatSigned(value: number) {
     if (value > 0) return `+${value.toLocaleString()}`
     return value.toLocaleString()
@@ -79,23 +72,34 @@ function termFallbackIcon(entry: TermEntry) {
 }
 
 function TermGraphNodeView({ data }: NodeProps<TermGraphNode>) {
-    const { entry, size, selected, dimmed } = data
+    const { entry, size, tier, motionDelayMs, selected, dimmed } = data
+    const showLabel = useStore((state) => {
+        const zoom = state.transform[2]
+        return selected
+            || tier === 'core'
+            || (tier === 'important' && zoom >= 0.5)
+            || zoom >= 0.84
+    })
     return (
         <div
             className={cn(
-                'relative flex flex-col items-center transition-all duration-300',
-                dimmed && 'opacity-20 grayscale',
-                selected && 'scale-110'
+                'relative flex items-center justify-center transition-[opacity,filter] duration-300',
+                dimmed && 'opacity-15 grayscale'
             )}
-            style={{ width: size + 34 }}
+            style={{ width: size, height: size }}
         >
-            <Handle type="target" position={Position.Left} className="!h-1 !w-1 !border-0 !bg-transparent" />
+            <Handle type="target" position={Position.Top} className="!left-1/2 !top-1/2 !h-1 !w-1 !border-0 !bg-transparent !opacity-0" />
             <div
                 className={cn(
-                    'overflow-hidden rounded-full border-2 bg-card shadow-lg transition-all duration-300',
-                    selected ? 'border-orange-400 shadow-[0_0_30px_rgba(251,146,60,0.48)]' : 'border-border'
+                    'h-full w-full overflow-hidden rounded-full bg-card transition-all duration-300',
+                    tier === 'core' && 'border-[3px] border-orange-400 ring-2 ring-orange-300/40 ring-offset-2 ring-offset-background shadow-[0_8px_28px_rgba(249,115,22,0.24)]',
+                    tier === 'important' && 'border-2 border-amber-300/90 shadow-lg',
+                    tier === 'minor' && 'border-2 border-border shadow-md',
+                    tier === 'core' && 'onw-term-node-motion-core',
+                    tier === 'important' && 'onw-term-node-motion-important',
+                    selected && 'border-orange-500 ring-4 ring-orange-300/50 shadow-[0_0_34px_rgba(251,146,60,0.52)]'
                 )}
-                style={{ width: size, height: size }}
+                style={{ animationDelay: `${motionDelayMs}ms` }}
             >
                 {entry.avatar ? (
                     <CroppedImage
@@ -110,139 +114,131 @@ function TermGraphNodeView({ data }: NodeProps<TermGraphNode>) {
                     </div>
                 )}
             </div>
-            <div className={cn('mt-2 max-w-full truncate rounded-full border bg-background/90 px-2.5 py-1 text-xs font-medium shadow-sm', selected && 'border-orange-300 text-orange-700 dark:text-orange-200')}>
+            <div className={cn(
+                'pointer-events-none absolute left-1/2 top-[calc(100%+8px)] max-w-[150px] -translate-x-1/2 truncate whitespace-nowrap rounded-full border bg-background/92 px-2.5 py-1 text-xs font-medium shadow-sm transition-opacity duration-200',
+                showLabel ? 'opacity-100' : 'opacity-0',
+                selected && 'border-orange-300 text-orange-700 dark:text-orange-200'
+            )}>
                 {entry.title}
             </div>
-            <Handle type="source" position={Position.Right} className="!h-1 !w-1 !border-0 !bg-transparent" />
+            <Handle type="source" position={Position.Top} className="!left-1/2 !top-1/2 !h-1 !w-1 !border-0 !bg-transparent !opacity-0" />
         </div>
     )
 }
 
 const nodeTypes = { term: TermGraphNodeView }
-
-function buildGraphLayout(entries: TermEntry[], mentionTotals: Map<string, number>) {
-    const activeById = new Map(entries.filter((entry) => !entry.archived).map((entry) => [entry.id, entry] as const))
-    const relationEntries = entries.filter((entry) =>
-        !entry.archived && (entry.relations ?? []).some((relation) => activeById.has(relation.otherId))
-    )
-    const maxMention = Math.max(1, ...relationEntries.map((entry) => mentionTotals.get(entry.id) ?? 0))
-    const radius = Math.max(230, Math.min(520, relationEntries.length * 34))
-    const center = radius + 150
-
-    const nodes: TermGraphNode[] = relationEntries.map((entry, index) => {
-        const angle = (index / Math.max(1, relationEntries.length)) * Math.PI * 2 - Math.PI / 2
-        const count = mentionTotals.get(entry.id) ?? 0
-        const normalized = Math.log1p(count) / Math.log1p(maxMention)
-        const size = Math.round(46 + normalized * 48)
-        return {
-            id: entry.id,
-            type: 'term',
-            position: { x: center + Math.cos(angle) * radius, y: center + Math.sin(angle) * radius },
-            data: { entry, size, selected: false, dimmed: false },
-        }
-    })
-
-    const seen = new Set<string>()
-    const edges: Edge[] = []
-    for (const entry of relationEntries) {
-        for (const relation of entry.relations ?? []) {
-            if (!activeById.has(relation.otherId) || seen.has(relation.id)) continue
-            seen.add(relation.id)
-            const source = relation.direction === 'incoming' ? relation.otherId : entry.id
-            const target = relation.direction === 'incoming' ? entry.id : relation.otherId
-            edges.push({
-                id: relation.id,
-                source,
-                target,
-                label: relation.label?.trim() || undefined,
-                markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-                markerStart: relation.direction === 'bidirectional'
-                    ? { type: MarkerType.ArrowClosed, width: 16, height: 16 }
-                    : undefined,
-                style: { strokeWidth: 1.7 },
-                labelStyle: { fontSize: 11, fontWeight: 600 },
-                labelBgStyle: { fill: 'var(--background)', fillOpacity: 0.9 },
-                labelBgPadding: [5, 3],
-                labelBgBorderRadius: 8,
-            })
-        }
-    }
-    return { nodes, edges }
-}
+const edgeTypes = { relationship: RelationshipGraphEdge }
 
 function RelationshipGraph({ entries, mentionTotals, novelId }: { entries: TermEntry[]; mentionTotals: Map<string, number>; novelId: string }) {
     const t = useTranslations('editor.reviewDashboard')
-    const layout = useMemo(() => buildGraphLayout(entries, mentionTotals), [entries, mentionTotals])
+    const layout = useMemo(() => buildRelationshipGraphLayout(entries, mentionTotals), [entries, mentionTotals])
     const [nodes, setNodes, onNodesChange] = useNodesState<TermGraphNode>(layout.nodes)
-    const [edges, , onEdgesChange] = useEdgesState(layout.edges)
     const [selectedId, setSelectedId] = useState<string | null>(null)
+    const flowRef = useRef<ReactFlowInstance<TermGraphNode, TermGraphEdge> | null>(null)
+
+    useEffect(() => {
+        setNodes(layout.nodes)
+    }, [layout.nodes, setNodes])
+
+    const activeSelectedId = selectedId && layout.nodes.some((node) => node.id === selectedId)
+        ? selectedId
+        : null
 
     const connectedIds = useMemo(() => {
-        if (!selectedId) return new Set<string>()
-        const ids = new Set<string>([selectedId])
-        for (const edge of edges) {
-            if (edge.source === selectedId) ids.add(edge.target)
-            if (edge.target === selectedId) ids.add(edge.source)
+        if (!activeSelectedId) return new Set<string>()
+        const ids = new Set<string>([activeSelectedId])
+        for (const edge of layout.edges) {
+            if (edge.source === activeSelectedId) ids.add(edge.target)
+            if (edge.target === activeSelectedId) ids.add(edge.source)
         }
         return ids
-    }, [edges, selectedId])
+    }, [activeSelectedId, layout.edges])
 
     const displayedNodes = useMemo(() => nodes.map((node) => ({
         ...node,
         data: {
             ...node.data,
-            selected: node.id === selectedId,
-            dimmed: Boolean(selectedId && !connectedIds.has(node.id)),
+            selected: node.id === activeSelectedId,
+            dimmed: Boolean(activeSelectedId && !connectedIds.has(node.id)),
         },
-    })), [connectedIds, nodes, selectedId])
+    })), [activeSelectedId, connectedIds, nodes])
 
-    const displayedEdges = useMemo(() => edges.map((edge) => {
-        const connected = !selectedId || edge.source === selectedId || edge.target === selectedId
+    const displayedEdges = useMemo<TermGraphEdge[]>(() => layout.edges.map((edge) => {
+        const highlighted = Boolean(activeSelectedId && (edge.source === activeSelectedId || edge.target === activeSelectedId))
+        const emphasis = edge.data?.emphasis ?? 'normal'
+        let markerColor = '#a8a29e'
+        if (highlighted) markerColor = '#fb923c'
+        else if (emphasis === 'core') markerColor = '#facc15'
+        else if (emphasis === 'important') markerColor = '#f59e0b'
+        const markerSize = emphasis === 'core' ? 18 : emphasis === 'important' ? 14 : 11
         return {
             ...edge,
-            animated: Boolean(selectedId && connected),
-            style: {
-                ...edge.style,
-                stroke: selectedId && connected ? '#f97316' : undefined,
-                opacity: connected ? 1 : 0.12,
-                strokeWidth: selectedId && connected ? 2.8 : 1.7,
+            zIndex: highlighted ? 2 : 0,
+            markerEnd: { type: MarkerType.ArrowClosed, width: markerSize, height: markerSize, color: markerColor },
+            markerStart: edge.data?.direction === 'bidirectional'
+                ? { type: MarkerType.ArrowClosed, width: markerSize, height: markerSize, color: markerColor }
+                : undefined,
+            data: {
+                ...edge.data!,
+                highlighted,
+                selectionActive: Boolean(activeSelectedId),
             },
         }
-    }), [edges, selectedId])
+    }), [activeSelectedId, layout.edges])
+
+    const fitGraph = useCallback(() => {
+        window.requestAnimationFrame(() => {
+            void flowRef.current?.fitView({ padding: 0.16, duration: 320 })
+        })
+    }, [])
 
     const resetLayout = useCallback(() => {
         setNodes(layout.nodes)
         setSelectedId(null)
-    }, [layout.nodes, setNodes])
+        fitGraph()
+    }, [fitGraph, layout.nodes, setNodes])
 
     if (layout.nodes.length === 0) {
         return <div className="flex h-[430px] items-center justify-center rounded-xl border border-dashed text-sm text-muted-foreground">{t('relationshipEmpty')}</div>
     }
 
     return (
-        <div className="relative h-[560px] overflow-hidden rounded-xl border bg-[radial-gradient(circle_at_center,rgba(251,146,60,0.08),transparent_55%)]">
+        <div className="relative h-[640px] overflow-hidden rounded-xl border bg-[radial-gradient(circle_at_center,rgba(251,146,60,0.08),transparent_55%)]">
             <Button variant="outline" size="sm" className="absolute right-3 top-3 z-10 gap-1.5 bg-background/90" onClick={resetLayout}>
                 <LayoutGrid className="h-3.5 w-3.5" /> {t('resetLayout')}
             </Button>
-            <ReactFlow
+            <ReactFlow<TermGraphNode, TermGraphEdge>
                 nodes={displayedNodes}
                 edges={displayedEdges}
                 nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
                 onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
+                onInit={(instance) => { flowRef.current = instance }}
                 onNodeClick={(_, node) => {
                     setSelectedId(node.id)
                     dispatchOpenTermEntry({ novelId, entryId: node.id, tab: 'details' })
                 }}
                 onPaneClick={() => setSelectedId(null)}
                 fitView
-                fitViewOptions={{ padding: 0.22 }}
-                minZoom={0.25}
+                fitViewOptions={{ padding: 0.16 }}
+                minZoom={0.12}
                 maxZoom={2.2}
             >
                 <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} />
                 <Controls showInteractive={false} />
-                <MiniMap pannable zoomable className="!bg-background/80" nodeColor={(node) => node.id === selectedId ? '#f97316' : '#a8a29e'} />
+                <MiniMap
+                    pannable
+                    zoomable
+                    className="!bg-background/80"
+                    nodeColor={(node) => {
+                        if (node.id === activeSelectedId) return '#f97316'
+                        const tier = (node as TermGraphNode).data.tier
+                        if (tier === 'core') return '#fb923c'
+                        if (tier === 'important') return '#fbbf24'
+                        return '#a8a29e'
+                    }}
+                    nodeStrokeWidth={3}
+                />
             </ReactFlow>
         </div>
     )
@@ -439,7 +435,7 @@ export function MiddlePanelReview({
 
                 <Card className="gap-4 py-5">
                     <CardHeader className="px-5"><CardTitle className="flex items-center gap-2"><Network className="h-5 w-5 text-orange-500" />{t('relationshipTitle')}</CardTitle></CardHeader>
-                    <CardContent className="px-5"><RelationshipGraph key={`${timeline.length}:${activeEntries.map((entry) => `${entry.id}:${entry.relations?.length ?? 0}:${mentionMatrix.totalByTermId.get(entry.id) ?? 0}`).join('|')}`} entries={activeEntries} mentionTotals={mentionMatrix.totalByTermId} novelId={novelId} /></CardContent>
+                    <CardContent className="px-5"><RelationshipGraph entries={activeEntries} mentionTotals={mentionMatrix.totalByTermId} novelId={novelId} /></CardContent>
                 </Card>
             </div>
         </div>

@@ -222,6 +222,105 @@
 }
 
 /* Custom Animations */
+@keyframes onw-term-node-float-core {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate3d(2px, -5.5px, 0);
+  }
+  50% {
+    transform: translate3d(-4px, -1px, 0);
+  }
+  75% {
+    transform: translate3d(1.5px, 4.5px, 0);
+  }
+}
+
+@keyframes onw-term-node-glow-core {
+  0%, 100% {
+    filter: drop-shadow(0 0 7px rgb(251 146 60 / 0.38));
+  }
+  50% {
+    filter: drop-shadow(0 0 9px rgb(251 146 60 / 0.68)) drop-shadow(0 0 22px rgb(250 204 21 / 0.7));
+  }
+}
+
+@keyframes onw-term-node-float-important {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  33% {
+    transform: translate3d(-1.75px, -2.75px, 0);
+  }
+  66% {
+    transform: translate3d(2px, 1.75px, 0);
+  }
+}
+
+@keyframes onw-term-node-glow-important {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px rgb(245 158 11 / 0.16));
+  }
+  50% {
+    filter: drop-shadow(0 0 9px rgb(245 158 11 / 0.42));
+  }
+}
+
+@keyframes onw-relationship-energy-flow {
+  to {
+    stroke-dashoffset: -48;
+  }
+}
+
+.onw-term-node-motion-core {
+  animation-name: onw-term-node-float-core, onw-term-node-glow-core;
+  animation-duration: 4.8s, 3.2s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+  will-change: transform, filter;
+}
+
+.onw-term-node-motion-important {
+  animation-name: onw-term-node-float-important, onw-term-node-glow-important;
+  animation-duration: 6.4s, 5.2s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+  will-change: transform, filter;
+}
+
+.onw-relationship-energy-glow {
+  filter: blur(4.5px);
+  transition: opacity 180ms ease, stroke 180ms ease;
+}
+
+.onw-relationship-energy-flow {
+  animation: onw-relationship-energy-flow 0.9s linear infinite;
+  filter: drop-shadow(0 0 4px rgb(255 255 255 / 0.95)) drop-shadow(0 0 8px rgb(250 204 21 / 0.95));
+  will-change: stroke-dashoffset;
+}
+
+.react-flow__node.dragging .onw-term-node-motion-core,
+.react-flow__node.dragging .onw-term-node-motion-important {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onw-term-node-motion-core,
+  .onw-term-node-motion-important,
+  .onw-relationship-energy-flow {
+    animation: none !important;
+  }
+
+  .onw-term-node-motion-core {
+    filter: drop-shadow(0 0 10px rgb(251 146 60 / 0.48));
+  }
+
+  .onw-term-node-motion-important {
+    filter: drop-shadow(0 0 5px rgb(245 158 11 / 0.24));
+  }
+}
+
 @keyframes spin-slow {
   from {
     transform: rotate(0deg);

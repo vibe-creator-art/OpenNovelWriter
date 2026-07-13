@@ -73,7 +73,7 @@ export function RightPanel({
 
             {/* Right sidebar */}
 	            <aside
-	                className="bg-background/80 border-l flex flex-col shrink-0"
+	                className="min-h-0 overflow-hidden bg-background/80 border-l flex flex-col shrink-0"
 	                style={{ width }}
 	            >
 	                <div className="border-b">

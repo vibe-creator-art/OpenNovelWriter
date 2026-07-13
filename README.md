@@ -152,7 +152,7 @@ npm run build
 
 ## 致谢
 
-感谢 cc Switch 项目。OpenNovelWriter 的 Codex connection 隔离配置与存储设计参考了 cc Switch 的实现思路。
+感谢 [CC Switch](https://github.com/farion1231/cc-switch) 项目。OpenNovelWriter 的 Codex connection 切换逻辑参考了 CC Switch 的代码。
 
 ## License
 
@@ -290,4 +290,4 @@ If you deploy with pm2, systemd, Docker, or another process manager, restart the
 
 ## Acknowledgements
 
-Thanks to the cc Switch project. OpenNovelWriter's isolated Codex connection configuration and storage design were inspired by cc Switch.
+Thanks to [CC Switch](https://github.com/farion1231/cc-switch). OpenNovelWriter's Codex connection switching logic was based on its code.

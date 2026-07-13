@@ -1,6 +1,8 @@
 # 酒馆 / SillyTavern 预设迁移
 
-目标是把用户选定的 SillyTavern prompt profile 尽可能逐项还原为 ONW 提示词，不是根据预设主题重新写一套 ONW 风格提示词。除非用户明确要求“仅提炼/自由创作”，原文保真优先于通用化或美化。
+目标是把用户选定的 SillyTavern prompt profile 尽可能逐项还原为 ONW 提示词，不是根据预设主题重新写一套 ONW 风格提示词。用户只要提供了外部预设，且没有明确要求“提炼预设内容并融合/扩写到基础预设中”，就必须按忠实迁移模式处理：原文保真优先于通用化、补全或美化。
+
+基础预设只是 ONW 能力参考，不是迁移底稿或文案素材。在忠实迁移模式下，严禁先复制一份基础预设，再用外部预设的局部内容去替换、补写或扩写；严禁复制、改写、仿写或拼接基础预设中的任何片段。“优化”、“完善”、“做成 ONW 格式”或“参考基础预设”都不等于获得了融合内容的授权。
 
 ## 范围与提取
 
@@ -16,7 +18,7 @@ node scripts/extract-sillytavern-preset.mjs <preset.json> --list-profiles
 node scripts/extract-sillytavern-preset.mjs <preset.json> <artifact.json> --profile <index>
 ```
 
-导出文件只包含该 profile 的有序条目，包含关闭项。`prompts` 数组中没有被任何 `prompt_order` 引用的定义没有插入顺序或开关状态，不是这次迁移素材：不要读它们来补充文风、功能或输入。
+导出文件只在 `selectedProfile.items` 中保存该 profile 的有序条目和完整正文，包含关闭项；候选组只引用这些条目的 identifier。`prompts` 数组中没有被任何 `prompt_order` 引用的定义没有插入顺序或开关状态，不是这次迁移素材：不要读它们来补充文风、功能或输入。预设很长时先查看 profile 摘要和条目名称，再按区段读取 `selectedProfile.items`，不要一次输出整份 JSON。
 
 忽略采样参数：temperature、top-p、top-k、min-p、penalty、上下文长度和输出 token 上限。
 
@@ -24,16 +26,16 @@ node scripts/extract-sillytavern-preset.mjs <preset.json> <artifact.json> --prof
 
 1. 按 `selectedProfile.items` 的顺序处理每一项。逐项建立迁移台账，记录名称、原始顺序、role、启用状态、去向和理由。
 2. 只改写 Tavern 宏和 ONW 无法承载的 marker；其余源文字、称呼（例如 `Haruki`）、中文标签、特殊 token、伪造对话、role 和默认开关必须保留。不要翻译、概括或补写。
-3. 不得从三个基础示例、其他用户提示词或自身惯例借入 prose、XML 标签、默认值、输入或规则。基础示例仅用于确认可用 ONW 上下文宏和输入类型。
+3. 不得从三个基础示例、其他用户提示词或自身惯例借入 prose、XML 标签、默认值、输入或规则；也不得将其中任何片段做同义改写后混入结果。基础示例仅用于确认可用的 ONW 上下文宏、输入类型和运行时接口。
 4. 不得凭空添加 `<Role>`、`<CoreRules>`、额外信息、字数档位、成人内容开关、文风或任何未出现在源 profile 的内容。默认迁移所需的 `<Planning>` / `<Content>` 输出分离按本参考的“标签、格式与 regex”规则处理。
-5. 源 profile 中关闭的项也必须在结果中存在。可独立开关的项保留为 checkbox；真正互斥的一组保留为单选 dropdown，默认选择源 profile 当前启用项。候选项 `content` 必须保持原文。源 profile 已给出当前启用项或原始值时，必须将其填入输入默认值；有此默认值的输入不设为必填。
+5. 源 profile 中关闭的项也必须在结果中存在。可独立开关的项保留为 checkbox；语义互斥、只能同时启用一个的候选组使用单选 dropdown；同类型但允许同时生效的候选组使用多选 dropdown。相同图标只是候选组信号，不代表一定互斥，必须阅读名称、正文和“选一/互斥”等源说明后判断。默认值保持源 profile 的启用状态，候选项 `content` 必须保持原文。源 profile 已给出当前启用项或原始值时，必须将其填入输入默认值；有此默认值的输入不设为必填。模板对单选和多选都优先直接输出 `{{ inputs["输入名"].value }}`，不要为每个选项生成条件分支。
 6. 每个不能迁移的条目必须在生成 change-set 前逐项列出原因。不要静默删除。用户确认后才可舍弃。
 
 ## 迁移计划与结果检查
 
 生成 change-set 前先展示：目标类别、逐项台账、所有输入及默认值、marker 的精确替换、宏转换和所有舍弃项。得到明确同意后再上传。
 
-生成 JSON 后自检：选定 profile 的每一项都有去向；原有启用/关闭默认状态一致；有内容的非 marker 项保留原文（仅允许宏/marker 的明确替换）；除默认迁移的 `<Planning>` / `<Content>` 外，结果不存在未在源 profile 或用户要求中出现的新 prose、标签、输入或选项。
+生成 JSON 后自检：选定 profile 的每一项都有去向；原有启用/关闭默认状态一致；有内容的非 marker 项保留原文（仅允许宏/marker 的明确替换）；除默认迁移的 `<Planning>` / `<Content>` 外，结果不存在未在源 profile 或用户要求中出现的新 prose、标签、输入或选项；结果不包含任何复制、改写、仿写或拼接自基础预设的片段。
 
 ## 原生 Nunjucks 与 Tavern 宏
 

@@ -54,6 +54,11 @@ type FormState = {
     rateLimits: CodexRateLimits | null
 }
 
+type PendingAuth = {
+    connectionId: string
+    loginId: string
+}
+
 function newForm(providerType: CodexConnectionProviderType): FormState {
     const custom = getDefaultCodexCustomSettings()
     return {
@@ -105,6 +110,7 @@ export function CodexConnectionsTab() {
     const [saving, setSaving] = useState(false)
     const [deleting, setDeleting] = useState(false)
     const [authorizing, setAuthorizing] = useState(false)
+    const [pendingAuth, setPendingAuth] = useState<PendingAuth | null>(null)
     const [fetchingModels, setFetchingModels] = useState(false)
     const [discoveredModels, setDiscoveredModels] = useState<CodexModel[]>([])
     const [discoveredModelId, setDiscoveredModelId] = useState('')
@@ -143,6 +149,64 @@ export function CodexConnectionsTab() {
         // Loading once on mount avoids replacing an in-progress edit when selection changes.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    useEffect(() => {
+        if (!pendingAuth) return
+
+        let cancelled = false
+        let polling = false
+
+        async function pollAuthStatus() {
+            if (polling) return
+            polling = true
+
+            try {
+                const status = await codexApi.getOfficialAuthStatus(pendingAuth!.connectionId)
+                if (cancelled) return
+
+                setConnections((current) => current.map((connection) =>
+                    connection.id === status.connection.id ? status.connection : connection
+                ))
+                setForm((current) => current.id === status.connection.id
+                    ? { ...current, authStatus: status.connection.authStatus, rateLimits: status.rateLimits }
+                    : current
+                )
+
+                if (status.connection.authStatus === 'authorizing') return
+
+                const detail = await codexApi.getConnection(pendingAuth!.connectionId)
+                if (cancelled) return
+
+                setConnections((current) => current.map((connection) =>
+                    connection.id === detail.connection.id ? detail.connection : connection
+                ))
+                setForm((current) => current.id === detail.connection.id ? detailToForm(detail) : current)
+                setDeviceCodeLogin(null)
+                setPendingAuth(null)
+                setAuthorizing(false)
+                setError(
+                    detail.connection.authStatus === 'authenticated'
+                        ? null
+                        : detail.connection.lastAuthError || status.session?.error || t('errors.authStatusFailed')
+                )
+            } catch (nextError) {
+                if (cancelled) return
+                setPendingAuth(null)
+                setAuthorizing(false)
+                setError(errorMessage(nextError, t('errors.authStatusFailed')))
+            } finally {
+                polling = false
+            }
+        }
+
+        void pollAuthStatus()
+        const timer = window.setInterval(() => void pollAuthStatus(), 1000)
+
+        return () => {
+            cancelled = true
+            window.clearInterval(timer)
+        }
+    }, [pendingAuth, t])
 
     async function selectConnection(id: string) {
         setSelectedId(id)
@@ -258,6 +322,11 @@ export function CodexConnectionsTab() {
                 setConnections((current) => [...current, detail.connection])
             }
             const result = await codexApi.startOfficialAuth(connectionId, type)
+            setForm((current) => current.id === connectionId ? { ...current, authStatus: 'authorizing' } : current)
+            setConnections((current) => current.map((connection) =>
+                connection.id === connectionId ? { ...connection, authStatus: 'authorizing' } : connection
+            ))
+            setPendingAuth({ connectionId, loginId: result.loginId })
             if (result.type === 'chatgpt') {
                 setDeviceCodeLogin(null)
                 window.open(result.authUrl, '_blank', 'noopener,noreferrer')
@@ -266,9 +335,8 @@ export function CodexConnectionsTab() {
             }
             setError(null)
         } catch (nextError) {
-            setError(errorMessage(nextError, t('errors.authStartFailed')))
-        } finally {
             setAuthorizing(false)
+            setError(errorMessage(nextError, t('errors.authStartFailed')))
         }
     }
 
@@ -382,7 +450,7 @@ export function CodexConnectionsTab() {
                             ) : (
                                 <>
                                     <div className="space-y-3 rounded-lg border p-3">
-                                        <div className="flex flex-wrap items-center gap-3"><span>{t('authStatus')}</span><Badge variant="outline">{t(`status.${form.authStatus}` as never)}</Badge><Button onClick={() => void authorize('chatgpt')} disabled={authorizing}>{authorizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}{t('authorize')}</Button><Button variant="secondary" onClick={() => void authorize('chatgptDeviceCode')} disabled={authorizing}><KeyRound className="h-4 w-4" />{t('authorizeDeviceCode')}</Button></div>
+                                        <div className="flex flex-wrap items-center gap-3"><span>{t('authStatus')}</span><Badge variant="outline">{t(`status.${form.authStatus}` as never)}</Badge><Button onClick={() => void authorize('chatgpt')} disabled={authorizing}>{authorizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}{authorizing ? t('authorizing') : t('authorize')}</Button><Button variant="secondary" onClick={() => void authorize('chatgptDeviceCode')} disabled={authorizing}><KeyRound className="h-4 w-4" />{t('authorizeDeviceCode')}</Button></div>
                                         {deviceCodeLogin && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/40 p-3"><div><div className="text-sm text-muted-foreground">{t('deviceCodeTitle')}</div><div className="font-mono text-2xl font-semibold">{deviceCodeLogin.userCode}</div></div><div className="flex gap-2"><Button variant="outline" onClick={() => void navigator.clipboard?.writeText(deviceCodeLogin.userCode)}><Copy className="h-4 w-4" />{t('copyDeviceCode')}</Button><Button variant="outline" onClick={() => window.open(deviceCodeLogin.verificationUrl, '_blank', 'noopener,noreferrer')}><ExternalLink className="h-4 w-4" />{t('openDeviceCodeUrl')}</Button></div></div>}
                                         {form.rateLimits && hasMeaningfulCodexRateLimits(form.rateLimits) && <div className="text-sm text-muted-foreground">{getCodexRateLimitSummary(form.rateLimits, t).join(' · ')}</div>}
                                     </div>
@@ -392,7 +460,7 @@ export function CodexConnectionsTab() {
                             )}
 
                             {error && <div className="text-sm text-destructive">{error}</div>}
-                            <div className="flex justify-end gap-3"><Button variant="destructive" onClick={() => void remove()} disabled={deleting || saving}><Trash2 className="h-4 w-4" />{t('deleteConnection')}</Button><Button onClick={() => void save()} disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{t(form.id ? 'save' : 'create')}</Button></div>
+                            <div className="flex justify-end gap-3"><Button variant="destructive" onClick={() => void remove()} disabled={deleting || saving || authorizing}><Trash2 className="h-4 w-4" />{t('deleteConnection')}</Button><Button onClick={() => void save()} disabled={saving || authorizing}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{t(form.id ? 'save' : 'create')}</Button></div>
                             {selectedSummary && <div className="text-xs text-muted-foreground">{t('lastUpdated', { value: new Date(selectedSummary.updatedAt).toLocaleString() })}</div>}
                         </div>
                     )}

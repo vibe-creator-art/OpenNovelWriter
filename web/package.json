@@ -40,6 +40,7 @@
     "caniuse-lite": "^1.0.30001777",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "d3-force": "^3.0.0",
     "dotenv": "^17.2.3",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.561.0",
@@ -58,6 +59,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
+    "@types/d3-force": "^3.0.10",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
     "@types/react": "^19",

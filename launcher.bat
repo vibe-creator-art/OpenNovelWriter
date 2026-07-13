@@ -290,6 +290,8 @@ if "!CODEX_UPDATE_NEEDED!"=="1" (
     for /f "delims=" %%A in ('codex --version 2^>nul') do if not defined CODEX_UPDATED_OUTPUT set "CODEX_UPDATED_OUTPUT=%%A"
     if not defined CODEX_UPDATED_OUTPUT set "CODEX_UPDATED_OUTPUT=installed"
     echo ==^> Codex CLI updated: !CODEX_UPDATED_OUTPUT!
+) else (
+    echo ==^> Codex CLI is up to date: !CODEX_CURRENT_VERSION!
 )
 exit /b 0
 
