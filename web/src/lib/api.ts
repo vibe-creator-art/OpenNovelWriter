@@ -92,6 +92,8 @@ export interface Novel {
     seriesIndex: number | null
     language: string | null
     outlineActSummaryCollapsesChapters: boolean
+    codexSessionAutoCleanup: boolean
+    codexSessionRetentionLimit: number
     ownerId: string
     createdAt: string
     updatedAt: string
@@ -888,6 +890,11 @@ export interface CodexModelCatalogEntry {
     description: string
     supportedReasoningEfforts: CodexReasoningEffort[]
     defaultReasoningEffort: CodexReasoningEffort
+    serviceTiers: Array<{
+        id: string
+        name: string
+        description: string
+    }>
 }
 
 export interface CodexAuthSessionStatus {
@@ -1101,6 +1108,10 @@ export const editorChatApi = {
 
 export type CodexSessionCategory = 'general' | 'scene_operation' | 'scene_continuation'
 
+export type CodexSessionCleanupResult = {
+    deletedSessionIds: string[]
+}
+
 /**
  * A chat skill's bound prompt, pre-assembled on the client (filled inputs + the auto-injected
  * overview and referenced terms). The message route materializes these blocks into the session's
@@ -1307,7 +1318,7 @@ export const codexSessionApi = {
             renderedBlocks?: Array<{ role: string; text: string }>
         }
     ) =>
-        fetchApi<{ session: CodexSession }>(`/novels/${encodeURIComponent(novelId)}/codex/sessions`, {
+        fetchApi<{ session: CodexSession; codexSessionCleanup: CodexSessionCleanupResult }>(`/novels/${encodeURIComponent(novelId)}/codex/sessions`, {
             method: 'POST',
             body: JSON.stringify(data ?? {}),
         }),

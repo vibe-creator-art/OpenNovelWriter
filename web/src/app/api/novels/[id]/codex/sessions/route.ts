@@ -13,8 +13,9 @@ import {
     normalizeCodexStringId,
     serializeCodexSession,
 } from '@/lib/server/codex-session'
-import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import { canUseCodexFastMode, DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import { seedSkillSessionArtifact } from '@/lib/server/codex-skill-session'
+import { pruneCodexSessionsForCategory } from '@/lib/server/codex-session-pruning'
 
 interface RouteContext {
     params: Promise<unknown>
@@ -61,7 +62,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const novelId = await getRouteId(params)
         const novel = await prisma.novel.findFirst({
             where: { id: novelId, ownerId: user.userId },
-            select: { id: true },
+            select: {
+                id: true,
+                codexSessionAutoCleanup: true,
+                codexSessionRetentionLimit: true,
+            },
         })
         if (!novel) return NextResponse.json({ detail: 'Novel not found' }, { status: 404 })
 
@@ -71,9 +76,22 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const activeConnection = await prisma.codexConnection.findFirst({
             where: { ownerId: user.userId, isActive: true },
             orderBy: { createdAt: 'asc' },
-            select: { id: true, defaultModelId: true },
+            select: {
+                id: true,
+                defaultModelId: true,
+                providerType: true,
+                authStatus: true,
+                authType: true,
+            },
         })
         const activeConnectionModel = activeConnection?.defaultModelId?.trim() || DEFAULT_CODEX_MODEL
+        const serviceTier = normalizeCodexServiceTier(body?.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
+        if (serviceTier === 'fast' && !canUseCodexFastMode(activeConnection)) {
+            return NextResponse.json(
+                { detail: 'Fast mode requires an authenticated ChatGPT Codex connection' },
+                { status: 400 }
+            )
+        }
 
         const now = new Date()
         const session = await prisma.codexSession.create({
@@ -85,7 +103,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 reviewLevel: normalizeCodexReviewLevel(body?.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL,
                 modelId: normalizeCodexStringId(body?.modelId) ?? activeConnectionModel,
                 reasoningEffort: normalizeCodexReasoningEffort(body?.reasoningEffort) ?? DEFAULT_CODEX_REASONING_EFFORT,
-                serviceTier: normalizeCodexServiceTier(body?.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER,
+                serviceTier,
                 planMode: body?.planMode === true,
                 draftContent: normalizeCodexString(body?.draftContent),
                 codexConnectionId: activeConnection?.id ?? null,
@@ -158,7 +176,21 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             }
         }
 
-        return NextResponse.json({ session: serializeCodexSession(session) }, { status: 201 })
+        let codexSessionCleanup = { deletedSessionIds: [] as string[] }
+        if (novel.codexSessionAutoCleanup) {
+            try {
+                codexSessionCleanup = await pruneCodexSessionsForCategory({
+                    ownerId: user.userId,
+                    novelId,
+                    category,
+                    retentionLimit: novel.codexSessionRetentionLimit,
+                })
+            } catch (cleanupError) {
+                console.error(`Prune ${category} Codex sessions error:`, cleanupError)
+            }
+        }
+
+        return NextResponse.json({ session: serializeCodexSession(session), codexSessionCleanup }, { status: 201 })
     } catch (error) {
         console.error('Create Codex session error:', error)
         return NextResponse.json({ detail: 'Internal server error' }, { status: 500 })

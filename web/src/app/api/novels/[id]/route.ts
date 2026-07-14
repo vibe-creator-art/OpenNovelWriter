@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/auth'
 import { serializeScene } from '@/lib/scenes'
 import { deleteCodexSessionWorkspace } from '@/lib/server/codex-session-workspace'
 import { deleteNovelWorkspace, ensureNovelWorkspace } from '@/lib/server/novel-workspace'
+import { parseCodexSessionRetentionLimit } from '@/lib/codex-session-retention'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -62,9 +63,24 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
         const { id } = await params
         const body = await request.json()
-        const { title, description, category, coverImage, coverCrop, authorName, series, seriesIndex, language, outlineActSummaryCollapsesChapters } = body
+        const {
+            title,
+            description,
+            category,
+            coverImage,
+            coverCrop,
+            authorName,
+            series,
+            seriesIndex,
+            language,
+            outlineActSummaryCollapsesChapters,
+            codexSessionAutoCleanup,
+            codexSessionRetentionLimit,
+        } = body
         const shouldUpdateCoverImage = Object.prototype.hasOwnProperty.call(body, 'coverImage')
         const shouldUpdateCoverCrop = Object.prototype.hasOwnProperty.call(body, 'coverCrop')
+        const shouldUpdateCodexSessionAutoCleanup = Object.prototype.hasOwnProperty.call(body, 'codexSessionAutoCleanup')
+        const shouldUpdateCodexSessionRetentionLimit = Object.prototype.hasOwnProperty.call(body, 'codexSessionRetentionLimit')
 
         // Check ownership
         const existing = await prisma.novel.findFirst({
@@ -73,6 +89,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
         if (!existing) {
             return NextResponse.json({ detail: 'Novel not found' }, { status: 404 })
+        }
+
+        if (shouldUpdateCodexSessionAutoCleanup && typeof codexSessionAutoCleanup !== 'boolean') {
+            return NextResponse.json({ detail: 'Invalid Codex session cleanup setting' }, { status: 400 })
+        }
+        const parsedCodexSessionRetentionLimit = shouldUpdateCodexSessionRetentionLimit
+            ? parseCodexSessionRetentionLimit(codexSessionRetentionLimit)
+            : existing.codexSessionRetentionLimit
+        if (parsedCodexSessionRetentionLimit === null) {
+            return NextResponse.json({ detail: 'Codex session retention limit must be an integer of at least 10' }, { status: 400 })
         }
 
         const nextCoverImage = shouldUpdateCoverImage ? (coverImage || null) : existing.coverImage
@@ -97,6 +123,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                 language: language ?? existing.language,
                 outlineActSummaryCollapsesChapters:
                     outlineActSummaryCollapsesChapters ?? existing.outlineActSummaryCollapsesChapters,
+                codexSessionAutoCleanup: shouldUpdateCodexSessionAutoCleanup
+                    ? codexSessionAutoCleanup
+                    : existing.codexSessionAutoCleanup,
+                codexSessionRetentionLimit: parsedCodexSessionRetentionLimit,
             },
         })
 

@@ -26,6 +26,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
                     description: model.displayName,
                     supportedReasoningEfforts: model.supportedReasoningEfforts,
                     defaultReasoningEffort: model.defaultReasoningEffort,
+                    serviceTiers: [],
                 })),
             })
         }

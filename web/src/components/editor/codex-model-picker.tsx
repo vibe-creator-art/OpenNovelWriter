@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Check, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, RotateCcw, Zap } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import {
@@ -41,6 +41,7 @@ const BUILTIN_MODELS: CodexModelCatalogEntry[] = CODEX_NATIVE_PROVIDER_MODELS.ma
     description: '',
     supportedReasoningEfforts: model.supportedReasoningEfforts,
     defaultReasoningEffort: model.defaultReasoningEffort,
+    serviceTiers: [],
 }))
 
 function formatModelLabel(modelId: string) {
@@ -174,6 +175,9 @@ export function CodexModelPicker({
                     className="max-w-full min-w-0 gap-1 text-muted-foreground"
                     disabled={disabled}
                 >
+                    {showServiceTier && serviceTier === 'fast' && (
+                        <Zap className="h-4 w-4 shrink-0 fill-current text-foreground" />
+                    )}
                     <span className="min-w-0 flex-1 truncate text-foreground">{formatModelLabel(modelId)}</span>
                     <span className={cn('shrink-0', reasoningEffort === 'ultra' && 'codex-ultra-text')}>
                         {t(`codex.reasoningEfforts.${reasoningEffort}`)}

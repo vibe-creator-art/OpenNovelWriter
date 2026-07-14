@@ -1,6 +1,18 @@
 export type CodexConnectionProviderType = 'openai-official' | 'custom'
 export type CodexUpstreamFormat = 'responses' | 'chat-completions'
 
+type CodexFastModeConnection = {
+    providerType: string
+    authStatus: string
+    authType: string | null
+}
+
+export function canUseCodexFastMode(connection: CodexFastModeConnection | null | undefined) {
+    return connection?.providerType === 'openai-official'
+        && connection.authStatus === 'authenticated'
+        && connection.authType === 'chatgpt'
+}
+
 export type CodexReasoningEffort =
     | 'none'
     | 'minimal'

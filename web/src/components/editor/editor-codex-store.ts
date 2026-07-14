@@ -13,6 +13,7 @@ import {
     type CodexServiceTier,
     type CodexSession,
     type CodexSessionCategory,
+    type CodexSessionCleanupResult,
     type CodexPromptArtifact,
 } from '@/lib/api'
 import { dispatchNovelRefreshRequested } from '@/lib/novel-refresh-events'
@@ -129,6 +130,24 @@ function applySession(
         selectedSessionId: options?.select ? session.id : state.selectedSessionId,
         sessions,
     }
+}
+
+function removePrunedSessions(state: CodexNovelSessionState, cleanup: CodexSessionCleanupResult) {
+    if (cleanup.deletedSessionIds.length === 0) return state
+    const deletedIds = new Set(cleanup.deletedSessionIds)
+    const sessions = state.sessions.filter((session) => !deletedIds.has(session.id))
+    return {
+        ...state,
+        sessions,
+        selectedSessionId:
+            state.selectedSessionId && deletedIds.has(state.selectedSessionId)
+                ? sessions[0]?.id ?? null
+                : state.selectedSessionId,
+    }
+}
+
+function finishSessionCleanup(cleanup: CodexSessionCleanupResult) {
+    cleanup.deletedSessionIds.forEach(clearDraftSave)
 }
 
 function isUnsavedSession(session: CodexSession | undefined | null) {
@@ -446,13 +465,15 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         })
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            const cleaned = removePrunedSessions(current, result.codexSessionCleanup)
             return {
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: applySession(current, result.session, { select: true, front: true }),
+                    [novelKey]: applySession(cleaned, result.session, { select: true, front: true }),
                 },
             }
         })
+        finishSessionCleanup(result.codexSessionCleanup)
 
         await get().sendMessage(novelKey, result.session.id, input.draftContent, { skillIds: [input.skillId] })
         return result.session.id
@@ -477,13 +498,15 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         })
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            const cleaned = removePrunedSessions(current, result.codexSessionCleanup)
             return {
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: applySession(current, result.session, { select: true, front: true }),
+                    [novelKey]: applySession(cleaned, result.session, { select: true, front: true }),
                 },
             }
         })
+        finishSessionCleanup(result.codexSessionCleanup)
 
         void get()
             .sendMessage(novelKey, result.session.id, input.draftContent, { skillIds: [input.skillId] })
@@ -691,13 +714,15 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         })
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            const cleaned = removePrunedSessions(current, result.codexSessionCleanup)
             return {
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: applySession(current, result.session, { select: true, front: false }),
+                    [novelKey]: applySession(cleaned, result.session, { select: true, front: false }),
                 },
             }
         })
+        finishSessionCleanup(result.codexSessionCleanup)
     },
     sendMessage: async (novelId, sessionId, content, options) => {
         const novelKey = getNovelKey(novelId)

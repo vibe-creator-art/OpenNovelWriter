@@ -149,11 +149,11 @@
         "tabs": {
             "metadata": "Metadata",
             "writing": "Writing",
-            "memory": "Memory Recall"
+            "memory": "Memory Recall",
+            "codex": "Codex"
         },
         "metadata": {
             "title": "METADATA",
-            "description": "This is the metadata of your novel, used for organizing your novel collection.",
             "novelTitle": "Novel Title",
             "novelTitlePlaceholder": "Enter novel title",
             "author": "Author / Pen name",
@@ -167,7 +167,6 @@
         },
         "cover": {
             "title": "COVER",
-            "description": "This is the cover of your novel. It will be displayed on the novel collection page.",
             "upload": "Upload your cover",
             "uploading": "Uploading...",
             "dragDrop": "or drag and drop on the area"
@@ -194,6 +193,13 @@
             "outlineDescription": "Controls how '{{ novel.outline }}' assembles your outline in prompts.",
             "collapseChaptersLabel": "Prefer volume summaries",
             "collapseChaptersDescription": "When a volume (act) has a summary, use it to stand in for that volume and skip the chapter/scene summaries underneath; volumes without a summary still list their chapters. When off, the volume summary is followed by every chapter summary in that volume. The current volume is never collapsed, so its progress is always kept."
+        },
+        "codex": {
+            "title": "Codex Sessions",
+            "autoCleanupLabel": "Automatically clean up excess sessions",
+            "autoCleanupDescription": "When enabled, creating a Codex session cleans up older sessions in that category. Running sessions, sessions linked to an open continuation panel, and sessions with pending manuscript edits are neither counted nor removed automatically.",
+            "retentionLimitLabel": "Sessions to keep per category",
+            "retentionLimitDescription": "Keep at least {min} sessions in each category. Use the stepper arrows or enter a number directly."
         },
         "saveChanges": "Save Changes",
         "saving": "Saving..."
@@ -992,6 +998,11 @@
                 "title": "Plan mode",
                 "turnOn": "Turn plan mode on",
                 "turnOff": "Turn plan mode off"
+            },
+            "slashFast": {
+                "title": "Fast",
+                "turnOn": "Turn on Fast mode",
+                "turnOff": "Turn off Fast and return to standard speed"
             },
             "running": "Codex is running...",
             "attach": "Add context",

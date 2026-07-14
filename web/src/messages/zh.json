@@ -149,11 +149,11 @@
         "tabs": {
             "metadata": "元数据",
             "writing": "写作",
-            "memory": "记忆召回"
+            "memory": "记忆召回",
+            "codex": "Codex"
         },
         "metadata": {
             "title": "元数据",
-            "description": "这是小说的元数据，用于整理您的小说收藏。",
             "novelTitle": "小说标题",
             "novelTitlePlaceholder": "请输入小说标题",
             "author": "作者/笔名",
@@ -167,7 +167,6 @@
         },
         "cover": {
             "title": "封面",
-            "description": "这是小说的封面，将显示在小说收藏页面。",
             "upload": "上传封面",
             "uploading": "上传中...",
             "dragDrop": "或拖放到此区域"
@@ -194,6 +193,13 @@
             "outlineDescription": "控制 '{{ novel.outline }}' 在提示词中如何拼装小说大纲。",
             "collapseChaptersLabel": "卷总结优先",
             "collapseChaptersDescription": "当某一卷有卷总结时，只用卷总结代表该卷，跳过其下各章/场的小结；卷总结为空时仍会列出各章小结。关闭后则在卷总结之后接上该卷每一章的小结。当前所在卷不受影响，始终保留进度。"
+        },
+        "codex": {
+            "title": "Codex 会话",
+            "autoCleanupLabel": "自动清理过多会话",
+            "autoCleanupDescription": "启用后，每类新建 Codex 会话时会分别清理该类较早的会话。正在运行、仍绑定续写面板或存在待审核正文修改的会话不会计入数量，也不会被自动删除。",
+            "retentionLimitLabel": "每类保留会话数",
+            "retentionLimitDescription": "每个会话类别至少保留 {min} 个。可使用上下按钮调节，也可直接输入。"
         },
         "saveChanges": "保存更改",
         "saving": "保存中..."
@@ -992,6 +998,11 @@
                 "title": "计划模式",
                 "turnOn": "开启计划模式",
                 "turnOff": "关闭计划模式"
+            },
+            "slashFast": {
+                "title": "Fast",
+                "turnOn": "开启 Fast 模式",
+                "turnOff": "关闭 Fast 并恢复标准速度"
             },
             "running": "Codex 正在运行…",
             "attach": "添加上下文",

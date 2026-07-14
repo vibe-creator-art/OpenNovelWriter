@@ -39,6 +39,7 @@ import {
     ToggleRight,
     Trash2,
     X,
+    Zap,
 } from 'lucide-react'
 import { AttachmentStrip } from '@/components/image/attachment-strip'
 import { ImageThumbnails } from '@/components/image/image-thumbnails'
@@ -65,7 +66,7 @@ import { useEditorCodexStore } from '@/components/editor/editor-codex-store'
 import { ModelGroupLogoIcon } from '@/components/ai/model-group-logo-icon'
 import { type ModelGroup } from '@/lib/ai-store'
 import { useAuthStore } from '@/lib/store'
-import { DEFAULT_CODEX_MODEL, isNativeCodexModelId } from '@/lib/codex-config'
+import { canUseCodexFastMode, DEFAULT_CODEX_MODEL, isNativeCodexModelId } from '@/lib/codex-config'
 import {
     getCodexRateLimitSummary,
     hasMeaningfulCodexRateLimits,
@@ -187,6 +188,14 @@ function mergeQueuedCodexMessages(messages: QueuedCodexMessage[]) {
 
 function isKeyboardEventComposing(event: { isComposing?: boolean; nativeEvent?: { isComposing?: boolean } }) {
     return Boolean(event.isComposing || event.nativeEvent?.isComposing)
+}
+
+function modelSupportsFastMode(models: CodexModelCatalogEntry[], modelId: string) {
+    const normalizedModelId = modelId.trim().toLowerCase()
+    return models.some(
+        (model) => model.id.trim().toLowerCase() === normalizedModelId
+            && model.serviceTiers.some((tier) => tier.name.trim().toLowerCase() === 'fast')
+    )
 }
 
 // The app authenticates API routes with a Bearer token from the auth store, not a
@@ -3157,7 +3166,20 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         () => connections.find((connection) => connection.id === selectedSession?.codexConnectionId) ?? activeConnection,
         [activeConnection, connections, selectedSession?.codexConnectionId]
     )
-    const showServiceTier = sessionConnection?.providerType === 'openai-official' && sessionConnection.authStatus === 'authenticated'
+    const hasCodexFastModeAuth = canUseCodexFastMode(sessionConnection)
+    const currentModelSupportsFastMode = modelSupportsFastMode(activeModelCatalog, modelId)
+    const showServiceTier = hasCodexFastModeAuth && currentModelSupportsFastMode
+    const fastModeActive = showServiceTier && serviceTier === 'fast'
+    // `/fast` follows the same trailing-token completion behavior as `/plan`: `/fa` is only a
+    // prefix used to find the canonical command, not a separate compatibility alias.
+    const fastSlash = useMemo(() => {
+        if (running || slashCommandDismissed || !showServiceTier) return null
+        const match = /(^|\s)\/([a-zA-Z]*)$/u.exec(draft)
+        if (!match) return null
+        const query = match[2].toLowerCase()
+        if (query.length === 0 || !'fast'.startsWith(query)) return null
+        return { tokenStart: match.index + match[1].length }
+    }, [draft, running, showServiceTier, slashCommandDismissed])
     const quotaSummary = useMemo(
         () =>
             getCodexRateLimitSummary(
@@ -3167,7 +3189,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         [activeConnectionRateLimits, t]
     )
     const quotaSummaryText = quotaSummary.join(', ')
-    const showQuotaSummary = showServiceTier && hasMeaningfulCodexRateLimits(activeConnectionRateLimits) && quotaSummary.length > 0
+    const showQuotaSummary = hasCodexFastModeAuth && hasMeaningfulCodexRateLimits(activeConnectionRateLimits) && quotaSummary.length > 0
     const showPlanHint = !planMode && !planHintDismissed && !running && !planSlash && /\bplan\b/iu.test(draft)
     const approvalOptions = pendingApproval ? getApprovalComposerOptions(pendingApproval, t) : []
     const selectedApprovalOptionId =
@@ -3443,6 +3465,28 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         })
     }
 
+    const runFastSlash = () => {
+        if (running || !fastSlash) return
+        const nextDraft = draft.slice(0, fastSlash.tokenStart)
+        const caret = nextDraft.length
+        setRunError(null)
+        void (async () => {
+            const sessionId = await applyModelSettings({
+                serviceTier: fastModeActive ? 'standard' : 'fast',
+            })
+            if (!sessionId) return
+            updateDraft(novelId, sessionId, nextDraft)
+            requestAnimationFrame(() => {
+                const textarea = composerRef.current
+                if (!textarea) return
+                textarea.focus()
+                textarea.setSelectionRange(caret, caret)
+            })
+        })().catch((error) => {
+            setRunError(error instanceof Error ? error.message : String(error))
+        })
+    }
+
     const submit = () => {
         // A pending `/compact` is a command, never a message — route it to compaction even if the
         // user clicks the send button instead of pressing Tab/Enter.
@@ -3453,6 +3497,10 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         // Likewise `/plan` is a command — toggle plan mode instead of sending the literal text.
         if (planSlash) {
             runPlanSlash()
+            return
+        }
+        if (fastSlash) {
+            runFastSlash()
             return
         }
         if (!draft.trim() || imageAttachments.uploading || jsonArtifactUploading) return
@@ -3550,14 +3598,30 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         })
     }
 
+    const applyModelSettings = async (
+        settings: Partial<{ modelId: string; reasoningEffort: CodexReasoningEffort; serviceTier: CodexServiceTier }>
+    ) => {
+        const sessionId = selectedSession?.id ?? await ensureSession()
+        if (!sessionId) return null
+        const nextSettings = settings.modelId
+            && serviceTier === 'fast'
+            && !modelSupportsFastMode(activeModelCatalog, settings.modelId)
+            ? { ...settings, serviceTier: 'standard' as const }
+            : settings
+        await updateModelSettings(novelId, sessionId, nextSettings)
+        return sessionId
+    }
+
     const selectModelSetting = (
         settings: Partial<{ modelId: string; reasoningEffort: CodexReasoningEffort; serviceTier: CodexServiceTier }>
     ) => {
-        void (async () => {
-            const sessionId = selectedSession?.id ?? await ensureSession()
-            if (!sessionId) return
-            await updateModelSettings(novelId, sessionId, settings)
-        })().catch((error) => {
+        void applyModelSettings(settings).catch((error) => {
+            setRunError(error instanceof Error ? error.message : String(error))
+        })
+    }
+
+    const setFastMode = (enabled: boolean) => {
+        void applyModelSettings({ serviceTier: enabled ? 'fast' : 'standard' }).catch((error) => {
             setRunError(error instanceof Error ? error.message : String(error))
         })
     }
@@ -3935,6 +3999,24 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             </button>
                         </div>
                     )}
+                    {fastSlash && !slashCommandActive && !planSlash && mention === null && (
+                        <div className="absolute bottom-full left-2 right-2 z-50 mb-2 overflow-hidden rounded-xl border bg-popover shadow-lg">
+                            <button
+                                type="button"
+                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-accent"
+                                onMouseDown={(event) => {
+                                    event.preventDefault()
+                                    runFastSlash()
+                                }}
+                            >
+                                <Zap className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="text-sm font-medium text-foreground">{t('codex.slashFast.title')}</span>
+                                <span className="truncate text-xs text-muted-foreground">
+                                    {fastModeActive ? t('codex.slashFast.turnOff') : t('codex.slashFast.turnOn')}
+                                </span>
+                            </button>
+                        </div>
+                    )}
                     <div className="relative">
                     <div
                         ref={composerOverlayRef}
@@ -4004,6 +4086,18 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                 if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
                                     event.preventDefault()
                                     runPlanSlash()
+                                    return
+                                }
+                                if (event.key === 'Escape') {
+                                    event.preventDefault()
+                                    setSlashCommandDismissed(true)
+                                    return
+                                }
+                            }
+                            if (fastSlash && !slashCommandActive && !planSlash && mention === null) {
+                                if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
+                                    event.preventDefault()
+                                    runFastSlash()
                                     return
                                 }
                                 if (event.key === 'Escape') {
@@ -4109,6 +4203,27 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                         />
                                     </span>
                                 </DropdownMenuItem>
+                                {showServiceTier && (
+                                    <DropdownMenuItem disabled={running} onSelect={() => setFastMode(!fastModeActive)}>
+                                        <Zap className="h-4 w-4" />
+                                        <span>{t('codex.serviceTiers.fast')}</span>
+                                        <span
+                                            role="switch"
+                                            aria-checked={fastModeActive}
+                                            className={cn(
+                                                'ml-auto flex h-5 w-9 items-center rounded-full p-0.5 transition-colors',
+                                                fastModeActive ? 'bg-primary' : 'bg-muted'
+                                            )}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'h-4 w-4 rounded-full bg-background shadow-sm transition-transform',
+                                                    fastModeActive && 'translate-x-4'
+                                                )}
+                                            />
+                                        </span>
+                                    </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem
                                     disabled={!selectedSession}
                                     onSelect={() => {

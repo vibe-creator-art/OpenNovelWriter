@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import {
     Select,
     SelectContent,
@@ -37,8 +38,12 @@ import {
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowDownAZ, Ban, Brain, Check, GripVertical, Info, Plus, Upload, Trash2 } from 'lucide-react'
+import { ArrowDownAZ, Ban, Bot, Brain, Check, GripVertical, Info, Plus, Upload, Trash2 } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
+import {
+    DEFAULT_CODEX_SESSION_RETENTION_LIMIT,
+    MIN_CODEX_SESSION_RETENTION_LIMIT,
+} from '@/lib/codex-session-retention'
 
 interface NovelSettingsDialogProps {
     open: boolean
@@ -47,7 +52,7 @@ interface NovelSettingsDialogProps {
     onUpdate: (novel: Novel) => void
     labels: NovelLabel[]
     onLabelsChange: (labels: NovelLabel[]) => void
-    initialTab?: 'metadata' | 'writing' | 'memory'
+    initialTab?: 'metadata' | 'writing' | 'memory' | 'codex'
 }
 
 const LANGUAGES = [
@@ -216,7 +221,7 @@ export function NovelSettingsDialog({
         if (locale?.toLowerCase().startsWith('zh')) return 'zh-CN'
         return 'en'
     }, [locale])
-    const [activeTab, setActiveTab] = useState<'metadata' | 'writing' | 'memory'>('metadata')
+    const [activeTab, setActiveTab] = useState<'metadata' | 'writing' | 'memory' | 'codex'>('metadata')
     const [saving, setSaving] = useState(false)
     const [uploading, setUploading] = useState(false)
     const [labelsBusy, setLabelsBusy] = useState(false)
@@ -230,6 +235,10 @@ export function NovelSettingsDialog({
     const [coverImage, setCoverImage] = useState('')
     const [language, setLanguage] = useState(defaultNovelLanguage)
     const [outlineCollapsesChapters, setOutlineCollapsesChapters] = useState(true)
+    const [codexSessionAutoCleanup, setCodexSessionAutoCleanup] = useState(false)
+    const [codexSessionRetentionLimit, setCodexSessionRetentionLimit] = useState(
+        DEFAULT_CODEX_SESSION_RETENTION_LIMIT.toString()
+    )
     const [draftLabels, setDraftLabels] = useState<NovelLabel[]>([])
     const draftLabelsRef = useRef<NovelLabel[]>([])
 
@@ -249,6 +258,8 @@ export function NovelSettingsDialog({
             setCoverImage(novel.coverImage || '')
             setLanguage(novel.language || defaultNovelLanguage)
             setOutlineCollapsesChapters(novel.outlineActSummaryCollapsesChapters ?? true)
+            setCodexSessionAutoCleanup(novel.codexSessionAutoCleanup)
+            setCodexSessionRetentionLimit(novel.codexSessionRetentionLimit.toString())
         }
     }, [defaultNovelLanguage, novel])
 
@@ -404,6 +415,12 @@ export function NovelSettingsDialog({
     const handleSave = async () => {
         if (!novel) return
 
+        const parsedRetentionLimit = Number(codexSessionRetentionLimit)
+        const normalizedRetentionLimit = Number.isInteger(parsedRetentionLimit)
+            ? Math.max(MIN_CODEX_SESSION_RETENTION_LIMIT, parsedRetentionLimit)
+            : DEFAULT_CODEX_SESSION_RETENTION_LIMIT
+        setCodexSessionRetentionLimit(normalizedRetentionLimit.toString())
+
         setSaving(true)
         try {
             const updated = await novelApi.update(novel.id, {
@@ -415,6 +432,8 @@ export function NovelSettingsDialog({
                 coverImage: coverImage || null,
                 language,
                 outlineActSummaryCollapsesChapters: outlineCollapsesChapters,
+                codexSessionAutoCleanup,
+                codexSessionRetentionLimit: normalizedRetentionLimit,
             })
             onUpdate(updated)
             onOpenChange(false) // Close dialog after successful save
@@ -479,6 +498,16 @@ export function NovelSettingsDialog({
                         <Brain className="h-4 w-4" />
                         {t('tabs.memory')}
                     </button>
+                    <button
+                        onClick={() => setActiveTab('codex')}
+                        className={`flex items-center gap-2 pb-3 px-1 border-b-2 transition-colors ${activeTab === 'codex'
+                            ? 'border-primary text-primary font-medium'
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                            }`}
+                    >
+                        <Bot className="h-4 w-4" />
+                        {t('tabs.codex')}
+                    </button>
                 </div>
 
                 {/* Tab Content */}
@@ -487,12 +516,7 @@ export function NovelSettingsDialog({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             {/* Left Column - Metadata */}
                             <div className="space-y-6">
-                                <div>
-                                    <h3 className="text-sm font-semibold mb-1">{t('metadata.title')}</h3>
-                                    <p className="text-xs text-muted-foreground mb-4">
-                                        {t('metadata.description')}
-                                    </p>
-                                </div>
+                                <h3 className="text-sm font-semibold">{t('metadata.title')}</h3>
 
                                 <div className="space-y-4">
                                     <div>
@@ -556,12 +580,7 @@ export function NovelSettingsDialog({
 
                             {/* Right Column - Cover */}
                             <div className="space-y-4">
-                                <div>
-                                    <h3 className="text-sm font-semibold mb-1">{t('cover.title')}</h3>
-                                    <p className="text-xs text-muted-foreground mb-4">
-                                        {t('cover.description')}
-                                    </p>
-                                </div>
+                                <h3 className="text-sm font-semibold">{t('cover.title')}</h3>
 
                                 <div className="flex flex-col items-center gap-4">
                                     <label className="cursor-pointer">
@@ -736,6 +755,57 @@ export function NovelSettingsDialog({
                                         className={`inline-block h-5 w-5 transform rounded-full bg-background shadow transition-transform ${outlineCollapsesChapters ? 'translate-x-5' : 'translate-x-0.5'}`}
                                     />
                                 </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'codex' && (
+                        <div className="max-w-2xl space-y-4">
+                            <h3 className="text-sm font-semibold">{t('codex.title')}</h3>
+                            <div className="space-y-4 rounded-lg border p-4">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="space-y-1">
+                                        <Label htmlFor="codex-session-auto-cleanup" className="text-sm font-medium">
+                                            {t('codex.autoCleanupLabel')}
+                                        </Label>
+                                        <p className="text-xs leading-5 text-muted-foreground">
+                                            {t('codex.autoCleanupDescription')}
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        id="codex-session-auto-cleanup"
+                                        checked={codexSessionAutoCleanup}
+                                        onCheckedChange={setCodexSessionAutoCleanup}
+                                    />
+                                </div>
+
+                                <div className={codexSessionAutoCleanup ? '' : 'opacity-50'}>
+                                    <Label htmlFor="codex-session-retention-limit" className="text-sm font-medium">
+                                        {t('codex.retentionLimitLabel')}
+                                    </Label>
+                                    <Input
+                                        id="codex-session-retention-limit"
+                                        type="number"
+                                        min={MIN_CODEX_SESSION_RETENTION_LIMIT}
+                                        step={1}
+                                        value={codexSessionRetentionLimit}
+                                        onChange={(event) => setCodexSessionRetentionLimit(event.target.value)}
+                                        onBlur={() => {
+                                            const value = Number(codexSessionRetentionLimit)
+                                            const normalized = Number.isInteger(value)
+                                                ? Math.max(MIN_CODEX_SESSION_RETENTION_LIMIT, value)
+                                                : DEFAULT_CODEX_SESSION_RETENTION_LIMIT
+                                            setCodexSessionRetentionLimit(normalized.toString())
+                                        }}
+                                        disabled={!codexSessionAutoCleanup}
+                                        className="mt-2 w-40"
+                                    />
+                                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                                        {t('codex.retentionLimitDescription', {
+                                            min: MIN_CODEX_SESSION_RETENTION_LIMIT,
+                                        })}
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     )}

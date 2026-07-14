@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { getPrismaClient } from '@/lib/db'
 import { resolveManagedUploadPath, saveImageBuffer } from '@/lib/server/storage'
-import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import { canUseCodexFastMode, DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
@@ -1019,9 +1019,8 @@ export async function runNovelCodexTurn(input: {
     const requestedServiceTier = normalizeCodexServiceTier(input.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
     const serviceTier =
         requestedServiceTier === 'fast' &&
-        connection.providerType === 'openai-official' &&
-        connection.authStatus === 'authenticated'
-            ? 'fast'
+        canUseCodexFastMode(connection)
+            ? await readFastServiceTierId(client, modelId)
             : null
     const collaborationMode = getCodexCollaborationMode({
         planMode: input.planMode === true,
@@ -1417,9 +1416,8 @@ export async function runNovelCodexCompaction(input: {
     const requestedServiceTier = normalizeCodexServiceTier(input.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
     const serviceTier =
         requestedServiceTier === 'fast' &&
-        connection.providerType === 'openai-official' &&
-        connection.authStatus === 'authenticated'
-            ? 'fast'
+        canUseCodexFastMode(connection)
+            ? await readFastServiceTierId(client, modelId)
             : null
 
     let contextWindow: CodexContextWindow | null = null
@@ -1674,43 +1672,74 @@ export async function readCodexRateLimits(codexHome: string) {
     }
 }
 
+async function readCodexModels(client: CodexAppServerClient) {
+    const response = await client.request<{
+        data?: Array<{
+            model?: string
+            displayName?: string
+            description?: string
+            hidden?: boolean
+            supportedReasoningEfforts?: Array<{ reasoningEffort?: string }>
+            defaultReasoningEffort?: string
+            serviceTiers?: Array<{ id?: string; name?: string; description?: string }>
+        }>
+    }>('model/list', { limit: 100, includeHidden: false })
+
+    return (response.data ?? []).flatMap((model) => {
+        const id = typeof model.model === 'string' ? model.model.trim() : ''
+        if (!id || model.hidden) return []
+
+        const supportedReasoningEfforts = (model.supportedReasoningEfforts ?? [])
+            .map((option) => normalizeCodexReasoningEffort(option.reasoningEffort))
+            .filter((effort): effort is NonNullable<typeof effort> => effort !== null)
+        const defaultReasoningEffort =
+            normalizeCodexReasoningEffort(model.defaultReasoningEffort) ?? supportedReasoningEfforts[0]
+        if (!defaultReasoningEffort) return []
+        const serviceTiers = (model.serviceTiers ?? []).flatMap((tier) => {
+            const id = typeof tier.id === 'string' ? tier.id.trim() : ''
+            const name = typeof tier.name === 'string' ? tier.name.trim() : ''
+            if (!id || !name) return []
+            return [{
+                id,
+                name,
+                description: typeof tier.description === 'string' ? tier.description : '',
+            }]
+        })
+
+        return [{
+            id,
+            displayName:
+                typeof model.displayName === 'string' && model.displayName.trim()
+                    ? model.displayName.trim()
+                    : id,
+            description: typeof model.description === 'string' ? model.description : '',
+            supportedReasoningEfforts,
+            defaultReasoningEffort,
+            serviceTiers,
+        }]
+    })
+}
+
+async function readFastServiceTierId(client: CodexAppServerClient, modelId: string) {
+    try {
+        const normalizedModelId = modelId.trim().toLowerCase()
+        const model = (await readCodexModels(client)).find(
+            (candidate) => candidate.id.trim().toLowerCase() === normalizedModelId
+        )
+        return model?.serviceTiers.find(
+            (tier) => tier.name.trim().toLowerCase() === 'fast'
+        )?.id ?? null
+    } catch (error) {
+        console.warn(`Failed to verify Fast service tier for ${modelId}; using Standard mode.`, error)
+        return null
+    }
+}
+
 export async function listCodexModels(codexHome: string) {
     const client = await CodexAppServerClient.create(codexHome)
 
     try {
-        const response = await client.request<{
-            data?: Array<{
-                model?: string
-                displayName?: string
-                description?: string
-                hidden?: boolean
-                supportedReasoningEfforts?: Array<{ reasoningEffort?: string }>
-                defaultReasoningEffort?: string
-            }>
-        }>('model/list', { limit: 100, includeHidden: false })
-
-        return (response.data ?? []).flatMap((model) => {
-            const id = typeof model.model === 'string' ? model.model.trim() : ''
-            if (!id || model.hidden) return []
-
-            const supportedReasoningEfforts = (model.supportedReasoningEfforts ?? [])
-                .map((option) => normalizeCodexReasoningEffort(option.reasoningEffort))
-                .filter((effort): effort is NonNullable<typeof effort> => effort !== null)
-            const defaultReasoningEffort =
-                normalizeCodexReasoningEffort(model.defaultReasoningEffort) ?? supportedReasoningEfforts[0]
-            if (!defaultReasoningEffort) return []
-
-            return [{
-                id,
-                displayName:
-                    typeof model.displayName === 'string' && model.displayName.trim()
-                        ? model.displayName.trim()
-                        : id,
-                description: typeof model.description === 'string' ? model.description : '',
-                supportedReasoningEfforts,
-                defaultReasoningEffort,
-            }]
-        })
+        return await readCodexModels(client)
     } finally {
         client.close()
     }

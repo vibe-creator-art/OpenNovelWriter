@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { scheduleImageGcSweep } from '@/lib/server/image-gc'
 import { getPrismaClient } from '@/lib/db'
+import { canUseCodexFastMode } from '@/lib/codex-config'
 import {
     normalizeCodexReasoningEffort,
     normalizeCodexReviewLevel,
@@ -37,7 +38,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         const id = await getRouteId(params)
         const existing = await prisma.codexSession.findFirst({
             where: { id, ownerId: user.userId },
-            select: { id: true },
+            select: { id: true, codexConnectionId: true },
         })
         if (!existing) return NextResponse.json({ detail: 'Codex session not found' }, { status: 404 })
 
@@ -85,6 +86,24 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
             const serviceTier = normalizeCodexServiceTier(body.serviceTier)
             if (!serviceTier) {
                 return NextResponse.json({ detail: 'Invalid Codex service tier' }, { status: 400 })
+            }
+            if (serviceTier === 'fast') {
+                const connection = existing.codexConnectionId
+                    ? await prisma.codexConnection.findFirst({
+                        where: { id: existing.codexConnectionId, ownerId: user.userId },
+                        select: { providerType: true, authStatus: true, authType: true },
+                    })
+                    : await prisma.codexConnection.findFirst({
+                        where: { ownerId: user.userId, isActive: true },
+                        orderBy: { createdAt: 'asc' },
+                        select: { providerType: true, authStatus: true, authType: true },
+                    })
+                if (!canUseCodexFastMode(connection)) {
+                    return NextResponse.json(
+                        { detail: 'Fast mode requires an authenticated ChatGPT Codex connection' },
+                        { status: 400 }
+                    )
+                }
             }
             data.serviceTier = serviceTier
         }
