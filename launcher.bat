@@ -12,6 +12,7 @@ if errorlevel 1 (
 set "ROOT_DIR=%CD%"
 set "WEB_DIR=%ROOT_DIR%\web"
 set "BUILD_MARKER=%WEB_DIR%\.next\.open-novel-writer-build-commit"
+set "DEPENDENCY_MARKER=%WEB_DIR%\node_modules\.open-novel-writer-dependency-state"
 if not defined PORT set "PORT=3000"
 
 where node >nul 2>nul
@@ -44,6 +45,7 @@ if not exist "%WEB_DIR%\package.json" (
 )
 
 set "PACKAGE_MANAGER=npm"
+set "LOCK_FILE=%WEB_DIR%\package-lock.json"
 set "INSTALL_COMMAND=npm ci"
 set "PRISMA_COMMAND=npx prisma"
 set "BUILD_COMMAND=npm run build"
@@ -55,6 +57,7 @@ if not errorlevel 1 if exist "%WEB_DIR%\bun.lock" set "USE_BUN=1"
 
 if "!USE_BUN!"=="1" (
     set "PACKAGE_MANAGER=Bun"
+    set "LOCK_FILE=%WEB_DIR%\bun.lock"
     set "INSTALL_COMMAND=bun install --frozen-lockfile"
     set "PRISMA_COMMAND=bunx prisma"
     set "BUILD_COMMAND=bun run build"
@@ -81,7 +84,6 @@ if "!USE_BUN!"=="1" (
 call :check_codex_cli
 
 set "GIT_REPOSITORY=0"
-set "UPDATED=0"
 set "WORKTREE_DIRTY=0"
 set "CURRENT_COMMIT="
 where git >nul 2>nul
@@ -148,11 +150,21 @@ git -C "%ROOT_DIR%" pull --ff-only
 if errorlevel 1 (
     echo Warning: Update failed. The local version will be started without changing files.
 ) else (
-    set "UPDATED=1"
     for /f "delims=" %%A in ('git -C "%ROOT_DIR%" rev-parse HEAD 2^>nul') do set "CURRENT_COMMIT=%%A"
 )
 
 :after_update
+set "DEPENDENCY_STATE="
+for /f "delims=" %%A in ('node -e "const fs=require('fs'), crypto=require('crypto'); const h=crypto.createHash('sha256').update(process.argv[1]); for (const file of process.argv.slice(2)) h.update('\0').update(fs.readFileSync(file)); console.log(h.digest('hex'))" "!PACKAGE_MANAGER!" "%WEB_DIR%\package.json" "!LOCK_FILE!"') do set "DEPENDENCY_STATE=%%A"
+if not defined DEPENDENCY_STATE (
+    echo.
+    echo Error: Could not determine the dependency state.
+    goto :fail
+)
+
+set "INSTALLED_DEPENDENCY_STATE="
+if exist "%DEPENDENCY_MARKER%" set /p "INSTALLED_DEPENDENCY_STATE="<"%DEPENDENCY_MARKER%"
+
 set "NEEDS_SETUP=0"
 if not exist "%WEB_DIR%\.env" (
     if not exist "%WEB_DIR%\.env.example" (
@@ -171,7 +183,7 @@ if not exist "%WEB_DIR%\.env" (
     set "NEEDS_SETUP=1"
 )
 if not exist "%WEB_DIR%\node_modules" set "NEEDS_SETUP=1"
-if "!UPDATED!"=="1" set "NEEDS_SETUP=1"
+if not "!INSTALLED_DEPENDENCY_STATE!"=="!DEPENDENCY_STATE!" set "NEEDS_SETUP=1"
 
 cd /d "%WEB_DIR%" || goto :fail
 if "!NEEDS_SETUP!"=="1" (
@@ -196,6 +208,12 @@ if "!NEEDS_SETUP!"=="1" (
     call !PRISMA_COMMAND! generate
     if errorlevel 1 (
         echo Error: Prisma client generation failed.
+        goto :fail
+    )
+
+    >"%DEPENDENCY_MARKER%" echo !DEPENDENCY_STATE!
+    if errorlevel 1 (
+        echo Error: Could not record the installed dependency state.
         goto :fail
     )
 )

@@ -4,6 +4,7 @@ set -u
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 WEB_DIR="$ROOT_DIR/web"
 BUILD_MARKER="$WEB_DIR/.next/.open-novel-writer-build-commit"
+DEPENDENCY_MARKER="$WEB_DIR/node_modules/.open-novel-writer-dependency-state"
 PORT_VALUE="${PORT:-3000}"
 
 info() {
@@ -153,6 +154,7 @@ require_node
 
 if command -v bun >/dev/null 2>&1 && [[ -f "$WEB_DIR/bun.lock" ]]; then
     PACKAGE_MANAGER='Bun'
+    LOCK_FILE="$WEB_DIR/bun.lock"
     INSTALL_COMMAND=(bun install --frozen-lockfile)
     PRISMA_COMMAND=(bunx prisma)
     BUILD_COMMAND=(bun run build)
@@ -162,6 +164,7 @@ else
     command -v npm >/dev/null 2>&1 || fail 'npm is required when Bun with web/bun.lock is unavailable.'
     [[ -f "$WEB_DIR/package-lock.json" ]] || fail "Missing npm lockfile: $WEB_DIR/package-lock.json"
     PACKAGE_MANAGER='npm'
+    LOCK_FILE="$WEB_DIR/package-lock.json"
     INSTALL_COMMAND=(npm ci)
     PRISMA_COMMAND=(npx prisma)
     BUILD_COMMAND=(npm run build)
@@ -172,7 +175,6 @@ fi
 check_codex_cli
 
 GIT_REPOSITORY=0
-UPDATED=0
 WORKTREE_DIRTY=0
 CURRENT_COMMIT=''
 if command -v git >/dev/null 2>&1 && git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -202,7 +204,6 @@ if command -v git >/dev/null 2>&1 && git -C "$ROOT_DIR" rev-parse --is-inside-wo
                 if ! git -C "$ROOT_DIR" pull --ff-only; then
                     warn 'Update failed. The local version will be started without changing files.'
                 else
-                    UPDATED=1
                     CURRENT_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
                 fi
             else
@@ -216,6 +217,24 @@ else
     warn 'This folder is not a Git checkout; skipping the update check.'
 fi
 
+DEPENDENCY_STATE="$(node - "$PACKAGE_MANAGER" "$WEB_DIR/package.json" "$LOCK_FILE" <<'NODE'
+const crypto = require('crypto')
+const fs = require('fs')
+
+const [packageManager, ...files] = process.argv.slice(2)
+const hash = crypto.createHash('sha256').update(packageManager)
+for (const file of files) {
+  hash.update('\0').update(fs.readFileSync(file))
+}
+process.stdout.write(hash.digest('hex'))
+NODE
+)" || fail 'Could not determine the dependency state.'
+
+INSTALLED_DEPENDENCY_STATE=''
+if [[ -f "$DEPENDENCY_MARKER" ]]; then
+    INSTALLED_DEPENDENCY_STATE="$(<"$DEPENDENCY_MARKER")"
+fi
+
 NEEDS_SETUP=0
 if [[ ! -f "$WEB_DIR/.env" ]]; then
     [[ -f "$WEB_DIR/.env.example" ]] || fail "Missing environment template: $WEB_DIR/.env.example"
@@ -224,7 +243,7 @@ if [[ ! -f "$WEB_DIR/.env" ]]; then
     NEEDS_SETUP=1
 fi
 
-if [[ ! -d "$WEB_DIR/node_modules" ]] || (( UPDATED )); then
+if [[ ! -d "$WEB_DIR/node_modules" ]] || [[ "$INSTALLED_DEPENDENCY_STATE" != "$DEPENDENCY_STATE" ]]; then
     NEEDS_SETUP=1
 fi
 
@@ -237,6 +256,8 @@ if (( NEEDS_SETUP )); then
 
     info 'Generating Prisma client...'
     run_in_web "${PRISMA_COMMAND[@]}" generate || fail 'Prisma client generation failed.'
+
+    printf '%s\n' "$DEPENDENCY_STATE" > "$DEPENDENCY_MARKER" || fail 'Could not record the installed dependency state.'
 fi
 
 NEEDS_BUILD=0
