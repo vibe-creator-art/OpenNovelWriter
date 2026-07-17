@@ -951,9 +951,9 @@ export function SceneContinuationPanel({
                 onSetCodexSessionId?.(sessionId)
                 // Open the session in the right panel right away (saves the extra "open session"
                 // click). Use the fresh id — the codexSessionId prop hasn't propagated yet.
+                useEditorCodexStore.getState().selectSession(novelId, sessionId)
                 onOpenRightSidebar?.()
                 useInfoPanelStore.getState().setActiveTab('codex')
-                useEditorCodexStore.getState().selectSession(novelId, sessionId)
             }
         } catch (error) {
             console.error('Failed to send scene continuation to Codex:', error)

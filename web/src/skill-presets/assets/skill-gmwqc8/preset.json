@@ -1,0 +1,15 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-gmwqc8",
+    "name": "预设-使用提示词进行场景续写",
+    "description": "使用定义好的提示词进行场景续写，当用户想要更新一整章或者续写大量正文时使用",
+    "revision": 1,
+    "exportedAt": "2026-06-30T20:20:06.329Z"
+  },
+  "entrySkill": "skill",
+  "skills": [
+    "skill"
+  ]
+}

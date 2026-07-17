@@ -1745,6 +1745,7 @@
             "disableSkill": "Disable skill",
             "cloneSkill": "Clone skill",
             "deleteSkill": "Delete skill",
+            "browseDirectory": "Browse skill directory",
             "more": "More"
         },
         "editor": {
@@ -1764,9 +1765,17 @@
             "missingPromptNotice": "Associated prompt \"{prompt}\" is missing — the skill was auto-disabled. Clone that prompt first, or check whether it was renamed.",
             "sectionTitle": "编辑Skills",
             "placeholder": "Write the skill instructions here (purpose, when to use, steps, output)...",
-            "frontmatterHint": "This editor writes directly to `SKILL.md` and validates its frontmatter when saving.",
-            "requiredFields": "Required fields: name / category",
-            "structureHint": "`scripts/`, `references/`, and `assets/` are created automatically when a skill is added. They are read-only in the UI for now."
+            "frontmatterHint": "Name and description are stored in official `SKILL.md` frontmatter; type and associated prompt are stored in `onw.json`.",
+            "requiredFields": "Required fields: name / description",
+            "structureHint": "Skills are stored as complete folders; `scripts/`, `references/`, `assets/`, and other files can be browsed read-only."
+        },
+        "directory": {
+            "title": "{name} · Skill directory",
+            "description": "Read-only view of the complete skill folder. Files are displayed as plain text.",
+            "loading": "Loading…",
+            "loadFailed": "Failed to load skill directory",
+            "selectFile": "Select a file on the left",
+            "notPreviewable": "This file is not plain text or is too large to preview."
         },
         "status": {
             "saving": "Saving...",

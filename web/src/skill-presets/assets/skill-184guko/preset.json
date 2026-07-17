@@ -1,0 +1,15 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-184guko",
+    "name": "预设-剧情规划",
+    "description": "规划剧情并写入细纲",
+    "revision": 1.1,
+    "exportedAt": "2026-06-23T00:03:58.067Z"
+  },
+  "entrySkill": "skill",
+  "skills": [
+    "skill"
+  ]
+}

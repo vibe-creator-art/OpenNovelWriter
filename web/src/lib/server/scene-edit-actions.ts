@@ -22,7 +22,9 @@ export type SceneEditRecord = {
     chapterId: string
 }
 
-export type SceneEditActionResult = { ok: true } | { ok: false; error: string; status?: number }
+export type SceneEditActionResult =
+    | { ok: true; editStatus: string }
+    | { ok: false; error: string; status?: number }
 
 async function loadOwnedPendingEdit(ownerId: string, editId: string) {
     return prisma.sceneEdit.findFirst({
@@ -44,18 +46,18 @@ export async function acceptSceneEdit(ownerId: string, editOrId: SceneEditRecord
     const editId = typeof editOrId === 'string' ? editOrId : editOrId.id
     const edit = await loadOwnedPendingEdit(ownerId, editId)
     if (!edit) return { ok: false, error: 'Scene edit not found', status: 404 }
-    if (edit.status !== 'pending') return { ok: true } // already resolved
+    if (edit.status !== 'pending') return { ok: true, editStatus: edit.status } // already resolved
 
     // The change is already in the scene content; accepting only clears the pending mark.
     await prisma.sceneEdit.update({ where: { id: edit.id }, data: { status: 'accepted' } })
-    return { ok: true }
+    return { ok: true, editStatus: 'accepted' }
 }
 
 export async function rejectSceneEdit(ownerId: string, editOrId: SceneEditRecord | string): Promise<SceneEditActionResult> {
     const editId = typeof editOrId === 'string' ? editOrId : editOrId.id
     const edit = await loadOwnedPendingEdit(ownerId, editId)
     if (!edit) return { ok: false, error: 'Scene edit not found', status: 404 }
-    if (edit.status !== 'pending') return { ok: true }
+    if (edit.status !== 'pending') return { ok: true, editStatus: edit.status }
 
     const scene = await prisma.scene.findFirst({
         where: { id: edit.sceneId },
@@ -65,7 +67,7 @@ export async function rejectSceneEdit(ownerId: string, editOrId: SceneEditRecord
     // Scene was deleted in the meantime: nothing to revert, just drop the pending mark.
     if (!scene) {
         await prisma.sceneEdit.update({ where: { id: edit.id }, data: { status: 'rejected' } })
-        return { ok: true }
+        return { ok: true, editStatus: 'rejected' }
     }
 
     const result = revertHunk(scene.content || '', edit.beforeHtml, edit.afterHtml, edit.afterAnchorHtml)
@@ -79,5 +81,5 @@ export async function rejectSceneEdit(ownerId: string, editOrId: SceneEditRecord
         syncNovelWorkspaceOutline(ownerId, edit.novelId),
         syncNovelWorkspaceChapter(ownerId, edit.novelId, edit.chapterId),
     ])
-    return { ok: true }
+    return { ok: true, editStatus: 'rejected' }
 }

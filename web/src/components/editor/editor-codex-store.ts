@@ -2,7 +2,6 @@
 
 import { create, type StoreApi } from 'zustand'
 import {
-    codexApi,
     codexSessionApi,
     type CodexApprovalOption,
     type CodexApprovalRequest,
@@ -15,11 +14,12 @@ import {
     type CodexSessionCategory,
     type CodexSessionCleanupResult,
     type CodexPromptArtifact,
+    type CodexDraftArtifact,
 } from '@/lib/api'
+import type { PendingImageAttachment } from '@/components/image/use-image-attachments'
 import { dispatchNovelRefreshRequested } from '@/lib/novel-refresh-events'
 import { emitSceneEditsChanged } from '@/components/editor/scene-edit-events'
 import { emitContinuationPanelRemoved } from '@/lib/continuation-panel-events'
-import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 
 export const EDITOR_CODEX_FALLBACK_NOVEL_ID = '__default__'
 
@@ -49,9 +49,23 @@ type CodexNovelSessionState = {
     error: string | null
 }
 
+export type QueuedCodexMessage = {
+    id: string
+    content: string
+    attachments: string[]
+    createdAt: string
+}
+
+type DraftSessionPatch = Partial<Pick<CodexSession, 'draftContent' | 'draftAttachments' | 'draftArtifacts'>>
+
 type CodexStoreState = {
     sessionsByNovel: Record<string, CodexNovelSessionState>
     pendingApprovalsBySession: Record<string, CodexApprovalRequest | null>
+    imageAttachmentsBySession: Record<string, PendingImageAttachment[]>
+    jsonArtifactUploadingBySession: Record<string, boolean>
+    queuedMessagesBySession: Record<string, QueuedCodexMessage[]>
+    queueingEnabledBySession: Record<string, boolean>
+    optimisticSteerMessagesBySession: Record<string, CodexSession['messages']>
     loadSessions: (novelId?: string | null) => Promise<void>
     createSession: (novelId?: string | null) => Promise<string | null>
     createSceneOperationSkillSession: (
@@ -72,6 +86,26 @@ type CodexStoreState = {
     ) => Promise<string | null>
     selectSession: (novelId: string | null | undefined, sessionId: string) => void
     updateDraft: (novelId: string | null | undefined, sessionId: string, draftContent: string) => void
+    updateImageAttachments: (
+        novelId: string | null | undefined,
+        sessionId: string,
+        items: PendingImageAttachment[]
+    ) => void
+    updateDraftArtifacts: (
+        novelId: string | null | undefined,
+        sessionId: string,
+        artifacts: CodexDraftArtifact[]
+    ) => void
+    setJsonArtifactUploading: (sessionId: string, uploading: boolean) => void
+    setQueuedMessages: (
+        sessionId: string,
+        updater: (current: QueuedCodexMessage[]) => QueuedCodexMessage[]
+    ) => void
+    setQueueingEnabled: (sessionId: string, enabled: boolean) => void
+    setOptimisticSteerMessages: (
+        sessionId: string,
+        updater: (current: CodexSession['messages']) => CodexSession['messages']
+    ) => void
     updateReviewLevel: (novelId: string | null | undefined, sessionId: string, reviewLevel: CodexReviewLevel) => Promise<void>
     updateModelSettings: (
         novelId: string | null | undefined,
@@ -81,7 +115,6 @@ type CodexStoreState = {
     updatePlanMode: (novelId: string | null | undefined, sessionId: string, planMode: boolean) => Promise<void>
     renameSession: (novelId: string | null | undefined, sessionId: string, title: string) => Promise<void>
     deleteSession: (novelId: string | null | undefined, sessionId: string) => Promise<void>
-    ensureSessionPersisted: (novelId: string | null | undefined, sessionId: string) => Promise<void>
     sendMessage: (novelId: string | null | undefined, sessionId: string, content: string, options?: { skillIds?: string[]; promptArtifact?: CodexPromptArtifact; attachments?: string[]; artifactFiles?: string[] }) => Promise<void>
     compact: (novelId: string | null | undefined, sessionId: string) => Promise<void>
     resolveApproval: (
@@ -93,6 +126,9 @@ type CodexStoreState = {
 }
 
 const draftSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const pendingDraftPatches = new Map<string, DraftSessionPatch>()
+const sessionLoadPromises = new Map<string, Promise<void>>()
+const sessionCreatePromises = new Map<string, Promise<string | null>>()
 
 function getNovelKey(novelId?: string | null) {
     const normalized = novelId?.trim()
@@ -150,17 +186,17 @@ function finishSessionCleanup(cleanup: CodexSessionCleanupResult) {
     cleanup.deletedSessionIds.forEach(clearDraftSave)
 }
 
-function isUnsavedSession(session: CodexSession | undefined | null) {
-    return Boolean(session && !session.ownerId)
-}
-
-function scheduleDraftSave(sessionId: string, draftContent: string) {
+function scheduleDraftSave(sessionId: string, patch: DraftSessionPatch) {
     const existing = draftSaveTimers.get(sessionId)
     if (existing) clearTimeout(existing)
+    pendingDraftPatches.set(sessionId, { ...pendingDraftPatches.get(sessionId), ...patch })
 
     const timer = setTimeout(() => {
         draftSaveTimers.delete(sessionId)
-        void codexSessionApi.update(sessionId, { draftContent }).catch((error) => {
+        const pendingPatch = pendingDraftPatches.get(sessionId)
+        pendingDraftPatches.delete(sessionId)
+        if (!pendingPatch) return
+        void codexSessionApi.update(sessionId, pendingPatch).catch((error) => {
             console.error('Failed to save Codex draft:', error)
         })
     }, 500)
@@ -168,10 +204,33 @@ function scheduleDraftSave(sessionId: string, draftContent: string) {
 }
 
 function clearDraftSave(sessionId: string) {
+    const pendingPatch = pendingDraftPatches.get(sessionId)
     const existing = draftSaveTimers.get(sessionId)
-    if (!existing) return
-    clearTimeout(existing)
+    if (existing) clearTimeout(existing)
     draftSaveTimers.delete(sessionId)
+    pendingDraftPatches.delete(sessionId)
+    return pendingPatch
+}
+
+function restoreDraftImageAttachments(session: CodexSession): PendingImageAttachment[] {
+    return session.draftAttachments.map((url, index) => ({
+        id: `codex_draft_attachment_${session.id}_${index}`,
+        status: 'ready',
+        url,
+        previewUrl: url,
+    }))
+}
+
+function mergeSessionPreservingComposer(current: CodexNovelSessionState, session: CodexSession) {
+    const local = current.sessions.find((item) => item.id === session.id)
+    return local
+        ? {
+            ...session,
+            draftContent: local.draftContent,
+            draftAttachments: local.draftAttachments,
+            draftArtifacts: local.draftArtifacts,
+        }
+        : session
 }
 
 function categoryRank(category: CodexSessionCategory) {
@@ -268,9 +327,9 @@ function applyCodexStreamEvent(
     event: CodexSessionStreamEvent
 ): string | null {
     if (event.type === 'done') {
-        const session = { ...event.session, draftContent: '' }
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            const session = mergeSessionPreservingComposer(current, event.session)
             return {
                 pendingApprovalsBySession: {
                     ...state.pendingApprovalsBySession,
@@ -278,7 +337,7 @@ function applyCodexStreamEvent(
                 },
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: applySession(current, session, { select: true }),
+                    [novelKey]: applySession(current, session),
                 },
             }
         })
@@ -286,9 +345,9 @@ function applyCodexStreamEvent(
     }
 
     if (event.type === 'error') {
-        const session = event.session ? { ...event.session, draftContent: '' } : null
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            const session = event.session ? mergeSessionPreservingComposer(current, event.session) : null
             return {
                 pendingApprovalsBySession: {
                     ...state.pendingApprovalsBySession,
@@ -297,7 +356,7 @@ function applyCodexStreamEvent(
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
                     [novelKey]: session
-                        ? applySession(current, session, { select: true })
+                        ? applySession(current, session)
                         : {
                             ...current,
                             sessions: current.sessions.map((item) =>
@@ -350,106 +409,137 @@ function applyCodexStreamEvent(
 export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     sessionsByNovel: {},
     pendingApprovalsBySession: {},
+    imageAttachmentsBySession: {},
+    jsonArtifactUploadingBySession: {},
+    queuedMessagesBySession: {},
+    queueingEnabledBySession: {},
+    optimisticSteerMessagesBySession: {},
     loadSessions: async (novelId) => {
         const novelKey = getNovelKey(novelId)
         if (novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID) return
+        if (get().sessionsByNovel[novelKey]?.loaded) return
+        const pendingLoad = sessionLoadPromises.get(novelKey)
+        if (pendingLoad) return pendingLoad
 
-        set((state) => {
-            const session = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            if (session.loading) return state
-            return {
-                sessionsByNovel: {
-                    ...state.sessionsByNovel,
-                    [novelKey]: { ...session, loading: true, error: null },
-                },
+        const sessionIdsAtStart = new Set(
+            (get().sessionsByNovel[novelKey]?.sessions ?? []).map((session) => session.id)
+        )
+        const loadPromise = (async () => {
+            set((state) => {
+                const session = state.sessionsByNovel[novelKey] ?? getEmptySession()
+                return {
+                    sessionsByNovel: {
+                        ...state.sessionsByNovel,
+                        [novelKey]: { ...session, loading: true, error: null },
+                    },
+                }
+            })
+
+            try {
+                const result = await codexSessionApi.list(novelKey)
+                set((state) => {
+                    const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+                    const currentById = new Map(current.sessions.map((session) => [session.id, session]))
+                    const serverIds = new Set(result.sessions.map((session) => session.id))
+                    const sessions = sortSessions([
+                        ...result.sessions.map((session) => currentById.get(session.id) ?? session),
+                        ...current.sessions.filter(
+                            (session) => !serverIds.has(session.id) && !sessionIdsAtStart.has(session.id)
+                        ),
+                    ])
+                    const selectedSessionId =
+                        current.selectedSessionId && sessions.some((session) => session.id === current.selectedSessionId)
+                            ? current.selectedSessionId
+                            : sessions[0]?.id ?? null
+                    const imageAttachmentsBySession = { ...state.imageAttachmentsBySession }
+                    sessions.forEach((session) => {
+                        if (!Object.hasOwn(imageAttachmentsBySession, session.id)) {
+                            imageAttachmentsBySession[session.id] = restoreDraftImageAttachments(session)
+                        }
+                    })
+                    return {
+                        imageAttachmentsBySession,
+                        sessionsByNovel: {
+                            ...state.sessionsByNovel,
+                            [novelKey]: {
+                                ...current,
+                                selectedSessionId,
+                                sessions,
+                                loaded: true,
+                                loading: false,
+                                error: null,
+                            },
+                        },
+                    }
+                })
+            } catch (error) {
+                console.error('Failed to load Codex sessions:', error)
+                set((state) => {
+                    const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+                    return {
+                        sessionsByNovel: {
+                            ...state.sessionsByNovel,
+                            [novelKey]: {
+                                ...current,
+                                loaded: true,
+                                loading: false,
+                                error: error instanceof Error ? error.message : String(error),
+                            },
+                        },
+                    }
+                })
             }
-        })
-
+        })()
+        sessionLoadPromises.set(novelKey, loadPromise)
         try {
-            const result = await codexSessionApi.list(novelKey)
-            const sessions = sortSessions((result.sessions ?? []).filter((session) => session.messages.length > 0))
-            set((state) => {
-                const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-                const selectedSessionId =
-                    current.selectedSessionId && sessions.some((session) => session.id === current.selectedSessionId)
-                        ? current.selectedSessionId
-                        : sessions[0]?.id ?? null
-                return {
-                    sessionsByNovel: {
-                        ...state.sessionsByNovel,
-                        [novelKey]: {
-                            ...current,
-                            selectedSessionId,
-                            sessions,
-                            loaded: true,
-                            loading: false,
-                            error: null,
-                        },
-                    },
-                }
-            })
-        } catch (error) {
-            console.error('Failed to load Codex sessions:', error)
-            set((state) => {
-                const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-                return {
-                    sessionsByNovel: {
-                        ...state.sessionsByNovel,
-                        [novelKey]: {
-                            ...current,
-                            loaded: true,
-                            loading: false,
-                            error: error instanceof Error ? error.message : String(error),
-                        },
-                    },
-                }
-            })
+            await loadPromise
+        } finally {
+            sessionLoadPromises.delete(novelKey)
         }
     },
     createSession: async (novelId) => {
         const novelKey = getNovelKey(novelId)
         if (novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID) return null
+        const pendingCreate = sessionCreatePromises.get(novelKey)
+        if (pendingCreate) return pendingCreate
 
-        const now = new Date().toISOString()
-        const reviewLevel = getStickyReviewLevel()
-        const connections = await codexApi.listConnections().catch(() => [])
-        const activeConnection = connections.find((connection) => connection.isActive) ?? null
-        const fallback: CodexSession = {
-            id: createId('codex_session'),
-            category: 'general',
-            title: null,
-            titleManuallyEdited: false,
-            reviewLevel,
-            modelId: activeConnection?.defaultModelId || DEFAULT_CODEX_MODEL,
-            reasoningEffort: 'high',
-            serviceTier: 'standard',
-            planMode: false,
-            codexThreadId: null,
-            codexConnectionId: activeConnection?.id ?? null,
-            draftContent: '',
-            status: 'idle',
-            lastError: null,
-            novelId: novelKey,
-            ownerId: '',
-            createdAt: now,
-            updatedAt: now,
-            messages: [],
+        const createPromise = (async () => {
+            await get().loadSessions(novelKey)
+            const reusableDraft = get().sessionsByNovel[novelKey]?.sessions.find(
+                (session) => session.category === 'general' && session.messages.length === 0
+            )
+            if (reusableDraft) {
+                get().selectSession(novelKey, reusableDraft.id)
+                return reusableDraft.id
+            }
+
+            const result = await codexSessionApi.create(novelKey, {
+                category: 'general',
+                reviewLevel: getStickyReviewLevel(),
+            })
+            set((state) => {
+                const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+                const cleaned = removePrunedSessions(current, result.codexSessionCleanup)
+                return {
+                    imageAttachmentsBySession: {
+                        ...state.imageAttachmentsBySession,
+                        [result.session.id]: restoreDraftImageAttachments(result.session),
+                    },
+                    sessionsByNovel: {
+                        ...state.sessionsByNovel,
+                        [novelKey]: applySession(cleaned, result.session, { select: true, front: true }),
+                    },
+                }
+            })
+            finishSessionCleanup(result.codexSessionCleanup)
+            return result.session.id
+        })()
+        sessionCreatePromises.set(novelKey, createPromise)
+        try {
+            return await createPromise
+        } finally {
+            sessionCreatePromises.delete(novelKey)
         }
-
-        set((state) => {
-            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            const withoutUnsavedSessions = {
-                ...current,
-                sessions: current.sessions.filter((session) => !isUnsavedSession(session)),
-            }
-            return {
-                sessionsByNovel: {
-                    ...state.sessionsByNovel,
-                    [novelKey]: applySession(withoutUnsavedSessions, fallback, { select: true }),
-                },
-            }
-        })
-        return fallback.id
     },
     createSceneOperationSkillSession: async (novelId, input) => {
         const novelKey = getNovelKey(novelId)
@@ -467,6 +557,10 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             const cleaned = removePrunedSessions(current, result.codexSessionCleanup)
             return {
+                imageAttachmentsBySession: {
+                    ...state.imageAttachmentsBySession,
+                    [result.session.id]: restoreDraftImageAttachments(result.session),
+                },
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
                     [novelKey]: applySession(cleaned, result.session, { select: true, front: true }),
@@ -475,7 +569,9 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         })
         finishSessionCleanup(result.codexSessionCleanup)
 
-        await get().sendMessage(novelKey, result.session.id, input.draftContent, { skillIds: [input.skillId] })
+        void get()
+            .sendMessage(novelKey, result.session.id, input.draftContent, { skillIds: [input.skillId] })
+            .catch((error) => console.error('Failed to send scene operation message:', error))
         return result.session.id
     },
     createSceneContinuationSkillSession: async (novelId, input) => {
@@ -500,6 +596,10 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             const cleaned = removePrunedSessions(current, result.codexSessionCleanup)
             return {
+                imageAttachmentsBySession: {
+                    ...state.imageAttachmentsBySession,
+                    [result.session.id]: restoreDraftImageAttachments(result.session),
+                },
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
                     [novelKey]: applySession(cleaned, result.session, { select: true, front: true }),
@@ -541,10 +641,90 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 },
             }
         })
-        const session = get().sessionsByNovel[novelKey]?.sessions.find((item) => item.id === sessionId)
-        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID && !isUnsavedSession(session)) {
-            scheduleDraftSave(sessionId, draftContent)
+        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) {
+            scheduleDraftSave(sessionId, { draftContent })
         }
+    },
+    updateImageAttachments: (novelId, sessionId, items) => {
+        const novelKey = getNovelKey(novelId)
+        const draftAttachments = items
+            .filter((item): item is PendingImageAttachment & { url: string } =>
+                item.status === 'ready' && item.url !== null
+            )
+            .map((item) => item.url)
+        set((state) => {
+            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            return {
+                imageAttachmentsBySession: {
+                    ...state.imageAttachmentsBySession,
+                    [sessionId]: items,
+                },
+                sessionsByNovel: {
+                    ...state.sessionsByNovel,
+                    [novelKey]: {
+                        ...current,
+                        sessions: current.sessions.map((session) =>
+                            session.id === sessionId ? { ...session, draftAttachments } : session
+                        ),
+                    },
+                },
+            }
+        })
+        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) {
+            scheduleDraftSave(sessionId, { draftAttachments })
+        }
+    },
+    updateDraftArtifacts: (novelId, sessionId, draftArtifacts) => {
+        const novelKey = getNovelKey(novelId)
+        set((state) => {
+            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            return {
+                sessionsByNovel: {
+                    ...state.sessionsByNovel,
+                    [novelKey]: {
+                        ...current,
+                        sessions: current.sessions.map((session) =>
+                            session.id === sessionId ? { ...session, draftArtifacts } : session
+                        ),
+                    },
+                },
+            }
+        })
+        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) {
+            scheduleDraftSave(sessionId, { draftArtifacts })
+        }
+    },
+    setJsonArtifactUploading: (sessionId, uploading) => {
+        set((state) => ({
+            jsonArtifactUploadingBySession: {
+                ...state.jsonArtifactUploadingBySession,
+                [sessionId]: uploading,
+            },
+        }))
+    },
+    setQueuedMessages: (sessionId, updater) => {
+        set((state) => ({
+            queuedMessagesBySession: {
+                ...state.queuedMessagesBySession,
+                [sessionId]: updater(state.queuedMessagesBySession[sessionId] ?? []),
+            },
+        }))
+    },
+    setQueueingEnabled: (sessionId, enabled) => {
+        set((state) => ({
+            queueingEnabledBySession: {
+                ...state.queueingEnabledBySession,
+                [sessionId]: enabled,
+            },
+        }))
+    },
+    setOptimisticSteerMessages: (sessionId, updater) => {
+        set((state) => ({
+            optimisticSteerMessagesBySession: {
+                ...state.optimisticSteerMessagesBySession,
+                [sessionId]: updater(state.optimisticSteerMessagesBySession[sessionId] ?? []),
+            },
+        }))
     },
     updateReviewLevel: async (novelId, sessionId, reviewLevel) => {
         const novelKey = getNovelKey(novelId)
@@ -564,15 +744,17 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             }
         })
 
-        const localSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
-        if (isUnsavedSession(localSession)) return
         const result = await codexSessionApi.update(sessionId, { reviewLevel })
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             return {
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: applySession(current, result.session, { front: false }),
+                    [novelKey]: applySession(
+                        current,
+                        mergeSessionPreservingComposer(current, result.session),
+                        { front: false }
+                    ),
                 },
             }
         })
@@ -603,15 +785,17 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             }
         })
 
-        const localSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
-        if (isUnsavedSession(localSession)) return
         const result = await codexSessionApi.update(sessionId, patch)
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             return {
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: applySession(current, result.session, { front: false }),
+                    [novelKey]: applySession(
+                        current,
+                        mergeSessionPreservingComposer(current, result.session),
+                        { front: false }
+                    ),
                 },
             }
         })
@@ -633,15 +817,17 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             }
         })
 
-        const localSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
-        if (isUnsavedSession(localSession)) return
         const result = await codexSessionApi.update(sessionId, { planMode })
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             return {
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: applySession(current, result.session, { front: false }),
+                    [novelKey]: applySession(
+                        current,
+                        mergeSessionPreservingComposer(current, result.session),
+                        { front: false }
+                    ),
                 },
             }
         })
@@ -650,8 +836,6 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         const novelKey = getNovelKey(novelId)
         const normalizedTitle = title.trim()
         if (!normalizedTitle) return
-        const localSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
-        if (isUnsavedSession(localSession)) return
         const result = await codexSessionApi.update(sessionId, {
             title: normalizedTitle,
             titleManuallyEdited: true,
@@ -661,18 +845,32 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             return {
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: applySession(current, result.session),
+                    [novelKey]: applySession(current, mergeSessionPreservingComposer(current, result.session)),
                 },
             }
         })
     },
     deleteSession: async (novelId, sessionId) => {
         const novelKey = getNovelKey(novelId)
-        const deletedSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             const sessions = current.sessions.filter((session) => session.id !== sessionId)
+            const imageAttachmentsBySession = { ...state.imageAttachmentsBySession }
+            const jsonArtifactUploadingBySession = { ...state.jsonArtifactUploadingBySession }
+            const queuedMessagesBySession = { ...state.queuedMessagesBySession }
+            const queueingEnabledBySession = { ...state.queueingEnabledBySession }
+            const optimisticSteerMessagesBySession = { ...state.optimisticSteerMessagesBySession }
+            delete imageAttachmentsBySession[sessionId]
+            delete jsonArtifactUploadingBySession[sessionId]
+            delete queuedMessagesBySession[sessionId]
+            delete queueingEnabledBySession[sessionId]
+            delete optimisticSteerMessagesBySession[sessionId]
             return {
+                imageAttachmentsBySession,
+                jsonArtifactUploadingBySession,
+                queuedMessagesBySession,
+                queueingEnabledBySession,
+                optimisticSteerMessagesBySession,
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
                     [novelKey]: {
@@ -684,7 +882,8 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 },
             }
         })
-        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID && !isUnsavedSession(deletedSession)) {
+        clearDraftSave(sessionId)
+        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) {
             const result = await codexSessionApi.delete(sessionId)
             // A scene-continuation session is paired with an inline panel; the server removed it
             // from the stored scene HTML, so drop the live node too if that scene is open.
@@ -693,45 +892,17 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         // The server finalized this session's pending manuscript edits; refresh the review UI.
         emitSceneEditsChanged(novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID ? undefined : novelKey)
     },
-    ensureSessionPersisted: async (novelId, sessionId) => {
-        const novelKey = getNovelKey(novelId)
-        const localSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
-        if (!isUnsavedSession(localSession)) return
-        const connections = await codexApi.listConnections().catch(() => [])
-        const activeConnection = connections.find((connection) => connection.isActive) ?? null
-        const connectionChanged = activeConnection?.id !== localSession?.codexConnectionId
-        const result = await codexSessionApi.create(novelKey, {
-            id: sessionId,
-            category: 'general',
-            reviewLevel: localSession!.reviewLevel,
-            modelId: connectionChanged
-                ? activeConnection?.defaultModelId || DEFAULT_CODEX_MODEL
-                : localSession!.modelId,
-            reasoningEffort: localSession!.reasoningEffort,
-            serviceTier: localSession!.serviceTier,
-            planMode: localSession!.planMode,
-            draftContent: localSession!.draftContent,
-        })
-        set((state) => {
-            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            const cleaned = removePrunedSessions(current, result.codexSessionCleanup)
-            return {
-                sessionsByNovel: {
-                    ...state.sessionsByNovel,
-                    [novelKey]: applySession(cleaned, result.session, { select: true, front: false }),
-                },
-            }
-        })
-        finishSessionCleanup(result.codexSessionCleanup)
-    },
     sendMessage: async (novelId, sessionId, content, options) => {
         const novelKey = getNovelKey(novelId)
         clearDraftSave(sessionId)
-        await get().ensureSessionPersisted(novelId, sessionId)
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             const now = new Date().toISOString()
             return {
+                imageAttachmentsBySession: {
+                    ...state.imageAttachmentsBySession,
+                    [sessionId]: [],
+                },
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
                     [novelKey]: {
@@ -742,6 +913,8 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                                     ...session,
                                     status: 'running',
                                     draftContent: '',
+                                    draftAttachments: [],
+                                    draftArtifacts: [],
                                     messages: [
                                         ...session.messages,
                                         {
@@ -776,7 +949,13 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     },
     compact: async (novelId, sessionId) => {
         const novelKey = getNovelKey(novelId)
-        clearDraftSave(sessionId)
+        const pendingPatch = clearDraftSave(sessionId)
+        if (pendingPatch?.draftAttachments || pendingPatch?.draftArtifacts) {
+            await codexSessionApi.update(sessionId, {
+                ...(pendingPatch.draftAttachments ? { draftAttachments: pendingPatch.draftAttachments } : {}),
+                ...(pendingPatch.draftArtifacts ? { draftArtifacts: pendingPatch.draftArtifacts } : {}),
+            })
+        }
         // Optimistically flip to running so the composer shows the working (stop) state and clears
         // the `/compact` draft immediately, before the first stream event lands.
         set((state) => {

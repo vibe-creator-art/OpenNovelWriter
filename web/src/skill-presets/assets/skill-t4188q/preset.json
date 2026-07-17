@@ -1,0 +1,15 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-t4188q",
+    "name": "预设-全书初始化",
+    "description": "对于导入的小说进行全书的初始化",
+    "revision": 1.2,
+    "exportedAt": "2026-06-29T05:05:29.159Z"
+  },
+  "entrySkill": "skill",
+  "skills": [
+    "skill"
+  ]
+}

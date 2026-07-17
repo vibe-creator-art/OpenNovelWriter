@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { syncActiveCodexConnectionSkills } from '@/lib/server/codex-skill-sync'
-import { importSkillBundleForOwner } from '@/lib/server/skill-preset-helpers'
-import { loadBuiltinSkillPreset } from '@/skill-presets'
+import { importSkillPresetForOwner } from '@/lib/server/skill-preset-helpers'
+import { loadBuiltinSkillPresetRegistryEntry } from '@/skill-presets'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -16,20 +16,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }
 
         const { id } = await params
-        const preset = loadBuiltinSkillPreset(id)
-        if (!preset) {
+        const entry = loadBuiltinSkillPresetRegistryEntry(id)
+        if (!entry) {
             return NextResponse.json({ detail: 'Preset not found.' }, { status: 404 })
         }
 
         const body = (await request.json().catch(() => null)) as { overwriteExisting?: unknown } | null
         const overwriteExisting = body?.overwriteExisting === true
 
-        const imported = await importSkillBundleForOwner({
+        const imported = await importSkillPresetForOwner({
             ownerId: user.userId,
-            bundle: preset.bundle,
+            entry,
             overwriteExisting,
-            sourcePresetId: preset.metadata.presetId,
-            sourcePresetRevision: preset.metadata.revision,
         })
 
         if (!imported.ok) {
@@ -47,7 +45,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
         return NextResponse.json(
             {
-                presetId: preset.metadata.presetId,
+                presetId: entry.preset.metadata.presetId,
                 skills: imported.skills,
             },
             { status: 201 }

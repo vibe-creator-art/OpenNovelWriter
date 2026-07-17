@@ -8,6 +8,7 @@ import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
 import { ensureCodexSessionWorkspace } from '@/lib/server/codex-session-workspace'
+import { isSafeGitHubCloneApprovalRequest } from '@/lib/server/codex-github-clone-approval'
 import {
     createCodexApprovalRequest,
     isCodexApprovalRemembered,
@@ -389,28 +390,16 @@ type CodexRunStreamHandlers = {
 }
 
 type CodexRuntimeReviewOptions = {
-    approvalPolicy: 'on-request' | 'never'
+    approvalPolicy: 'on-request'
     approvalsReviewer: 'user' | 'auto_review'
 }
 
 function getCodexRuntimeReviewOptions(reviewLevel: CodexReviewLevel): CodexRuntimeReviewOptions {
-    if (reviewLevel === 'auto_review') {
-        return {
-            approvalPolicy: 'on-request',
-            approvalsReviewer: 'auto_review',
-        }
-    }
-
-    if (reviewLevel === 'no_review') {
-        return {
-            approvalPolicy: 'never',
-            approvalsReviewer: 'user',
-        }
-    }
-
+    // Keep requests observable in every mode. no_review resolves only supported escalations in
+    // the host handler; using upstream `never` would reject them before ONW can inspect them.
     return {
         approvalPolicy: 'on-request',
-        approvalsReviewer: 'user',
+        approvalsReviewer: reviewLevel === 'auto_review' ? 'auto_review' : 'user',
     }
 }
 
@@ -1152,12 +1141,24 @@ export async function runNovelCodexTurn(input: {
             if (!isApprovalServerRequest(method) || message.id === undefined) {
                 return getDefaultServerRequestResponse(method)
             }
-            // no_review auto-accepts everything. Under auto_review the review subagent owns
-            // command/file approvals, so we pre-accept those here — but MCP elicitations we raise
-            // for destructive actions (e.g. delete_snippet) must always reach the author, so let
-            // them fall through to the user prompt.
-            if (reviewOptions.approvalPolicy === 'never') {
-                return getAcceptedServerRequestResponse(method, params)
+            // no_review grants only the canonical, shallow GitHub clone used by edit-skills.
+            // Other sandbox escalations still fail closed; MCP elicitations keep their existing
+            // no-review behavior because ONW tools enforce their own review-level rules.
+            if (reviewLevel === 'no_review') {
+                if (
+                    method === 'item/commandExecution/requestApproval' &&
+                    isSafeGitHubCloneApprovalRequest({
+                        command: params.command,
+                        cwd: params.cwd,
+                        sessionWorkspacePath,
+                    })
+                ) {
+                    return getAcceptedServerRequestResponse(method, params)
+                }
+                if (method === 'mcpServer/elicitation/request') {
+                    return getAcceptedServerRequestResponse(method, params)
+                }
+                return getDefaultServerRequestResponse(method)
             }
             if (reviewOptions.approvalsReviewer !== 'user' && method !== 'mcpServer/elicitation/request') {
                 return getAcceptedServerRequestResponse(method, params)

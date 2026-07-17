@@ -1745,6 +1745,7 @@
             "disableSkill": "停用技能",
             "cloneSkill": "克隆技能",
             "deleteSkill": "删除技能",
+            "browseDirectory": "浏览技能目录",
             "more": "更多"
         },
         "editor": {
@@ -1764,9 +1765,17 @@
             "missingPromptNotice": "缺少关联提示词「{prompt}」，已自动停用。请先克隆该提示词，或检查它是否被改名。",
             "sectionTitle": "编辑技能",
             "placeholder": "在此编写技能正文（用途、触发时机、步骤、输出）…",
-            "frontmatterHint": "在此直接编辑 `SKILL.md`，保存时会校验 frontmatter。",
-            "requiredFields": "必填字段：name / category",
-            "structureHint": "`scripts/`、`references/`、`assets/` 会在新建时自动创建，当前界面暂不支持编辑这些目录。"
+            "frontmatterHint": "名称和描述写入官方 `SKILL.md` frontmatter；类型与关联提示词写入 `onw.json`。",
+            "requiredFields": "必填字段：name / description",
+            "structureHint": "技能以完整目录保存；可只读浏览 `scripts/`、`references/`、`assets/` 等文件。"
+        },
+        "directory": {
+            "title": "{name} · 技能目录",
+            "description": "只读浏览完整技能目录，文件内容以纯文本显示。",
+            "loading": "正在加载…",
+            "loadFailed": "加载技能目录失败",
+            "selectFile": "从左侧选择文件",
+            "notPreviewable": "该文件不是纯文本或体积过大，无法预览。"
         },
         "status": {
             "saving": "正在保存…",

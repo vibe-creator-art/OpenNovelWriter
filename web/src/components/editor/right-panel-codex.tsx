@@ -75,14 +75,14 @@ import { cn } from '@/lib/utils'
 import { renderSimpleMarkdown } from '@/lib/simple-markdown'
 import { plainTextToSnippetHtml } from '@/lib/snippet-html'
 import { type WriteNavTarget } from '@/components/editor/plan-view'
-import { actApi, chapterApi, materialApi, outlineApi, sceneEditApi, skillApi, snippetApi, type Act, type Chapter, type MaterialSummary, type OutlineSummary, type Skill, type Snippet } from '@/lib/api'
+import { actApi, chapterApi, materialApi, outlineApi, sceneEditApi, skillApi, snippetApi, type Act, type Chapter, type MaterialSummary, type OutlineSummary, type SceneEditStatus, type Skill, type Snippet } from '@/lib/api'
 import { normalizeSkillCategory } from '@/lib/skills'
 import { useStoredTermEntries } from '@/components/editor/terms/use-stored-term-entries'
 import type { TermEntry } from '@/components/editor/terms/types'
 import { CodexSkillTweakDialog, type CodexRenderedBlock } from '@/components/editor/codex-skill-tweak-dialog'
 import { CodexModelPicker } from '@/components/editor/codex-model-picker'
 import { CodexTurnNavigator, type CodexTurnNavigatorEntry } from '@/components/editor/codex-turn-navigator'
-import { emitSceneEditsChanged } from '@/components/editor/scene-edit-events'
+import { emitSceneEditsChanged, SCENE_EDITS_CHANGED_EVENT } from '@/components/editor/scene-edit-events'
 import {
     codexApi,
     codexSessionApi,
@@ -128,12 +128,6 @@ type QueuedCodexMessage = {
     content: string
     attachments: string[]
     createdAt: string
-}
-
-type CodexJsonArtifact = {
-    fileName: string
-    originalName: string
-    size: number
 }
 
 function JsonArtifactChips({
@@ -844,6 +838,12 @@ function getApprovalDetail(approval: CodexApprovalRequest) {
 const CodexNavContext = createContext<((target: WriteNavTarget) => void) | undefined>(undefined)
 const CodexNovelIdContext = createContext<string | undefined>(undefined)
 const CodexSessionIdContext = createContext<string | null>(null)
+const SceneEditStatusContext = createContext<{
+    statuses: Record<string, SceneEditStatus>
+    loading: boolean
+    error: string | null
+    setStatus: (id: string, status: SceneEditStatus) => void
+} | null>(null)
 
 const SCENE_EDIT_TOOL_TITLE = 'edit_scene_content'
 
@@ -2057,20 +2057,23 @@ function WorkEventGroup({
     )
 }
 
-type HunkUiState = { status: 'idle' | 'busy' | 'accepted' | 'rejected'; error?: string }
+type HunkUiState = { busy: boolean; error?: string }
 
 function SceneEditHunkRow({
     hunk,
+    status,
+    statusLoading,
+    statusError,
     state,
     onResolve,
 }: {
     hunk: SceneEditHunk
+    status?: SceneEditStatus
+    statusLoading: boolean
+    statusError: string | null
     state: HunkUiState
     onResolve: (action: 'accept' | 'reject') => void
 }) {
-    const resolved = state.status === 'accepted' || state.status === 'rejected'
-    const busy = state.status === 'busy'
-
     return (
         <div className="rounded-lg border bg-background/60 p-2 text-xs">
             {hunk.beforeText.trim() && (
@@ -2084,19 +2087,23 @@ function SceneEditHunkRow({
                 </div>
             )}
             <div className="mt-1.5 flex items-center gap-2">
-                {resolved ? (
+                {status === 'accepted' || status === 'rejected' ? (
                     <span className="text-[11px] text-muted-foreground">
-                        {state.status === 'accepted' ? '已接受' : '已撤销'}
+                        {status === 'accepted' ? '已接受' : '已撤销'}
                     </span>
-                ) : (
+                ) : status === 'pending' && !statusError ? (
                     <>
-                        <Button size="sm" variant="ghost" className="h-6 gap-1 px-2 text-[11px]" disabled={busy} onClick={() => onResolve('accept')}>
+                        <Button size="sm" variant="ghost" className="h-6 gap-1 px-2 text-[11px]" disabled={state.busy || statusLoading} onClick={() => onResolve('accept')}>
                             <Check className="h-3 w-3" /> 接受
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-6 gap-1 px-2 text-[11px]" disabled={busy} onClick={() => onResolve('reject')}>
+                        <Button size="sm" variant="ghost" className="h-6 gap-1 px-2 text-[11px]" disabled={state.busy || statusLoading} onClick={() => onResolve('reject')}>
                             <Undo2 className="h-3 w-3" /> 撤销
                         </Button>
                     </>
+                ) : (
+                    <span className="text-[11px] text-muted-foreground">
+                        {statusLoading ? '正在读取状态…' : statusError ?? '状态不可用'}
+                    </span>
                 )}
                 {state.error && <span className="text-[11px] text-rose-600">{state.error}</span>}
             </div>
@@ -2107,26 +2114,21 @@ function SceneEditHunkRow({
 function SceneEditCard({ result }: { result: SceneEditToolResult }) {
     const novelId = useContext(CodexNovelIdContext)
     const onNavigate = useContext(CodexNavContext)
+    const statusState = useContext(SceneEditStatusContext)
     const [states, setStates] = useState<Record<string, HunkUiState>>({})
-
-    // When this edit first surfaces (Codex just applied it), pull the new scene content
-    // and pending edits into the manuscript view so it updates live without a refresh.
-    const appliedKey = result.applied.map((hunk) => hunk.id).join(',')
-    useEffect(() => {
-        if (novelId) emitSceneEditsChanged(novelId)
-    }, [novelId, appliedKey])
 
     const setHunk = (id: string, next: HunkUiState) => setStates((prev) => ({ ...prev, [id]: next }))
 
     const resolve = async (id: string, action: 'accept' | 'reject') => {
         if (!novelId) return
-        setHunk(id, { status: 'busy' })
+        setHunk(id, { busy: true })
         try {
-            await sceneEditApi.resolve(novelId, id, action)
-            setHunk(id, { status: action === 'accept' ? 'accepted' : 'rejected' })
+            const response = await sceneEditApi.resolve(novelId, id, action)
+            statusState?.setStatus(id, response.status)
+            setHunk(id, { busy: false })
             emitSceneEditsChanged(novelId)
         } catch (error) {
-            setHunk(id, { status: 'idle', error: error instanceof Error ? error.message : '操作失败' })
+            setHunk(id, { busy: false, error: error instanceof Error ? error.message : '操作失败' })
         }
     }
 
@@ -2155,7 +2157,10 @@ function SceneEditCard({ result }: { result: SceneEditToolResult }) {
                     <SceneEditHunkRow
                         key={hunk.id}
                         hunk={hunk}
-                        state={states[hunk.id] ?? { status: 'idle' }}
+                        status={statusState?.statuses[hunk.id]}
+                        statusLoading={statusState?.loading ?? true}
+                        statusError={statusState?.error ?? null}
+                        state={states[hunk.id] ?? { busy: false }}
                         onResolve={(action) => resolve(hunk.id, action)}
                     />
                 ))}
@@ -2550,7 +2555,17 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const updateReviewLevel = useEditorCodexStore((state) => state.updateReviewLevel)
     const updateModelSettings = useEditorCodexStore((state) => state.updateModelSettings)
     const updatePlanMode = useEditorCodexStore((state) => state.updatePlanMode)
-    const ensureSessionPersisted = useEditorCodexStore((state) => state.ensureSessionPersisted)
+    const updateImageAttachments = useEditorCodexStore((state) => state.updateImageAttachments)
+    const updateDraftArtifacts = useEditorCodexStore((state) => state.updateDraftArtifacts)
+    const imageAttachmentsBySession = useEditorCodexStore((state) => state.imageAttachmentsBySession)
+    const jsonArtifactUploadingBySession = useEditorCodexStore((state) => state.jsonArtifactUploadingBySession)
+    const setJsonArtifactUploading = useEditorCodexStore((state) => state.setJsonArtifactUploading)
+    const queuedMessagesBySession = useEditorCodexStore((state) => state.queuedMessagesBySession)
+    const queueingEnabledBySession = useEditorCodexStore((state) => state.queueingEnabledBySession)
+    const optimisticSteerMessagesBySession = useEditorCodexStore((state) => state.optimisticSteerMessagesBySession)
+    const setQueuedMessages = useEditorCodexStore((state) => state.setQueuedMessages)
+    const setQueueingEnabled = useEditorCodexStore((state) => state.setQueueingEnabled)
+    const setOptimisticSteerMessages = useEditorCodexStore((state) => state.setOptimisticSteerMessages)
     const sendMessage = useEditorCodexStore((state) => state.sendMessage)
     const compact = useEditorCodexStore((state) => state.compact)
     const pendingApprovalsBySession = useEditorCodexStore((state) => state.pendingApprovalsBySession)
@@ -2567,11 +2582,13 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const [approvalActionInput, setApprovalActionInput] = useState('')
     const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null)
     const [dismissedPlanUpdateId, setDismissedPlanUpdateId] = useState<string | null>(null)
-    const [queuedMessagesBySession, setQueuedMessagesBySession] = useState<Record<string, QueuedCodexMessage[]>>({})
-    const [queueingEnabledBySession, setQueueingEnabledBySession] = useState<Record<string, boolean>>({})
-    const [optimisticSteerMessagesBySession, setOptimisticSteerMessagesBySession] = useState<Record<string, CodexSessionMessage[]>>({})
-    const [jsonArtifactsBySession, setJsonArtifactsBySession] = useState<Record<string, CodexJsonArtifact[]>>({})
-    const [jsonArtifactUploading, setJsonArtifactUploading] = useState(false)
+    const [sceneEditStatusRevision, setSceneEditStatusRevision] = useState(0)
+    const [sceneEditStatusSnapshot, setSceneEditStatusSnapshot] = useState<{
+        key: string
+        statuses: Record<string, SceneEditStatus>
+        loading: boolean
+        error: string | null
+    }>({ key: '', statuses: {}, loading: false, error: null })
     const scrollRef = useRef<HTMLDivElement | null>(null)
     const previousRunningRef = useRef(false)
     const resolvingApprovalRef = useRef<string | null>(null)
@@ -2581,6 +2598,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const composerOverlayTextRef = useRef<HTMLDivElement | null>(null)
     const composerFileInputRef = useRef<HTMLInputElement | null>(null)
     const composerDragDepthRef = useRef(0)
+    const selectedSessionIdRef = useRef<string | null>(null)
     const [composerDragActive, setComposerDragActive] = useState(false)
     const syncComposerOverlayScroll = useCallback(() => {
         const textarea = composerRef.current
@@ -2628,7 +2646,25 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         )[error]
         setRunError(t(`infoPanel.${key}`))
     }
-    const imageAttachments = useImageAttachments({ onError: handleAttachmentError })
+    const sessions = sessionState?.sessions ?? []
+    const selectedSessionId = sessionState?.selectedSessionId ?? null
+    const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null
+    const imageItems = selectedSessionId ? imageAttachmentsBySession[selectedSessionId] ?? [] : []
+    const jsonArtifactUploading = selectedSessionId
+        ? jsonArtifactUploadingBySession[selectedSessionId] ?? false
+        : false
+    selectedSessionIdRef.current = selectedSessionId
+    const imageAttachments = useImageAttachments({
+        items: imageItems,
+        scopeId: selectedSessionId,
+        onItemsChange: (sessionId, updater) => {
+            const current = useEditorCodexStore.getState().imageAttachmentsBySession[sessionId] ?? []
+            const nextItems = updater(current)
+            updateImageAttachments(novelId, sessionId, nextItems)
+            return nextItems
+        },
+        onError: handleAttachmentError,
+    })
 
     const handleComposerDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
         if (!Array.from(event.dataTransfer.types).includes('Files')) return
@@ -2663,30 +2699,47 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         const images = files.filter((file) => file.type.startsWith('image/'))
         const jsonFiles = files.filter((file) => file.name.toLowerCase().endsWith('.json'))
         const unsupported = files.length - images.length - jsonFiles.length
-        if (images.length > 0) imageAttachments.addFiles(images)
         if (unsupported > 0) setRunError(t('codex.artifactJsonOnly'))
+        if (images.length === 0 && jsonFiles.length === 0) return
+        const sessionId = selectedSession?.id ?? await ensureSession()
+        if (!sessionId) return
+        selectedSessionIdRef.current = sessionId
+        if (images.length > 0) imageAttachments.addFiles(images, sessionId)
         if (jsonFiles.length === 0) return
         if (running) {
             setRunError(t('codex.artifactWhileRunning'))
             return
         }
-        setJsonArtifactUploading(true)
+        setJsonArtifactUploading(sessionId, true)
         try {
-            const sessionId = selectedSession?.id ?? await ensureSession()
-            if (!sessionId) return
-            await ensureSessionPersisted(novelId, sessionId)
             for (const file of jsonFiles) {
                 const result = await codexSessionApi.uploadJsonArtifact(sessionId, file)
-                setJsonArtifactsBySession((current) => ({
-                    ...current,
-                    [sessionId]: [...(current[sessionId] ?? []), result.artifact],
-                }))
+                const novelKey = novelId?.trim() || '__default__'
+                const session = useEditorCodexStore
+                    .getState()
+                    .sessionsByNovel[novelKey]?.sessions.find((item) => item.id === sessionId)
+                updateDraftArtifacts(novelId, sessionId, [...(session?.draftArtifacts ?? []), result.artifact])
             }
         } catch (error) {
             setRunError(error instanceof Error ? error.message : String(error))
         } finally {
-            setJsonArtifactUploading(false)
+            setJsonArtifactUploading(sessionId, false)
         }
+    }
+
+    const handleComposerPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+        if (selectedSessionIdRef.current) {
+            imageAttachments.handlePaste(event)
+            return
+        }
+        const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'))
+        if (images.length === 0) return
+        event.preventDefault()
+        void ensureSession().then((sessionId) => {
+            if (!sessionId) return
+            selectedSessionIdRef.current = sessionId
+            imageAttachments.addFiles(images, sessionId)
+        })
     }
 
     useEffect(() => {
@@ -3015,9 +3068,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             })
     }, [])
 
-    const sessions = sessionState?.sessions ?? []
-    const selectedSessionId = sessionState?.selectedSessionId ?? null
-    const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null
     const draft = selectedSession?.draftContent ?? ''
     const reviewLevel = selectedSession?.reviewLevel ?? 'user_review'
     const modelId = selectedSession?.modelId ?? DEFAULT_CODEX_MODEL
@@ -3028,7 +3078,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const pendingApproval = selectedSession ? pendingApprovalsBySession[selectedSession.id] ?? null : null
     const queuedMessages = selectedSession ? queuedMessagesBySession[selectedSession.id] ?? [] : []
     const queueingEnabled = selectedSession ? queueingEnabledBySession[selectedSession.id] ?? true : true
-    const jsonArtifacts = selectedSessionId ? jsonArtifactsBySession[selectedSessionId] ?? [] : []
+    const jsonArtifacts = selectedSession?.draftArtifacts ?? []
     const draftIsEmpty = !draft.trim()
 
     useEffect(() => {
@@ -3139,6 +3189,83 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             optimisticSteerMessagesBySession[selectedSession.id] ?? []
         )
     }, [optimisticSteerMessagesBySession, selectedSession])
+    const sceneEditIds = useMemo(() => {
+        const ids = new Set<string>()
+        for (const message of timelineMessages) {
+            const result = parseSceneEditToolMessage(message)
+            result?.applied.forEach((hunk) => ids.add(hunk.id))
+        }
+        return [...ids]
+    }, [timelineMessages])
+    const sceneEditIdsJson = JSON.stringify(sceneEditIds)
+    const sceneEditStatusKey = `${selectedSession?.id ?? ''}:${sceneEditIdsJson}`
+    const setSceneEditStatus = useCallback((id: string, status: SceneEditStatus) => {
+        setSceneEditStatusSnapshot((current) => ({
+            key: sceneEditStatusKey,
+            statuses: {
+                ...(current.key === sceneEditStatusKey ? current.statuses : {}),
+                [id]: status,
+            },
+            loading: current.key === sceneEditStatusKey ? current.loading : true,
+            error: null,
+        }))
+    }, [sceneEditStatusKey])
+
+    useEffect(() => {
+        if (!novelId) return
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<{ novelId?: string }>).detail
+            if (detail?.novelId && detail.novelId !== novelId) return
+            setSceneEditStatusRevision((current) => current + 1)
+        }
+        window.addEventListener(SCENE_EDITS_CHANGED_EVENT, handler as EventListener)
+        return () => window.removeEventListener(SCENE_EDITS_CHANGED_EVENT, handler as EventListener)
+    }, [novelId])
+
+    useEffect(() => {
+        let cancelled = false
+        const ids = JSON.parse(sceneEditIdsJson) as string[]
+        if (!novelId || ids.length === 0) {
+            setSceneEditStatusSnapshot({ key: sceneEditStatusKey, statuses: {}, loading: false, error: null })
+            return
+        }
+
+        setSceneEditStatusSnapshot((current) => ({
+            key: sceneEditStatusKey,
+            statuses: current.key === sceneEditStatusKey ? current.statuses : {},
+            loading: true,
+            error: null,
+        }))
+        void sceneEditApi.statuses(novelId, ids)
+            .then((response) => {
+                if (cancelled) return
+                setSceneEditStatusSnapshot({
+                    key: sceneEditStatusKey,
+                    statuses: Object.fromEntries(response.statuses.map((entry) => [entry.id, entry.status])),
+                    loading: false,
+                    error: null,
+                })
+            })
+            .catch((error) => {
+                if (cancelled) return
+                setSceneEditStatusSnapshot((current) => ({
+                    key: sceneEditStatusKey,
+                    statuses: current.key === sceneEditStatusKey ? current.statuses : {},
+                    loading: false,
+                    error: error instanceof Error ? error.message : '状态读取失败',
+                }))
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [novelId, sceneEditIdsJson, sceneEditStatusKey, sceneEditStatusRevision])
+
+    const sceneEditStatusContextValue = useMemo(() => ({
+        statuses: sceneEditStatusSnapshot.key === sceneEditStatusKey ? sceneEditStatusSnapshot.statuses : {},
+        loading: sceneEditStatusSnapshot.key !== sceneEditStatusKey || sceneEditStatusSnapshot.loading,
+        error: sceneEditStatusSnapshot.key === sceneEditStatusKey ? sceneEditStatusSnapshot.error : null,
+        setStatus: setSceneEditStatus,
+    }), [sceneEditStatusKey, sceneEditStatusSnapshot, setSceneEditStatus])
     const latestContextWindow = selectedSession ? getLatestContextWindow(selectedSession.messages) : null
     const latestPlanMessage = selectedSession
         ? [...selectedSession.messages].reverse().find((message) => message.role === 'event' && message.kind === 'plan') ?? null
@@ -3261,9 +3388,15 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     }, [selectedSession?.id, selectedSession?.messages.length, running])
 
     const ensureSession = async () => {
-        if (selectedSession) return selectedSession.id
+        if (selectedSession) {
+            selectedSessionIdRef.current = selectedSession.id
+            return selectedSession.id
+        }
         const sessionId = await createSession(novelId)
-        if (sessionId) selectSession(novelId, sessionId)
+        if (sessionId) {
+            selectedSessionIdRef.current = sessionId
+            selectSession(novelId, sessionId)
+        }
         return sessionId
     }
 
@@ -3284,36 +3417,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         } catch (error) {
             setRunError(error instanceof Error ? error.message : String(error))
         }
-    }
-
-    const setQueuedMessages = (
-        sessionId: string,
-        updater: (current: QueuedCodexMessage[]) => QueuedCodexMessage[]
-    ) => {
-        setQueuedMessagesBySession((current) => ({
-            ...current,
-            [sessionId]: updater(current[sessionId] ?? []),
-        }))
-    }
-
-    const setOptimisticSteerMessages = (
-        sessionId: string,
-        updater: (current: CodexSessionMessage[]) => CodexSessionMessage[]
-    ) => {
-        setOptimisticSteerMessagesBySession((current) => {
-            const nextMessages = updater(current[sessionId] ?? [])
-            const previousMessages = current[sessionId] ?? []
-            if (
-                nextMessages.length === previousMessages.length &&
-                nextMessages.every((message, index) => message.id === previousMessages[index]?.id)
-            ) {
-                return current
-            }
-            return {
-                ...current,
-                [sessionId]: nextMessages,
-            }
-        })
     }
 
     const enqueueQueuedMessage = (sessionId: string, content: string, attachments: string[]) => {
@@ -3337,31 +3440,19 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const toggleQueueing = async (sessionId: string, enabled: boolean) => {
         setRunError(null)
         if (enabled) {
-            setQueueingEnabledBySession((current) => ({
-                ...current,
-                [sessionId]: true,
-            }))
+            setQueueingEnabled(sessionId, true)
             return
         }
 
         const currentQueue = queuedMessagesBySession[sessionId] ?? []
         if (currentQueue.length === 0) {
-            setQueueingEnabledBySession((current) => ({
-                ...current,
-                [sessionId]: false,
-            }))
+            setQueueingEnabled(sessionId, false)
             return
         }
 
         const merged = mergeQueuedCodexMessages(currentQueue)
-        setQueuedMessagesBySession((current) => ({
-            ...current,
-            [sessionId]: [],
-        }))
-        setQueueingEnabledBySession((current) => ({
-            ...current,
-            [sessionId]: false,
-        }))
+        setQueuedMessages(sessionId, () => [])
+        setQueueingEnabled(sessionId, false)
 
         try {
             if (running) {
@@ -3370,14 +3461,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                 await sendContent(merged.content, sessionId, undefined, undefined, merged.attachments)
             }
         } catch (error) {
-            setQueuedMessagesBySession((current) => ({
-                ...current,
-                [sessionId]: currentQueue,
-            }))
-            setQueueingEnabledBySession((current) => ({
-                ...current,
-                [sessionId]: true,
-            }))
+            setQueuedMessages(sessionId, () => currentQueue)
+            setQueueingEnabled(sessionId, true)
             setRunError(error instanceof Error ? error.message : String(error))
         }
     }
@@ -3556,7 +3641,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
 
             setTweakOpen(false)
             imageAttachments.clear()
-            setJsonArtifactsBySession((current) => ({ ...current, [targetSessionId]: [] }))
+            updateDraftArtifacts(novelId, targetSessionId, [])
             await sendContent(content, targetSessionId, skillIds, promptArtifact, attachments, artifactFiles)
             setTweakBlocks(null)
             setTweakChatInput('')
@@ -3586,7 +3671,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         setOptimisticSteerMessages(selectedSession.id, (current) =>
             current.filter((message) => !committedSteerContents.has(message.content))
         )
-    }, [selectedSession])
+    }, [selectedSession, setOptimisticSteerMessages])
 
     const selectReviewLevel = (nextReviewLevel: CodexReviewLevel) => {
         void (async () => {
@@ -3724,6 +3809,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         <CodexNovelIdContext.Provider value={novelId}>
         <CodexSessionIdContext.Provider value={selectedSession?.id ?? null}>
         <CodexNavContext.Provider value={onNavigateToWrite}>
+        <SceneEditStatusContext.Provider value={sceneEditStatusContextValue}>
         <ImageViewerExtraActionsProvider render={(src) => <TermGalleryImportButton novelId={novelId} src={src} />}>
         <div className="flex h-full min-h-0 flex-col bg-background">
             <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
@@ -3935,10 +4021,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                         aria-label={t('codex.artifactRemove')}
                                         onClick={() => {
                                             if (!selectedSessionId) return
-                                            setJsonArtifactsBySession((current) => ({
-                                                ...current,
-                                                [selectedSessionId]: (current[selectedSessionId] ?? []).filter((item) => item.fileName !== artifact.fileName),
-                                            }))
+                                            updateDraftArtifacts(
+                                                novelId,
+                                                selectedSessionId,
+                                                jsonArtifacts.filter((item) => item.fileName !== artifact.fileName)
+                                            )
                                         }}
                                     >
                                         <X className="h-3.5 w-3.5" />
@@ -4063,7 +4150,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             }
                             updateDraft(novelId, selectedSession.id, value)
                         }}
-                        onPaste={imageAttachments.handlePaste}
+                        onPaste={handleComposerPaste}
                         onBlur={() => {
                             // Delay so a menu click (mousedown) can fire before close.
                             window.setTimeout(closeMention, 120)
@@ -4379,6 +4466,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             />
         )}
         </ImageViewerExtraActionsProvider>
+        </SceneEditStatusContext.Provider>
         </CodexNavContext.Provider>
         </CodexSessionIdContext.Provider>
         </CodexNovelIdContext.Provider>

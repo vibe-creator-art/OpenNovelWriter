@@ -466,6 +466,8 @@ model CodexSession {
   codexThreadId       String?
   codexConnectionId   String?
   draftContent        String   @default("")
+  draftAttachmentsJson String   @default("[]")
+  draftArtifactsJson   String   @default("[]")
   status              String   @default("idle")
   lastError           String?
   messagesJson        String   @default("[]")

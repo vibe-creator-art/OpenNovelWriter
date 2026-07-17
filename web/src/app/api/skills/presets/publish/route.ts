@@ -1,14 +1,13 @@
-import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { isPresetAuthoringEnabled } from '@/lib/preset-authoring'
-import { createSkillPresetKey, serializeSkillPresetJson } from '@/lib/skill-preset'
-import { buildSkillPresetAssetFromOwnedSkill } from '@/lib/server/skill-preset-helpers'
+import { createSkillPresetKey } from '@/lib/skill-preset'
+import { buildSkillPresetAssetFromOwnedSkill, writeSkillPresetDirectory } from '@/lib/server/skill-preset-helpers'
 import { loadBuiltinSkillPresetRegistryEntry, BUILTIN_SKILL_PRESET_ASSET_DIR } from '@/skill-presets'
 
-function getPresetAssetFilePath(presetId: string) {
-    return join(BUILTIN_SKILL_PRESET_ASSET_DIR, `${presetId}.json`)
+function getPresetAssetDirectoryPath(presetId: string) {
+    return join(BUILTIN_SKILL_PRESET_ASSET_DIR, presetId)
 }
 
 export async function POST(request: NextRequest) {
@@ -57,14 +56,17 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ detail: built.detail }, { status: built.status })
         }
 
-        await mkdir(BUILTIN_SKILL_PRESET_ASSET_DIR, { recursive: true })
-        await writeFile(getPresetAssetFilePath(normalizedPresetId), `${serializeSkillPresetJson(built.preset)}\n`, 'utf8')
+        await writeSkillPresetDirectory({
+            assetDirectoryPath: getPresetAssetDirectoryPath(normalizedPresetId),
+            built: built.built,
+            replaceExisting: false,
+        })
 
         return NextResponse.json(
             {
-                presetId: built.preset.metadata.presetId,
-                revision: built.preset.metadata.revision,
-                preset: built.preset,
+                presetId: built.built.preset.metadata.presetId,
+                revision: built.built.preset.metadata.revision,
+                preset: built.built.preset,
             },
             { status: 201 }
         )

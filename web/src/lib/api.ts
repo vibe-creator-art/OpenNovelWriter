@@ -305,6 +305,8 @@ export const materialApi = {
 }
 
 // AI-proposed manuscript edits (one search/replace hunk each), pending author review.
+export type SceneEditStatus = 'pending' | 'accepted' | 'rejected'
+
 export interface SceneEdit {
     id: string
     novelId: string
@@ -314,7 +316,7 @@ export interface SceneEdit {
     beforeText: string
     afterText: string
     anchorHash: string
-    status: 'pending' | 'accepted' | 'rejected'
+    status: SceneEditStatus
     createdAt: string
 }
 
@@ -322,8 +324,14 @@ export const sceneEditApi = {
     list: (novelId: string, status: 'pending' | 'accepted' | 'rejected' | 'all' = 'pending') =>
         fetchApi<SceneEdit[]>(`/novels/${novelId}/scene-edits?status=${status}`),
 
+    statuses: (novelId: string, ids: string[]) =>
+        fetchApi<{ statuses: { id: string; status: SceneEditStatus }[] }>(`/novels/${novelId}/scene-edits/statuses`, {
+            method: 'POST',
+            body: JSON.stringify({ ids }),
+        }),
+
     resolve: (novelId: string, editId: string, action: 'accept' | 'reject') =>
-        fetchApi<{ ok: boolean }>(`/novels/${novelId}/scene-edits/${editId}`, {
+        fetchApi<{ ok: boolean; status: SceneEditStatus }>(`/novels/${novelId}/scene-edits/${editId}`, {
             method: 'PATCH',
             body: JSON.stringify({ action }),
         }),
@@ -469,6 +477,15 @@ export interface Skill {
     sourcePresetRevision: number | null
     createdAt: string
     updatedAt: string
+}
+
+export interface SkillFileTreeNode {
+    name: string
+    path: string
+    type: 'directory' | 'file'
+    size?: number
+    previewable?: boolean
+    children?: SkillFileTreeNode[]
 }
 
 export interface Agent {
@@ -683,7 +700,7 @@ export const skillApi = {
             method: 'POST',
         }),
 
-    update: (id: string, data: { content: string }) =>
+    update: (id: string, data: { content: string; category: SkillCategory; prompt: string | null }) =>
         fetchApi<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}`, {
             method: 'PUT',
             body: JSON.stringify(data),
@@ -697,6 +714,14 @@ export const skillApi = {
 
     delete: (id: string) =>
         fetchApi<{ ok: true }>(`/skills/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+    listFiles: (id: string) =>
+        fetchApi<{ files: SkillFileTreeNode[] }>(`/skills/${encodeURIComponent(id)}/files`),
+
+    readFile: (id: string, filePath: string) =>
+        fetchApi<{ path: string; content: string; size: number }>(
+            `/skills/${encodeURIComponent(id)}/files?path=${encodeURIComponent(filePath)}`
+        ),
 }
 
 export interface BuiltinSkillPreset {
@@ -1204,6 +1229,8 @@ export type CodexSession = {
     codexThreadId: string | null
     codexConnectionId: string | null
     draftContent: string
+    draftAttachments: string[]
+    draftArtifacts: CodexDraftArtifact[]
     status: CodexSessionStatus
     lastError: string | null
     novelId: string
@@ -1211,6 +1238,12 @@ export type CodexSession = {
     createdAt: string
     updatedAt: string
     messages: CodexSessionMessage[]
+}
+
+export type CodexDraftArtifact = {
+    fileName: string
+    originalName: string
+    size: number
 }
 
 async function readSseStream(
@@ -1309,6 +1342,8 @@ export const codexSessionApi = {
             serviceTier?: CodexServiceTier
             planMode?: boolean
             draftContent?: string
+            draftAttachments?: string[]
+            draftArtifacts?: CodexDraftArtifact[]
             /** For `scene_operation` sessions: the skill + scene to pre-assemble a prompt artifact for. */
             skillId?: string
             sceneId?: string
@@ -1334,6 +1369,8 @@ export const codexSessionApi = {
             serviceTier: CodexServiceTier
             planMode: boolean
             draftContent: string
+            draftAttachments: string[]
+            draftArtifacts: CodexDraftArtifact[]
         }>
     ) =>
         fetchApi<{ session: CodexSession }>(`/codex/sessions/${encodeURIComponent(id)}`, {

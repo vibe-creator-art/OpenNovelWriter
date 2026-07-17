@@ -518,6 +518,43 @@ const tools = [
         },
     },
     {
+        name: 'export_skill_library',
+        description:
+            'Export the current author\'s complete OpenNovelWriter user-skill library into a new directory under this Codex session\'s artifacts. Every skill is copied as a full folder containing SKILL.md, onw.json, and any scripts/references/assets/agents files. Use only after reading the built-in edit-skills skill. This tool only writes artifacts; it does not change the user\'s library.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                directoryPath: {
+                    type: 'string',
+                    description: 'Absolute path for a new directory under this Codex session artifacts directory, for example /.../artifacts/skill-library. The directory must not already exist.',
+                },
+            },
+            required: ['directoryPath'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'apply_skill_changes',
+        description:
+            'Validate or apply an OpenNovelWriter skill change-set JSON under this Codex session artifacts directory. Referenced skill directories are copied in full. Use only after reading the built-in edit-skills skill. Always call mode=validate first and show the plan to the author; apply only after the required approval. The service validates ownership, optimistic updatedAt locks, unique names, official SKILL.md metadata, onw.json, folder size, and symlink/path safety.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                jsonPath: {
+                    type: 'string',
+                    description: 'Absolute path to an open-novel-writer/skill-change-set .json file under this Codex session artifacts directory. Skill directory paths inside the JSON are relative to this file\'s directory.',
+                },
+                mode: {
+                    type: 'string',
+                    enum: ['validate', 'apply'],
+                    description: 'validate performs no writes; apply creates, replaces, or deletes complete user-skill folders.',
+                },
+            },
+            required: ['jsonPath', 'mode'],
+            additionalProperties: false,
+        },
+    },
+    {
         name: 'compose_scene_continuation',
         description:
             'Assemble a scene-continuation prompt into a conversation artifact, exactly as the scene-continuation panel would — without a real panel. Use this only when a skill tells you to assemble a specific prompt. Call `describe_prompt` first to learn the inputs. This tool renders the prompt (`promptName`) against a concrete scene plus your `instruction` and `inputs`, pulling in the scene\'s previous/following text, the terms mentioned in your instruction, outlines, etc., and writes a `## system` / `## user` markdown file to `mdPath` under this Codex session artifacts directory. Its job ends there: it does NOT call a model and does NOT touch the manuscript. What happens next (run_llm, showing the result, editing the scene) is decided by the skill / author. Returns the written `mdPath`, the bound `groups`, and any `missingInputs` / `unsupportedRequiredContentSelection` warnings.',
@@ -735,6 +772,10 @@ async function callTool(params) {
                 return toolResult(await exportPromptLibrary(args))
             case 'apply_prompt_changes':
                 return toolResult(await applyPromptChanges(args))
+            case 'export_skill_library':
+                return toolResult(await exportSkillLibrary(args))
+            case 'apply_skill_changes':
+                return toolResult(await applySkillChanges(args))
             case 'compose_scene_continuation':
                 return toolResult(await composeSceneContinuation(args))
             default:
@@ -2318,6 +2359,90 @@ async function applyPromptChanges(args) {
         { ownerId, mode, changeSet },
         60_000
     )
+    return { ...result, jsonPath: artifact.realPath }
+}
+
+async function exportSkillLibrary(args) {
+    const directoryPath = requireNonEmptyString(args.directoryPath, 'directoryPath')
+    const output = await resolveArtifactDirectoryOutputPath(directoryPath)
+    const session = await prisma.codexSession.findFirst({
+        where: { id: output.sessionId, ownerId },
+        select: { id: true },
+    })
+    if (!session) throw new Error(`Codex session ${output.sessionId} was not found for this connection.`)
+
+    const payload = await callInternalCodexEndpoint('/api/internal/codex/skill-library', { ownerId }, 30_000)
+    const library = payload.library
+    await fs.mkdir(output.realPath)
+    await fs.mkdir(path.join(output.realPath, 'skills'))
+    await fs.writeFile(path.join(output.realPath, 'manifest.json'), `${JSON.stringify(library.manifest, null, 2)}\n`, 'utf8')
+    for (const skill of library.skills ?? []) {
+        const id = requireNonEmptyString(skill.id, 'skill.id')
+        if (id.includes('/') || id.includes('\\') || id === '.' || id === '..') {
+            throw new Error(`Invalid exported skill id: ${id}`)
+        }
+        await fs.cp(
+            requireNonEmptyString(skill.sourceDirectory, 'skill.sourceDirectory'),
+            path.join(output.realPath, 'skills', id),
+            { recursive: true, errorOnExist: true, force: false }
+        )
+    }
+
+    return {
+        ok: true,
+        directoryPath: output.realPath,
+        manifestPath: path.join(output.realPath, 'manifest.json'),
+        skillCount: library.manifest?.skillCount ?? 0,
+    }
+}
+
+async function applySkillChanges(args) {
+    const jsonPath = requireNonEmptyString(args.jsonPath, 'jsonPath')
+    const mode = requireOneOf(args.mode, 'mode', ['validate', 'apply'])
+    const artifact = await resolveArtifactJsonPath(jsonPath)
+    const session = await prisma.codexSession.findFirst({
+        where: { id: artifact.sessionId, ownerId },
+        select: { id: true },
+    })
+    if (!session) throw new Error(`Codex session ${artifact.sessionId} was not found for this connection.`)
+
+    const text = await fs.readFile(artifact.realPath, 'utf8')
+    if (Buffer.byteLength(text, 'utf8') > 2 * 1024 * 1024) {
+        throw new Error('Skill change-set JSON must not exceed 2 MB.')
+    }
+    let changeSet
+    try {
+        changeSet = JSON.parse(text)
+    } catch (error) {
+        throw new Error(`Invalid skill change-set JSON: ${error instanceof Error ? error.message : String(error)}`)
+    }
+
+    const request = {
+        ownerId,
+        mode,
+        changeSet,
+        sourceRoot: path.dirname(artifact.realPath),
+    }
+    if (mode === 'apply') {
+        const validation = await callInternalCodexEndpoint(
+            '/api/internal/codex/skill-changes',
+            { ...request, mode: 'validate' },
+            60_000
+        )
+        if (!validation?.ok) return { ...validation, jsonPath: artifact.realPath }
+
+        const deletes = Array.isArray(changeSet?.operations)
+            ? changeSet.operations.filter((operation) => operation && operation.action === 'delete')
+            : []
+        if (deletes.length > 0) {
+            await requireStructureDeletionApproval(
+                'apply_skill_changes',
+                `run tool "apply_skill_changes"：永久删除 ${deletes.length} 个用户技能，并应用同一 change-set 中的其他技能修改？删除不可撤销。`
+            )
+        }
+    }
+
+    const result = await callInternalCodexEndpoint('/api/internal/codex/skill-changes', request, 120_000)
     return { ...result, jsonPath: artifact.realPath }
 }
 

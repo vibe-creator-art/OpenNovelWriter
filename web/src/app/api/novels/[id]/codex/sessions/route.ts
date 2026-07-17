@@ -11,6 +11,8 @@ import {
     normalizeCodexSessionCategory,
     normalizeCodexString,
     normalizeCodexStringId,
+    parseCodexDraftArtifacts,
+    parseCodexDraftAttachments,
     serializeCodexSession,
 } from '@/lib/server/codex-session'
 import { canUseCodexFastMode, DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
@@ -106,6 +108,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 serviceTier,
                 planMode: body?.planMode === true,
                 draftContent: normalizeCodexString(body?.draftContent),
+                draftAttachmentsJson: JSON.stringify(
+                    parseCodexDraftAttachments(JSON.stringify(body?.draftAttachments))
+                ),
+                draftArtifactsJson: JSON.stringify(
+                    parseCodexDraftArtifacts(JSON.stringify(body?.draftArtifacts))
+                ),
                 codexConnectionId: activeConnection?.id ?? null,
                 novelId,
                 ownerId: user.userId,

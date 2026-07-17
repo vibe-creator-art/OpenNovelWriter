@@ -46,30 +46,64 @@ function extractImageFiles(dataTransfer: DataTransfer | null): File[] {
 export function useImageAttachments(options: {
     disabled?: boolean
     onError?: (error: ImageAttachmentError) => void
+    items?: PendingImageAttachment[]
+    scopeId?: string | null
+    onItemsChange?: (
+        scopeId: string,
+        updater: (current: PendingImageAttachment[]) => PendingImageAttachment[]
+    ) => PendingImageAttachment[]
 }) {
-    const { disabled = false, onError } = options
-    const [items, setItems] = useState<PendingImageAttachment[]>([])
+    const { disabled = false, onError, items: controlledItems, scopeId = null, onItemsChange } = options
+    const [localItems, setLocalItems] = useState<PendingImageAttachment[]>([])
+    const items = controlledItems ?? localItems
+    const controlled = controlledItems !== undefined && onItemsChange !== undefined
     const itemsRef = useRef(items)
 
     useEffect(() => {
         itemsRef.current = items
     }, [items])
 
-    // Revoke preview object URLs when the component unmounts.
+    const updateItems = useCallback(
+        (
+            updater: (current: PendingImageAttachment[]) => PendingImageAttachment[],
+            targetScopeId: string | null = scopeId
+        ) => {
+            if (controlled) {
+                if (!targetScopeId) return
+                const nextItems = onItemsChange(targetScopeId, updater)
+                if (targetScopeId === scopeId) itemsRef.current = nextItems
+            } else {
+                setLocalItems((current) => {
+                    const nextItems = updater(current)
+                    itemsRef.current = nextItems
+                    return nextItems
+                })
+            }
+        },
+        [controlled, onItemsChange, scopeId]
+    )
+
+    // Locally owned previews end with the component. Controlled previews belong to their external
+    // composer store and remain alive while the user switches panels or sessions.
     useEffect(() => {
+        if (controlled) return
         return () => {
-            for (const item of itemsRef.current) URL.revokeObjectURL(item.previewUrl)
+            for (const item of itemsRef.current) {
+                if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl)
+            }
         }
-    }, [])
+    }, [controlled])
 
     const addFiles = useCallback(
-        (files: File[]) => {
+        (files: File[], scopeIdOverride?: string) => {
             if (files.length === 0) return
             if (disabled) {
                 onError?.('disabled')
                 return
             }
 
+            const targetScopeId = scopeIdOverride ?? scopeId
+            let pendingCount = itemsRef.current.length
             for (const file of files) {
                 if (!ATTACHMENT_IMAGE_TYPES.has(file.type)) {
                     onError?.('type')
@@ -79,7 +113,7 @@ export function useImageAttachments(options: {
                     onError?.('size')
                     continue
                 }
-                if (itemsRef.current.length >= ATTACHMENT_MAX_COUNT) {
+                if (pendingCount >= ATTACHMENT_MAX_COUNT) {
                     onError?.('count')
                     return
                 }
@@ -90,42 +124,45 @@ export function useImageAttachments(options: {
                     url: null,
                     previewUrl: URL.createObjectURL(file),
                 }
-                itemsRef.current = [...itemsRef.current, item]
-                setItems(itemsRef.current)
+                pendingCount += 1
+                updateItems((current) => [...current, item], targetScopeId)
 
                 void uploadApi
                     .image(file)
                     .then((result) => {
-                        setItems((current) =>
+                        updateItems((current) =>
                             current.map((entry) =>
                                 entry.id === item.id ? { ...entry, status: 'ready', url: result.url } : entry
-                            )
+                            ),
+                            targetScopeId
                         )
                     })
                     .catch(() => {
                         URL.revokeObjectURL(item.previewUrl)
-                        setItems((current) => current.filter((entry) => entry.id !== item.id))
+                        updateItems((current) => current.filter((entry) => entry.id !== item.id), targetScopeId)
                         onError?.('upload')
                     })
             }
         },
-        [disabled, onError]
+        [disabled, onError, scopeId, updateItems]
     )
 
     const removeItem = useCallback((id: string) => {
-        setItems((current) => {
+        updateItems((current) => {
             const item = current.find((entry) => entry.id === id)
-            if (item) URL.revokeObjectURL(item.previewUrl)
+            if (item?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl)
             return current.filter((entry) => entry.id !== id)
         })
-    }, [])
+    }, [updateItems])
 
     const clear = useCallback(() => {
-        setItems((current) => {
-            for (const item of current) URL.revokeObjectURL(item.previewUrl)
+        updateItems((current) => {
+            for (const item of current) {
+                if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl)
+            }
             return []
         })
-    }, [])
+    }, [updateItems])
 
     const handlePaste = useCallback(
         (event: { clipboardData: DataTransfer | null; preventDefault: () => void }) => {

@@ -1,0 +1,15 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-1jm5fum",
+    "name": "预设-内容分析",
+    "description": "示例skill，如何在general chat中调用组装好的提示词",
+    "revision": 1.2,
+    "exportedAt": "2026-06-20T08:50:17.200Z"
+  },
+  "entrySkill": "skill",
+  "skills": [
+    "skill"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "schema": "open-novel-writer/skill",
+  "version": 1,
+  "category": "scene_action",
+  "prompt": "预设-通用场景总结"
+}

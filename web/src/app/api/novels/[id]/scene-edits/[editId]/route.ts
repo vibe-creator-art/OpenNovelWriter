@@ -33,7 +33,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         if (!result.ok) {
             return NextResponse.json({ detail: result.error }, { status: result.status ?? 400 })
         }
-        return NextResponse.json({ ok: true })
+        return NextResponse.json({ ok: true, status: result.editStatus })
     } catch (error) {
         console.error('Scene edit action error:', error)
         return NextResponse.json({ detail: 'Internal server error' }, { status: 500 })

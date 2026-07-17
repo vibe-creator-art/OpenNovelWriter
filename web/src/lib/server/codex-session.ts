@@ -25,6 +25,12 @@ export type CodexSessionMessage = {
     createdAt: string
 }
 
+export type CodexDraftArtifact = {
+    fileName: string
+    originalName: string
+    size: number
+}
+
 export type CodexTokenUsage = {
     inputTokens: number
     cachedInputTokens: number
@@ -176,6 +182,49 @@ export function parseCodexSessionMessages(value: string | null | undefined): Cod
     }
 }
 
+export function parseCodexDraftAttachments(value: string | null | undefined): string[] {
+    if (!value) return []
+    try {
+        const parsed = JSON.parse(value) as unknown
+        return Array.isArray(parsed)
+            ? parsed.filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+            : []
+    } catch {
+        return []
+    }
+}
+
+export function parseCodexDraftArtifacts(value: string | null | undefined): CodexDraftArtifact[] {
+    if (!value) return []
+    try {
+        const parsed = JSON.parse(value) as unknown
+        if (!Array.isArray(parsed)) return []
+        return parsed
+            .map((item): CodexDraftArtifact | null => {
+                if (!item || typeof item !== 'object') return null
+                const record = item as Record<string, unknown>
+                if (
+                    typeof record.fileName !== 'string' ||
+                    !/^[^/\\]+\.json$/i.test(record.fileName) ||
+                    typeof record.originalName !== 'string' ||
+                    typeof record.size !== 'number' ||
+                    !Number.isFinite(record.size) ||
+                    record.size < 0
+                ) {
+                    return null
+                }
+                return {
+                    fileName: record.fileName,
+                    originalName: record.originalName,
+                    size: record.size,
+                }
+            })
+            .filter((artifact): artifact is CodexDraftArtifact => artifact !== null)
+    } catch {
+        return []
+    }
+}
+
 export function serializeCodexSession(record: CodexSessionRecord) {
     return {
         id: record.id,
@@ -190,6 +239,8 @@ export function serializeCodexSession(record: CodexSessionRecord) {
         codexThreadId: record.codexThreadId,
         codexConnectionId: record.codexConnectionId,
         draftContent: record.draftContent,
+        draftAttachments: parseCodexDraftAttachments(record.draftAttachmentsJson),
+        draftArtifacts: parseCodexDraftArtifacts(record.draftArtifactsJson),
         status: normalizeCodexSessionStatus(record.status),
         lastError: record.lastError,
         novelId: record.novelId,

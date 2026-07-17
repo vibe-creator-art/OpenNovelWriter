@@ -1,23 +1,31 @@
+import fs from 'fs/promises'
+import path from 'path'
+
 import {
-    SKILL_BUNDLE_SCHEMA,
-    SKILL_BUNDLE_VERSION,
     SKILL_PRESET_SCHEMA,
     SKILL_PRESET_VERSION,
-    type SkillBundleV1,
+    serializeSkillPresetJson,
     type SkillPresetAssetV1,
 } from '@/lib/skill-preset'
+import type { BuiltinSkillPresetRegistryEntry } from '@/skill-presets'
 import {
-    createSkillFromContent,
+    copySkillDirectory,
+    createSkillFromDirectory,
+    getOwnedSkillDirectory,
     listSkills,
-    parseSkillContent,
     readSkill,
+    replaceSkillFromDirectory,
     setSkillPresetOrigin,
     toSkillDto,
-    updateSkill,
 } from '@/lib/server/skill-storage'
 
 function normalizeNameKey(value: string) {
     return value.trim().toLowerCase()
+}
+
+export type BuiltOwnedSkillPreset = {
+    preset: SkillPresetAssetV1
+    sourceDirectory: string
 }
 
 export async function buildSkillPresetAssetFromOwnedSkill(params: {
@@ -27,118 +35,130 @@ export async function buildSkillPresetAssetFromOwnedSkill(params: {
     name: string
     description: string | null
     revision: number
-}): Promise<{ ok: true; preset: SkillPresetAssetV1 } | { ok: false; status: number; detail: string }> {
+}): Promise<{ ok: true; built: BuiltOwnedSkillPreset } | { ok: false; status: number; detail: string }> {
     const skill = await readSkill(params.ownerId, params.skillId).catch(() => null)
     if (!skill) return { ok: false, status: 404, detail: 'Skill not found.' }
 
     const exportedAt = new Date().toISOString()
-    const bundle: SkillBundleV1 = {
-        schema: SKILL_BUNDLE_SCHEMA,
-        version: SKILL_BUNDLE_VERSION,
-        exportedAt,
-        entryName: skill.name,
-        skills: [
-            {
-                name: skill.name,
-                description: skill.description,
-                category: skill.category,
-                prompt: skill.prompt,
-                content: skill.content,
-            },
-        ],
-    }
-
     return {
         ok: true,
-        preset: {
-            schema: SKILL_PRESET_SCHEMA,
-            version: SKILL_PRESET_VERSION,
-            metadata: {
-                presetId: params.presetId,
-                name: params.name,
-                description: params.description,
-                revision: params.revision,
-                exportedAt,
+        built: {
+            preset: {
+                schema: SKILL_PRESET_SCHEMA,
+                version: SKILL_PRESET_VERSION,
+                metadata: {
+                    presetId: params.presetId,
+                    name: params.name,
+                    description: params.description,
+                    revision: params.revision,
+                    exportedAt,
+                },
+                entrySkill: 'skill',
+                skills: ['skill'],
             },
-            bundle,
+            sourceDirectory: getOwnedSkillDirectory(params.ownerId, params.skillId),
         },
     }
 }
 
-export async function importSkillBundleForOwner(params: {
+/** Write the manifest and complete skill folder as one replaceable preset directory. */
+export async function writeSkillPresetDirectory(params: {
+    assetDirectoryPath: string
+    built: BuiltOwnedSkillPreset
+    replaceExisting: boolean
+}) {
+    const parent = path.dirname(params.assetDirectoryPath)
+    await fs.mkdir(parent, { recursive: true })
+    const baseName = path.basename(params.assetDirectoryPath)
+    const staging = path.join(parent, `.${baseName}.staging-${crypto.randomUUID()}`)
+    const backup = path.join(parent, `.${baseName}.backup-${crypto.randomUUID()}`)
+    await fs.mkdir(staging)
+    try {
+        await copySkillDirectory(params.built.sourceDirectory, path.join(staging, 'skill'))
+        await fs.writeFile(
+            path.join(staging, 'preset.json'),
+            `${serializeSkillPresetJson(params.built.preset)}\n`,
+            'utf8'
+        )
+
+        if (!params.replaceExisting) {
+            await fs.rename(staging, params.assetDirectoryPath)
+            return
+        }
+
+        try {
+            await fs.rename(params.assetDirectoryPath, backup)
+        } catch (error) {
+            await fs.rm(staging, { recursive: true, force: true })
+            throw error
+        }
+        try {
+            await fs.rename(staging, params.assetDirectoryPath)
+        } catch (error) {
+            await fs.rename(backup, params.assetDirectoryPath).catch(() => undefined)
+            throw error
+        }
+        await fs.rm(backup, { recursive: true, force: true })
+    } catch (error) {
+        await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined)
+        throw error
+    }
+}
+
+export async function importSkillPresetForOwner(params: {
     ownerId: string
-    bundle: SkillBundleV1
+    entry: BuiltinSkillPresetRegistryEntry
     overwriteExisting: boolean
-    sourcePresetId?: string | null
-    sourcePresetRevision?: number | null
 }): Promise<
     | { ok: true; skills: ReturnType<typeof toSkillDto>[] }
     | { ok: false; status: number; detail: string; code?: string; names?: string[] }
 > {
-    const incoming: Array<{ name: string; content: string }> = []
-    for (const skill of params.bundle.skills) {
-        const content = typeof skill.content === 'string' ? skill.content : ''
-        if (!content.trim()) return { ok: false, status: 400, detail: 'Skill content is required.' }
-
-        let name: string
-        try {
-            name = parseSkillContent(content).name
-        } catch (error) {
-            return { ok: false, status: 400, detail: error instanceof Error ? error.message : 'Invalid skill content.' }
-        }
-        incoming.push({ name, content })
-    }
-
     const existing = await listSkills(params.ownerId)
     const existingByNameKey = new Map(existing.map((skill) => [normalizeNameKey(skill.name), skill]))
-
     const incomingKeys = new Set<string>()
     const duplicateIncomingNames: string[] = []
     const conflictingNames: string[] = []
-    for (const skill of incoming) {
+
+    for (const skill of params.entry.skills) {
         const key = normalizeNameKey(skill.name)
-        if (!key) continue
         if (incomingKeys.has(key)) duplicateIncomingNames.push(skill.name)
         incomingKeys.add(key)
         if (existingByNameKey.has(key)) conflictingNames.push(skill.name)
     }
 
     if (duplicateIncomingNames.length > 0) {
-        return {
-            ok: false,
-            status: 400,
-            detail: 'Duplicate skill names in preset.',
-            code: 'SKILL_PRESET_DUPLICATE_NAMES',
-            names: [...new Set(duplicateIncomingNames.map((n) => n.trim()).filter(Boolean))],
-        }
+        const names = [...new Set(duplicateIncomingNames)]
+        return { ok: false, status: 400, detail: 'Duplicate skill names in preset.', code: 'SKILL_PRESET_DUPLICATE_NAMES', names }
     }
-
     if (conflictingNames.length > 0 && !params.overwriteExisting) {
-        const unique = [...new Set(conflictingNames.map((n) => n.trim()).filter(Boolean))]
-        const list = unique.slice(0, 8).join(', ')
-        const suffix = unique.length > 8 ? ` (+${unique.length - 8} more)` : ''
+        const names = [...new Set(conflictingNames)]
+        const list = names.slice(0, 8).join(', ')
+        const suffix = names.length > 8 ? ` (+${names.length - 8} more)` : ''
         return {
             ok: false,
             status: 409,
             detail: `Skill name already exists: ${list}${suffix}`,
             code: 'SKILL_NAME_ALREADY_EXISTS',
-            names: unique,
+            names,
         }
     }
 
-    const origin = params.sourcePresetId
-        ? { presetId: params.sourcePresetId, revision: params.sourcePresetRevision ?? 1 }
-        : null
-
+    const origin = {
+        presetId: params.entry.preset.metadata.presetId,
+        revision: params.entry.preset.metadata.revision,
+    }
     const records = []
-    for (const skill of incoming) {
-        const existingSkill = existingByNameKey.get(normalizeNameKey(skill.name)) ?? null
+    for (const source of params.entry.skills) {
+        const existingSkill = existingByNameKey.get(normalizeNameKey(source.name)) ?? null
         const written = existingSkill && params.overwriteExisting
-            ? await updateSkill({ ownerId: params.ownerId, skillId: existingSkill.id, content: skill.content })
-            : await createSkillFromContent({ ownerId: params.ownerId, content: skill.content })
-        // Record origin out-of-band so the cloned skill is locked, then re-read to reflect it in the DTO.
+            ? await replaceSkillFromDirectory({
+                ownerId: params.ownerId,
+                skillId: existingSkill.id,
+                sourceDirectory: source.directoryPath,
+            })
+            : await createSkillFromDirectory({ ownerId: params.ownerId, sourceDirectory: source.directoryPath })
         await setSkillPresetOrigin(params.ownerId, written.id, origin)
-        records.push(origin ? await readSkill(params.ownerId, written.id) : written)
+        records.push(await readSkill(params.ownerId, written.id))
     }
 
     return { ok: true, skills: records.map(toSkillDto) }

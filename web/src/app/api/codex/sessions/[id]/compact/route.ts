@@ -133,7 +133,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                         codexThreadId: result.threadId,
                         codexConnectionId: result.connectionId,
                         messagesJson: JSON.stringify(streamedMessages),
-                        draftContent: '',
                         status: 'idle',
                         lastError: null,
                         updatedAt: new Date(),
@@ -147,7 +146,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                     where: { id },
                     data: {
                         messagesJson: JSON.stringify(streamedMessages),
-                        draftContent: '',
                         status: 'error',
                         lastError: message,
                         updatedAt: new Date(),

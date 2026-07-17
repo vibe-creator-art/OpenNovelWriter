@@ -1,0 +1,15 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-1ny6m95",
+    "name": "预设-总结场景+更新经历",
+    "description": "总结场景并更新对应词条经历",
+    "revision": 1.1,
+    "exportedAt": "2026-06-20T08:49:38.255Z"
+  },
+  "entrySkill": "skill",
+  "skills": [
+    "skill"
+  ]
+}

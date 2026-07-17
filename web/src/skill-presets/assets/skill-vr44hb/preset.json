@@ -1,0 +1,15 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-vr44hb",
+    "name": "预设-场景续写",
+    "description": "示例skill，如何在场景续写中调用组装好的提示词",
+    "revision": 1.2,
+    "exportedAt": "2026-06-20T08:49:24.759Z"
+  },
+  "entrySkill": "skill",
+  "skills": [
+    "skill"
+  ]
+}

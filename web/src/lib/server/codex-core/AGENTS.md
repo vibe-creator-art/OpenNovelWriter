@@ -14,6 +14,7 @@
 - 创建、修改、删除片段（snippet）→ `edit-snippets`
 - 创建、修改、删除词条（角色/地点/物品等设定卡，含经历时间线）→ `edit-terms`
 - 创建、修改、删除提示词，或转换外部提示词预设 → `edit-prompts`
+- 创建、迁移、修改、删除用户技能，或把外部 skill 仓库改写为 ONW 格式 → `edit-skills`
 
 调用工具时使用工作区投影中标注的 `novel_id`、`act_number`、`chapter_id`、`scene_id`、`term_id`。
 

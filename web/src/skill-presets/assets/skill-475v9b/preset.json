@@ -1,0 +1,15 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-475v9b",
+    "name": "预设-总结场景",
+    "description": "示例skill，如何在场景操作中调用组装好的提示词",
+    "revision": 1.2,
+    "exportedAt": "2026-06-20T08:49:43.192Z"
+  },
+  "entrySkill": "skill",
+  "skills": [
+    "skill"
+  ]
+}

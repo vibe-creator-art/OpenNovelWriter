@@ -409,22 +409,24 @@ export function ChapterSceneEditor({
             const sceneRefLabel = `${getChapterTitleDisplay()} · ${sceneLabel} ${sceneIndex + 1}`
             const sceneRef = `[${sceneRefLabel}](scene:${chapterId}:${sceneId})`
             const draftContent = `[${skill.name}](skill:${skill.id})\n\n${sceneRef}`
-            useInfoPanelStore.getState().setActiveTab('codex')
-            void useEditorCodexStore
-                .getState()
-                .createSceneOperationSkillSession(novelId, {
+            void (async () => {
+                const sessionId = await useEditorCodexStore.getState().createSceneOperationSkillSession(novelId, {
                     skillId: skill.id,
                     sceneId,
                     draftContent,
                     title: `${skill.name} · ${sceneRefLabel}`,
                 })
-                .catch((error) => {
-                    console.error('Failed to start scene-operation skill session:', error)
-                })
+                if (!sessionId) return
+                onOpenRightSidebar?.()
+                useEditorCodexStore.getState().selectSession(novelId, sessionId)
+                useInfoPanelStore.getState().setActiveTab('codex')
+            })().catch((error) => {
+                console.error('Failed to start scene-operation skill session:', error)
+            })
         },
         // getChapterTitleDisplay/sceneLabel are derived from chapterTitle/globalChapterIndex props.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [chapterId, novelId, sceneLabel, chapterTitle, globalChapterIndex]
+        [chapterId, novelId, onOpenRightSidebar, sceneLabel, chapterTitle, globalChapterIndex]
     )
 
     const setSceneOperationDialogOpen = useCallback(

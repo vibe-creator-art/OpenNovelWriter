@@ -7,6 +7,14 @@ import { SKILL_CATEGORIES, normalizeSkillCategory, type SkillCategory } from '@/
 type ParsedSkillDocument = {
     name: string
     description: string | null
+}
+
+export const ONW_SKILL_SCHEMA = 'open-novel-writer/skill' as const
+export const ONW_SKILL_VERSION = 1 as const
+
+export type SkillOnwMetadata = {
+    schema: typeof ONW_SKILL_SCHEMA
+    version: typeof ONW_SKILL_VERSION
     category: SkillCategory
     prompt: string | null
 }
@@ -27,9 +35,9 @@ export type SkillRecord = {
     enabled: boolean
     prompt: string | null
     /**
-     * The official preset this skill was cloned from, recorded in SKILL.md frontmatter as `presetId`.
-     * Cloned-from-preset skills are read-only unless preset authoring is enabled; re-cloning the skill
-     * (via {@link cloneSkill}) clears this so the copy becomes editable. Tracked out-of-band in
+     * The official preset this skill was cloned from. Cloned-from-preset skills are read-only unless
+     * preset authoring is enabled; re-cloning the skill (via {@link cloneSkill}) clears this so the
+     * copy becomes editable. Tracked out-of-band in
      * `.preset-origins.json` (NOT in SKILL.md) so the document stays clean.
      */
     sourcePresetId: string | null
@@ -41,12 +49,26 @@ export type SkillRecord = {
 }
 
 const SKILL_FILE_NAME = 'SKILL.md'
+const ONW_METADATA_FILE_NAME = 'onw.json'
 const SKILL_DIRECTORY_NAMES = ['scripts', 'references', 'assets'] as const
 const DISABLED_SKILLS_FILE_NAME = '.disabled-skills.json'
 const PRESET_ORIGINS_FILE_NAME = '.preset-origins.json'
+const MAX_SKILL_FILE_COUNT = 500
+const MAX_SKILL_TOTAL_BYTES = 50 * 1024 * 1024
+const MAX_TEXT_PREVIEW_BYTES = 2 * 1024 * 1024
 
 export class SkillNotFoundError extends Error {}
 export class DuplicateSkillNameError extends Error {}
+export class InvalidSkillDirectoryError extends Error {}
+
+export type SkillFileTreeNode = {
+    name: string
+    path: string
+    type: 'directory' | 'file'
+    size?: number
+    previewable?: boolean
+    children?: SkillFileTreeNode[]
+}
 
 export function getSkillsRoot() {
     return path.join(getOpenNovelWriterDataDir(), 'skills')
@@ -102,20 +124,22 @@ async function readSkillRecord(
     const directory = getSkillDirectory(ownerId, directoryName)
     const filePath = path.join(directory, SKILL_FILE_NAME)
 
-    const [content, stats] = await Promise.all([
+    const [content, metadataText, stats] = await Promise.all([
         fs.readFile(filePath, 'utf8'),
+        fs.readFile(path.join(directory, ONW_METADATA_FILE_NAME), 'utf8'),
         fs.stat(filePath),
     ])
 
     const parsed = parseSkillDocument(content)
+    const metadata = parseSkillOnwMetadataText(metadataText)
     const origin = origins.get(directoryName) ?? null
     return {
         id: directoryName,
         name: parsed.name,
         description: parsed.description,
-        category: parsed.category,
+        category: metadata.category,
         enabled: !disabledIds.has(directoryName),
-        prompt: parsed.prompt,
+        prompt: metadata.prompt,
         sourcePresetId: origin?.presetId ?? null,
         sourcePresetRevision: origin?.revision ?? null,
         content: normalizeDocumentContent(content),
@@ -139,11 +163,11 @@ export async function createSkill(input: {
     await fs.mkdir(directory, { recursive: true })
     await Promise.all(SKILL_DIRECTORY_NAMES.map((name) => fs.mkdir(path.join(directory, name), { recursive: true })))
 
-    const content = createDefaultSkillMarkdown({
-        name: uniqueName,
-        category: input.category,
-    })
-    await fs.writeFile(path.join(directory, SKILL_FILE_NAME), content, 'utf8')
+    const content = createDefaultSkillMarkdown({ name: uniqueName })
+    await Promise.all([
+        fs.writeFile(path.join(directory, SKILL_FILE_NAME), content, 'utf8'),
+        writeSkillOnwMetadata(directory, { category: input.category, prompt: null }),
+    ])
 
     return readSkill(input.ownerId, directoryName)
 }
@@ -156,23 +180,68 @@ export function parseSkillContent(content: string): ParsedSkillDocument {
     return parseSkillDocument(normalizeDocumentContent(content))
 }
 
-/**
- * Create a new skill directory from a full SKILL.md body (used by preset cloning). Unlike
- * {@link createSkill}, the name comes from the document frontmatter and is written verbatim — name
- * conflicts are expected to be resolved by the caller; only the on-disk directory name is de-duped.
- */
-export async function createSkillFromContent(input: { ownerId: string; content: string }) {
-    const normalized = normalizeDocumentContent(input.content)
-    const parsed = parseSkillDocument(normalized)
+export function getOwnedSkillDirectory(ownerId: string, skillId: string) {
+    return getSkillDirectory(ownerId, normalizeSkillId(skillId))
+}
 
+export async function readSkillDirectoryMetadata(directory: string) {
+    const [content, metadataText] = await Promise.all([
+        fs.readFile(path.join(directory, SKILL_FILE_NAME), 'utf8'),
+        fs.readFile(path.join(directory, ONW_METADATA_FILE_NAME), 'utf8'),
+    ])
+    return {
+        ...parseSkillDocument(content),
+        ...parseSkillOnwMetadataText(metadataText),
+        content: normalizeDocumentContent(content),
+    }
+}
+
+/** Copy a complete, validated skill folder into the user's library. */
+export async function createSkillFromDirectory(input: { ownerId: string; sourceDirectory: string }) {
+    const source = await validateSkillDirectory(input.sourceDirectory)
     const root = getUserSkillsRoot(input.ownerId)
     await fs.mkdir(root, { recursive: true })
 
-    const directoryName = await getUniqueSkillDirectoryName(root, parsed.name)
+    const directoryName = await getUniqueSkillDirectoryName(root, source.name)
     const directory = path.join(root, directoryName)
-    await fs.mkdir(directory, { recursive: true })
-    await Promise.all(SKILL_DIRECTORY_NAMES.map((name) => fs.mkdir(path.join(directory, name), { recursive: true })))
-    await fs.writeFile(path.join(directory, SKILL_FILE_NAME), normalized, 'utf8')
+    await copySkillDirectory(input.sourceDirectory, directory)
+
+    return readSkill(input.ownerId, directoryName)
+}
+
+/** Replace an owned skill with a complete folder while keeping its stable id and enabled state. */
+export async function replaceSkillFromDirectory(input: {
+    ownerId: string
+    skillId: string
+    sourceDirectory: string
+}) {
+    const directoryName = normalizeSkillId(input.skillId)
+    const directory = getSkillDirectory(input.ownerId, directoryName)
+    const source = await validateSkillDirectory(input.sourceDirectory)
+    await ensureSkillExists(directory)
+
+    const existingKeys = await loadSkillNameKeys(input.ownerId, directoryName)
+    if (existingKeys.has(toSkillNameKey(source.name))) {
+        throw new DuplicateSkillNameError('Skill name already exists')
+    }
+
+    const staging = path.join(path.dirname(directory), `.${directoryName}.staging-${crypto.randomUUID()}`)
+    const backup = path.join(path.dirname(directory), `.${directoryName}.backup-${crypto.randomUUID()}`)
+    await copySkillDirectory(input.sourceDirectory, staging)
+    try {
+        await fs.rename(directory, backup)
+    } catch (error) {
+        await fs.rm(staging, { recursive: true, force: true })
+        throw error
+    }
+    try {
+        await fs.rename(staging, directory)
+    } catch (error) {
+        await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined)
+        await fs.rename(backup, directory).catch(() => undefined)
+        throw error
+    }
+    await fs.rm(backup, { recursive: true, force: true })
 
     return readSkill(input.ownerId, directoryName)
 }
@@ -198,15 +267,22 @@ export async function cloneSkill(input: { ownerId: string; skillId: string }) {
     const source = await readSkill(input.ownerId, input.skillId)
     const existingKeys = await loadSkillNameKeys(input.ownerId)
     const cloneName = getNextAvailableNumberedSkillName(source.name, existingKeys)
+    const root = getUserSkillsRoot(input.ownerId)
+    const directoryName = await getUniqueSkillDirectoryName(root, cloneName)
+    const directory = path.join(root, directoryName)
 
+    await copySkillDirectory(getSkillDirectory(input.ownerId, source.id), directory)
     const content = setSkillFrontmatterField(source.content, 'name', cloneName)
-    return createSkillFromContent({ ownerId: input.ownerId, content })
+    await fs.writeFile(path.join(directory, SKILL_FILE_NAME), normalizeDocumentContent(content), 'utf8')
+    return readSkill(input.ownerId, directoryName)
 }
 
 export async function updateSkill(input: {
     ownerId: string
     skillId: string
     content: string
+    category: SkillCategory
+    prompt: string | null
 }) {
     const directoryName = normalizeSkillId(input.skillId)
     const directory = getSkillDirectory(input.ownerId, directoryName)
@@ -222,7 +298,10 @@ export async function updateSkill(input: {
 
     // The directory name is a stable id: renaming a skill only rewrites frontmatter, it never moves the
     // directory. This removes the autosave race where a debounced save targeted a just-renamed directory.
-    await fs.writeFile(path.join(directory, SKILL_FILE_NAME), content, 'utf8')
+    await Promise.all([
+        fs.writeFile(path.join(directory, SKILL_FILE_NAME), content, 'utf8'),
+        writeSkillOnwMetadata(directory, { category: input.category, prompt: input.prompt }),
+    ])
     return readSkill(input.ownerId, directoryName)
 }
 
@@ -371,7 +450,7 @@ async function getUniqueSkillDirectoryName(root: string, name: string) {
     }
 }
 
-function sanitizeSkillDirectoryName(name: string) {
+export function sanitizeSkillDirectoryName(name: string) {
     return name
         .trim()
         .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
@@ -407,13 +486,11 @@ function setSkillFrontmatterField(content: string, key: string, value: string | 
     return `---\n${lines.join('\n')}\n---\n${body}`
 }
 
-function createDefaultSkillMarkdown(input: { name: string; category: SkillCategory }) {
+function createDefaultSkillMarkdown(input: { name: string }) {
     return [
         '---',
         `name: ${escapeFrontmatterScalar(input.name)}`,
         'description: ""',
-        `category: ${input.category}`,
-        'prompt: ""',
         '---',
         '',
         '## Purpose',
@@ -442,13 +519,224 @@ function parseSkillDocument(content: string): ParsedSkillDocument {
     const fields = parseFrontmatterFields(frontmatter)
     const name = fields.name?.trim() ?? ''
     const description = fields.description?.trim() || null
-    const category = normalizeSkillCategory(fields.category?.trim())
-    const prompt = fields.prompt?.trim() || null
 
     if (!name) throw new Error('Skill frontmatter must include a non-empty `name`.')
-    if (!category) throw new Error('Skill frontmatter must include a valid `category`.')
 
-    return { name, description, category, prompt }
+    return { name, description }
+}
+
+export function parseSkillOnwMetadataText(text: string): SkillOnwMetadata {
+    let value: unknown
+    try {
+        value = JSON.parse(text)
+    } catch {
+        throw new Error('Skill onw.json must contain valid JSON.')
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('Skill onw.json must contain an object.')
+    }
+
+    const record = value as Record<string, unknown>
+    if (record.schema !== ONW_SKILL_SCHEMA || record.version !== ONW_SKILL_VERSION) {
+        throw new Error('Unsupported skill onw.json format.')
+    }
+    const category = normalizeSkillCategory(record.category)
+    if (!category) throw new Error('Skill onw.json must include a valid `category`.')
+    const prompt = typeof record.prompt === 'string' && record.prompt.trim() ? record.prompt.trim() : null
+
+    return {
+        schema: ONW_SKILL_SCHEMA,
+        version: ONW_SKILL_VERSION,
+        category,
+        prompt,
+    }
+}
+
+async function writeSkillOnwMetadata(
+    directory: string,
+    metadata: Pick<SkillOnwMetadata, 'category' | 'prompt'>
+) {
+    const value: SkillOnwMetadata = {
+        schema: ONW_SKILL_SCHEMA,
+        version: ONW_SKILL_VERSION,
+        category: metadata.category,
+        prompt: metadata.prompt?.trim() || null,
+    }
+    await fs.writeFile(
+        path.join(directory, ONW_METADATA_FILE_NAME),
+        `${JSON.stringify(value, null, 2)}\n`,
+        'utf8'
+    )
+}
+
+export async function validateSkillDirectory(directory: string) {
+    const rootStats = await fs.lstat(directory).catch(() => null)
+    if (!rootStats?.isDirectory() || rootStats.isSymbolicLink()) {
+        throw new InvalidSkillDirectoryError('Skill source must be a real directory.')
+    }
+
+    let fileCount = 0
+    let totalBytes = 0
+    const visit = async (current: string) => {
+        const entries = await fs.readdir(current, { withFileTypes: true })
+        for (const entry of entries) {
+            if (entry.name === '.git') {
+                throw new InvalidSkillDirectoryError('Skill folders must not contain a .git directory.')
+            }
+            const absolute = path.join(current, entry.name)
+            const stats = await fs.lstat(absolute)
+            if (stats.isSymbolicLink()) {
+                throw new InvalidSkillDirectoryError('Skill folders must not contain symbolic links.')
+            }
+            if (stats.isDirectory()) {
+                await visit(absolute)
+                continue
+            }
+            if (!stats.isFile()) {
+                throw new InvalidSkillDirectoryError('Skill folders may contain only regular files and directories.')
+            }
+            fileCount += 1
+            totalBytes += stats.size
+            if (fileCount > MAX_SKILL_FILE_COUNT) {
+                throw new InvalidSkillDirectoryError(`Skill folders may contain at most ${MAX_SKILL_FILE_COUNT} files.`)
+            }
+            if (totalBytes > MAX_SKILL_TOTAL_BYTES) {
+                throw new InvalidSkillDirectoryError('Skill folder size must not exceed 50 MB.')
+            }
+        }
+    }
+    await visit(directory)
+    const metadata = await readSkillDirectoryMetadata(directory).catch((error) => {
+        throw new InvalidSkillDirectoryError(error instanceof Error ? error.message : 'Invalid skill directory.')
+    })
+    return metadata
+}
+
+/** Copy regular files/directories only; executable script bits are preserved and symlinks are rejected. */
+export async function copySkillDirectory(sourceDirectory: string, targetDirectory: string) {
+    await validateSkillDirectory(sourceDirectory)
+    await fs.mkdir(targetDirectory, { recursive: false })
+    try {
+        const copyEntries = async (source: string, target: string) => {
+            const entries = await fs.readdir(source, { withFileTypes: true })
+            for (const entry of entries) {
+                const sourcePath = path.join(source, entry.name)
+                const targetPath = path.join(target, entry.name)
+                const stats = await fs.lstat(sourcePath)
+                if (stats.isSymbolicLink()) {
+                    throw new InvalidSkillDirectoryError('Skill folders must not contain symbolic links.')
+                }
+                if (stats.isDirectory()) {
+                    await fs.mkdir(targetPath)
+                    await copyEntries(sourcePath, targetPath)
+                } else if (stats.isFile()) {
+                    await fs.copyFile(sourcePath, targetPath)
+                    await fs.chmod(targetPath, stats.mode)
+                }
+            }
+        }
+        await copyEntries(sourceDirectory, targetDirectory)
+    } catch (error) {
+        await fs.rm(targetDirectory, { recursive: true, force: true })
+        throw error
+    }
+}
+
+export async function listSkillFiles(ownerId: string, skillId: string): Promise<SkillFileTreeNode[]> {
+    const directory = getSkillDirectory(ownerId, normalizeSkillId(skillId))
+    await ensureSkillExists(directory)
+
+    const visit = async (current: string, relativeDirectory: string): Promise<SkillFileTreeNode[]> => {
+        const entries = await fs.readdir(current, { withFileTypes: true })
+        const nodes = await Promise.all(entries.map(async (entry): Promise<SkillFileTreeNode> => {
+            const relativePath = relativeDirectory
+                ? `${relativeDirectory}/${entry.name}`
+                : entry.name
+            const absolutePath = path.join(current, entry.name)
+            const stats = await fs.lstat(absolutePath)
+            if (stats.isSymbolicLink()) {
+                throw new InvalidSkillDirectoryError('Skill folders must not contain symbolic links.')
+            }
+            if (stats.isDirectory()) {
+                return {
+                    name: entry.name,
+                    path: relativePath,
+                    type: 'directory',
+                    children: await visit(absolutePath, relativePath),
+                }
+            }
+            if (!stats.isFile()) {
+                throw new InvalidSkillDirectoryError('Skill folders may contain only regular files and directories.')
+            }
+            return {
+                name: entry.name,
+                path: relativePath,
+                type: 'file',
+                size: stats.size,
+                previewable: await isTextPreviewable(absolutePath, stats.size),
+            }
+        }))
+        return nodes.sort((left, right) => {
+            const leftRank = left.name === SKILL_FILE_NAME ? 0 : left.name === ONW_METADATA_FILE_NAME ? 1 : left.type === 'directory' ? 2 : 3
+            const rightRank = right.name === SKILL_FILE_NAME ? 0 : right.name === ONW_METADATA_FILE_NAME ? 1 : right.type === 'directory' ? 2 : 3
+            return leftRank - rightRank || left.name.localeCompare(right.name)
+        })
+    }
+
+    return visit(directory, '')
+}
+
+export async function readSkillTextFile(ownerId: string, skillId: string, relativePath: string) {
+    const directory = getSkillDirectory(ownerId, normalizeSkillId(skillId))
+    await ensureSkillExists(directory)
+    const normalizedPath = normalizeSkillRelativePath(relativePath)
+    const absolutePath = path.join(directory, ...normalizedPath.split('/'))
+    const directStats = await fs.lstat(absolutePath)
+    if (directStats.isSymbolicLink()) throw new Error('Symbolic links cannot be previewed.')
+    const [realDirectory, realFile] = await Promise.all([fs.realpath(directory), fs.realpath(absolutePath)])
+    const relative = path.relative(realDirectory, realFile)
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error('Invalid skill file path.')
+    }
+
+    const stats = await fs.lstat(realFile)
+    if (!stats.isFile() || stats.isSymbolicLink()) throw new Error('Skill file not found.')
+    if (stats.size > MAX_TEXT_PREVIEW_BYTES) throw new Error('This file is too large to preview.')
+    const buffer = await fs.readFile(realFile)
+    if (!isUtf8Text(buffer)) throw new Error('This file is not plain text and cannot be previewed.')
+    return { path: normalizedPath, content: buffer.toString('utf8'), size: stats.size }
+}
+
+async function isTextPreviewable(filePath: string, size: number) {
+    if (size > MAX_TEXT_PREVIEW_BYTES) return false
+    const handle = await fs.open(filePath, 'r')
+    try {
+        const sample = Buffer.alloc(Math.min(size, 8192))
+        const { bytesRead } = await handle.read(sample, 0, sample.length, 0)
+        // A fixed-size sample may end in the middle of a valid multi-byte character. Streaming mode
+        // tolerates only that incomplete tail while fatal decoding still rejects malformed bytes.
+        return isUtf8Text(sample.subarray(0, bytesRead), true)
+    } finally {
+        await handle.close()
+    }
+}
+
+function isUtf8Text(buffer: Buffer, allowIncompleteEnd = false) {
+    if (buffer.includes(0)) return false
+    try {
+        new TextDecoder('utf-8', { fatal: true }).decode(buffer, { stream: allowIncompleteEnd })
+        return true
+    } catch {
+        return false
+    }
+}
+
+function normalizeSkillRelativePath(value: string) {
+    const normalized = value.trim().replace(/\\/g, '/')
+    if (!normalized || normalized.startsWith('/') || normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
+        throw new Error('Invalid skill file path.')
+    }
+    return normalized
 }
 
 async function loadSkillNameKeys(ownerId: string, excludeId?: string) {
@@ -498,6 +786,37 @@ function splitFrontmatter(markdown: string) {
         frontmatter: normalized.slice(4, closingIndex).trim(),
         body: normalized.slice(closingIndex + 5),
     }
+}
+
+export function migrateLegacySkillDocument(content: string) {
+    const normalized = normalizeDocumentContent(content)
+    const { frontmatter } = splitFrontmatter(normalized)
+    if (!frontmatter) throw new Error('Skills must start with YAML frontmatter in SKILL.md.')
+    const fields = parseFrontmatterFields(frontmatter)
+    const category = normalizeSkillCategory(fields.category?.trim())
+    if (!category) throw new Error('Legacy skill frontmatter must include a valid `category`.')
+    const prompt = fields.prompt?.trim() || null
+
+    const migrated = sanitizeOfficialSkillDocument(normalized)
+    parseSkillDocument(migrated)
+    return {
+        content: normalizeDocumentContent(migrated),
+        metadata: {
+            schema: ONW_SKILL_SCHEMA,
+            version: ONW_SKILL_VERSION,
+            category,
+            prompt,
+        } satisfies SkillOnwMetadata,
+    }
+}
+
+export function sanitizeOfficialSkillDocument(content: string) {
+    let migrated = normalizeDocumentContent(content)
+    for (const key of ['category', 'prompt', 'presetId']) {
+        migrated = setSkillFrontmatterField(migrated, key, null)
+    }
+    parseSkillDocument(migrated)
+    return normalizeDocumentContent(migrated)
 }
 
 function parseFrontmatterFields(frontmatter: string) {

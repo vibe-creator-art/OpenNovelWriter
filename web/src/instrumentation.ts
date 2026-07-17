@@ -9,7 +9,17 @@ const SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
 export async function register() {
     if (process.env.NEXT_RUNTIME !== 'nodejs') return
 
-    const { sweepOrphanImages } = await import('@/lib/server/image-gc')
+    const [{ sweepOrphanImages }, { migrateSkillStorageToOfficialFormat }] = await Promise.all([
+        import('@/lib/server/image-gc'),
+        import('@/lib/server/skill-storage-migration'),
+    ])
+    const skillMigration = await migrateSkillStorageToOfficialFormat()
+    if (skillMigration.migrated > 0) {
+        console.log(`[skill-storage] migrated ${skillMigration.migrated} skill folder(s) to the official format`)
+    }
+    if (skillMigration.renamed > 0) {
+        console.log(`[skill-storage] renamed ${skillMigration.renamed} placeholder skill directory id(s)`)
+    }
     const sweep = async (label: string) => {
         try {
             const result = await sweepOrphanImages()

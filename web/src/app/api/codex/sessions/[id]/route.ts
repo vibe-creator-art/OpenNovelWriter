@@ -9,6 +9,8 @@ import {
     normalizeCodexServiceTier,
     normalizeCodexString,
     normalizeCodexStringId,
+    parseCodexDraftArtifacts,
+    parseCodexDraftAttachments,
     serializeCodexSession,
 } from '@/lib/server/codex-session'
 import { deleteCodexSessionWorkspace } from '@/lib/server/codex-session-workspace'
@@ -52,6 +54,8 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
             serviceTier?: string
             planMode?: boolean
             draftContent?: string
+            draftAttachmentsJson?: string
+            draftArtifactsJson?: string
             updatedAt: Date
         } = { updatedAt: new Date() }
 
@@ -112,6 +116,16 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         }
         if (body && Object.hasOwn(body, 'draftContent')) {
             data.draftContent = normalizeCodexString(body.draftContent)
+        }
+        if (body && Object.hasOwn(body, 'draftAttachments')) {
+            data.draftAttachmentsJson = JSON.stringify(
+                parseCodexDraftAttachments(JSON.stringify(body.draftAttachments))
+            )
+        }
+        if (body && Object.hasOwn(body, 'draftArtifacts')) {
+            data.draftArtifactsJson = JSON.stringify(
+                parseCodexDraftArtifacts(JSON.stringify(body.draftArtifacts))
+            )
         }
 
         const session = await prisma.codexSession.update({

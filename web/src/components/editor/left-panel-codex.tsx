@@ -38,7 +38,8 @@ function formatSessionTime(updatedAt: string) {
 
 function getSessionPreview(session: CodexSession, fallback: string) {
     const lastMessage = [...session.messages].reverse().find((message) => message.role !== 'event' && message.content.trim())
-    return lastMessage?.content.trim().replace(/\s+/g, ' ') ?? fallback
+    const content = lastMessage?.content.trim() || session.draftContent.trim()
+    return content ? content.replace(/\s+/g, ' ') : fallback
 }
 
 export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCodexProps) {
@@ -58,10 +59,7 @@ export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCod
         void loadSessions(novelId)
     }, [loadSessions, novelId])
 
-    const sessions = useMemo(
-        () => (sessionState?.sessions ?? EMPTY_SESSIONS).filter((session) => session.messages.length > 0),
-        [sessionState?.sessions]
-    )
+    const sessions = sessionState?.sessions ?? EMPTY_SESSIONS
     const selectedSessionId = sessionState?.selectedSessionId ?? null
     const deletingSession = sessions.find((session) => session.id === deleteSessionId) ?? null
 

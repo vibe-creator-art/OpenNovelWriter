@@ -6,6 +6,7 @@ import {
     Check,
     ChevronDown,
     ChevronRight,
+    FolderOpen,
     List,
     MessageCircle,
     MoreVertical,
@@ -42,6 +43,7 @@ import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import { SkillPresetLibrarySection } from '@/components/editor/skills/skill-preset-library-section'
 import { SkillPresetPublishDialog } from '@/components/editor/skills/skill-preset-publish-dialog'
+import { SkillDirectoryBrowserDialog } from '@/components/editor/skills/skill-directory-browser-dialog'
 
 const CATEGORY_ITEMS: Array<{ id: SkillCategory; icon: LucideIcon; translationKey: string }> = [
     { id: 'scene_continuation', icon: PenLine, translationKey: 'sceneContinuation' },
@@ -122,63 +124,6 @@ function replaceSkillNameInMarkdown(content: string, nextName: string) {
     return `---\n${nextFrontmatter}\n---\n${body}`
 }
 
-function extractSkillPromptFromMarkdown(content: string) {
-    const normalized = content.replace(/\r\n/g, '\n')
-    if (!normalized.startsWith('---\n')) return null
-    const closingIndex = normalized.indexOf('\n---\n', 4)
-    if (closingIndex === -1) return null
-
-    const frontmatter = normalized.slice(4, closingIndex)
-    const match = frontmatter.match(/^prompt\s*:\s*(.+)$/m)
-    if (!match) return null
-
-    const raw = match[1]?.trim() ?? ''
-    if (
-        (raw.startsWith('"') && raw.endsWith('"'))
-        || (raw.startsWith("'") && raw.endsWith("'"))
-    ) {
-        return raw.slice(1, -1)
-    }
-    return raw
-}
-
-function extractSkillCategoryFromMarkdown(content: string) {
-    const normalized = content.replace(/\r\n/g, '\n')
-    if (!normalized.startsWith('---\n')) return null
-    const closingIndex = normalized.indexOf('\n---\n', 4)
-    if (closingIndex === -1) return null
-
-    const frontmatter = normalized.slice(4, closingIndex)
-    const match = frontmatter.match(/^category\s*:\s*(.+)$/m)
-    if (!match) return null
-
-    const raw = match[1]?.trim() ?? ''
-    if (
-        (raw.startsWith('"') && raw.endsWith('"'))
-        || (raw.startsWith("'") && raw.endsWith("'"))
-    ) {
-        return raw.slice(1, -1)
-    }
-    return raw
-}
-
-function replaceSkillPromptInMarkdown(content: string, promptName: string) {
-    const normalized = content.replace(/\r\n/g, '\n')
-    if (!normalized.startsWith('---\n')) return normalized
-
-    const closingIndex = normalized.indexOf('\n---\n', 4)
-    if (closingIndex === -1) return normalized
-
-    const frontmatter = normalized.slice(4, closingIndex)
-    const body = normalized.slice(closingIndex + 5)
-    const nextFrontmatterLine = `prompt: ${escapeDoubleQuotedYaml(promptName)}`
-    const nextFrontmatter = /^prompt\s*:\s*.+$/m.test(frontmatter)
-        ? frontmatter.replace(/^prompt\s*:\s*.+$/m, nextFrontmatterLine)
-        : `${frontmatter}\n${nextFrontmatterLine}`
-
-    return `---\n${nextFrontmatter}\n---\n${body}`
-}
-
 function replaceSkillDescriptionInMarkdown(content: string, description: string) {
     const normalized = content.replace(/\r\n/g, '\n')
     if (!normalized.startsWith('---\n')) return normalized
@@ -232,22 +177,6 @@ function replaceSkillBodyInMarkdown(content: string, body: string) {
     return `---\n${frontmatter}\n---\n${body}`
 }
 
-function replaceSkillCategoryInMarkdown(content: string, category: string) {
-    const normalized = content.replace(/\r\n/g, '\n')
-    if (!normalized.startsWith('---\n')) return normalized
-    const closingIndex = normalized.indexOf('\n---\n', 4)
-    if (closingIndex === -1) return normalized
-
-    const frontmatter = normalized.slice(4, closingIndex)
-    const body = normalized.slice(closingIndex + 5)
-    const nextLine = `category: ${category}`
-    const nextFrontmatter = /^category\s*:\s*.+$/m.test(frontmatter)
-        ? frontmatter.replace(/^category\s*:\s*.+$/m, nextLine)
-        : `${frontmatter}\n${nextLine}`
-
-    return `---\n${nextFrontmatter}\n---\n${body}`
-}
-
 export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
     const t = useTranslations('skills')
     const [loading, setLoading] = useState(true)
@@ -258,6 +187,9 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
     const [expandedCategories, setExpandedCategories] = useState<Record<SkillCategory, boolean>>(DEFAULT_EXPANDED_CATEGORIES)
     const [searchQuery, setSearchQuery] = useState('')
     const [draftContent, setDraftContent] = useState('')
+    const [draftCategory, setDraftCategory] = useState<SkillCategory | null>(null)
+    const [draftPrompt, setDraftPrompt] = useState('')
+    const [directoryBrowserOpen, setDirectoryBrowserOpen] = useState(false)
     // Tracks which skill `draftContent` currently belongs to. Unlike a ref, this state value is
     // captured per-render, so it stays "stale" during the transitional render right after the
     // selection switches — letting the autosave effect skip that render instead of validating the
@@ -287,7 +219,13 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
 
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const latestDraftRef = useRef('')
-    const lastSavedContentRef = useRef<{ id: string; content: string } | null>(null)
+    const latestMetadataRef = useRef<{ category: SkillCategory | null; prompt: string }>({ category: null, prompt: '' })
+    const lastSavedContentRef = useRef<{
+        id: string
+        content: string
+        category: SkillCategory
+        prompt: string
+    } | null>(null)
     const saveRequestIdRef = useRef(0)
     const hasRestoredViewStateRef = useRef(false)
     const hasInitializedPersistenceRef = useRef(false)
@@ -441,21 +379,12 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         () => extractSkillDescriptionFromMarkdown(draftContent) ?? selectedSkill?.description ?? '',
         [draftContent, selectedSkill?.description]
     )
-    const draftSkillPrompt = useMemo(
-        () => extractSkillPromptFromMarkdown(draftContent) ?? selectedSkill?.prompt ?? '',
-        [draftContent, selectedSkill?.prompt]
-    )
-    // The textarea edits only the body; the frontmatter (name/description/category/prompt) is hidden and
-    // managed through the fields above, so it can't be accidentally broken.
+    // The textarea edits only the body. Official SKILL.md frontmatter (name/description) is hidden;
+    // ONW-only category/prompt metadata is edited separately and stored in onw.json.
     const draftSkillBody = useMemo(() => extractSkillBodyFromMarkdown(draftContent), [draftContent])
     // A skill can only bind a prompt from its own category — no cross-category selection.
-    const draftSkillCategory = useMemo(
-        () =>
-            normalizeSkillCategory(extractSkillCategoryFromMarkdown(draftContent))
-            ?? normalizeSkillCategory(selectedSkill?.category)
-            ?? null,
-        [draftContent, selectedSkill?.category]
-    )
+    const draftSkillCategory = draftCategory
+    const draftSkillPrompt = draftPrompt
     const promptOptions = useMemo(
         () =>
             [...prompts]
@@ -502,7 +431,11 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
     useEffect(() => {
         if (!selectedSkill) {
             setDraftContent('')
+            setDraftCategory(null)
+            setDraftPrompt('')
             setDraftSkillId(null)
+            latestDraftRef.current = ''
+            latestMetadataRef.current = { category: null, prompt: '' }
             setSaveState('idle')
             lastSavedContentRef.current = null
             setIsEditingName(false)
@@ -510,22 +443,32 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         }
 
         const normalizedContent = normalizeSkillDraftContent(selectedSkill.content)
+        const category = normalizeSkillCategory(selectedSkill.category)
+        const prompt = selectedSkill.prompt?.trim() ?? ''
         setDraftContent(normalizedContent)
+        setDraftCategory(category)
+        setDraftPrompt(prompt)
         setDraftSkillId(selectedSkill.id)
         latestDraftRef.current = normalizedContent
+        latestMetadataRef.current = { category, prompt }
         lastSavedContentRef.current = {
             id: selectedSkill.id,
             content: normalizedContent,
+            category: category ?? 'ai_chat',
+            prompt,
         }
         setSaveState('idle')
 
-        const category = normalizeSkillCategory(selectedSkill.category)
         if (category) setActiveCategory(category)
     }, [selectedSkill])
 
     useEffect(() => {
         latestDraftRef.current = draftContent
     }, [draftContent])
+
+    useEffect(() => {
+        latestMetadataRef.current = { category: draftCategory, prompt: draftPrompt }
+    }, [draftCategory, draftPrompt])
 
     const getSkillNameError = useCallback((content: string) => {
         const name = extractSkillNameFromMarkdown(content)?.trim() ?? ''
@@ -549,7 +492,12 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         if (draftSkillId !== selectedSkill.id) return
         const lastSaved = lastSavedContentRef.current
         if (!lastSaved || lastSaved.id !== selectedSkill.id) return
-        if (draftContent === lastSaved.content) return
+        if (
+            draftContent === lastSaved.content
+            && draftCategory === lastSaved.category
+            && draftPrompt === lastSaved.prompt
+        ) return
+        if (!draftCategory) return
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
         if (isEditingName) {
             const draftName = extractSkillNameFromMarkdown(draftContent)?.trim() ?? ''
@@ -574,16 +522,34 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
             const previousSkillId = selectedSkill.id
             setSaveState('saving')
             try {
-                const { skill } = await skillApi.update(previousSkillId, { content: draftContent })
+                const { skill } = await skillApi.update(previousSkillId, {
+                    content: draftContent,
+                    category: draftCategory,
+                    prompt: draftPrompt.trim() || null,
+                })
 
                 if (requestId !== saveRequestIdRef.current) return
                 if (latestDraftRef.current !== draftContent) return
+                if (
+                    latestMetadataRef.current.category !== draftCategory
+                    || latestMetadataRef.current.prompt !== draftPrompt
+                ) return
 
                 setSkills((prev) => prev.map((item) => (item.id === previousSkillId ? skill : item)))
                 setSelectedSkillId((prev) => (prev === previousSkillId ? skill.id : prev))
-                lastSavedContentRef.current = { id: skill.id, content: skill.content }
+                const savedCategory = normalizeSkillCategory(skill.category) ?? draftCategory
+                const savedPrompt = skill.prompt?.trim() ?? ''
+                lastSavedContentRef.current = {
+                    id: skill.id,
+                    content: skill.content,
+                    category: savedCategory,
+                    prompt: savedPrompt,
+                }
                 setDraftContent(skill.content)
+                setDraftCategory(savedCategory)
+                setDraftPrompt(savedPrompt)
                 latestDraftRef.current = skill.content
+                latestMetadataRef.current = { category: savedCategory, prompt: savedPrompt }
                 setError(null)
 
                 const category = normalizeSkillCategory(skill.category)
@@ -614,7 +580,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         return () => {
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
         }
-    }, [draftContent, draftSkillId, editorReadOnly, getSkillNameError, isEditingName, selectedSkill, t])
+    }, [draftCategory, draftContent, draftPrompt, draftSkillId, editorReadOnly, getSkillNameError, isEditingName, selectedSkill, t])
 
     const filteredSkills = useMemo(() => {
         const normalized = searchQuery.trim().toLowerCase()
@@ -687,9 +653,19 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
             setSkills((prev) => prev.map((item) => (item.id === skill.id ? updated : item)))
             if (selectedSkillId === skill.id) {
                 const normalizedContent = normalizeSkillDraftContent(updated.content)
+                const updatedCategory = normalizeSkillCategory(updated.category) ?? 'ai_chat'
+                const updatedPrompt = updated.prompt?.trim() ?? ''
                 setDraftContent(normalizedContent)
+                setDraftCategory(updatedCategory)
+                setDraftPrompt(updatedPrompt)
                 latestDraftRef.current = normalizedContent
-                lastSavedContentRef.current = { id: updated.id, content: normalizedContent }
+                latestMetadataRef.current = { category: updatedCategory, prompt: updatedPrompt }
+                lastSavedContentRef.current = {
+                    id: updated.id,
+                    content: normalizedContent,
+                    category: updatedCategory,
+                    prompt: updatedPrompt,
+                }
             }
         } catch (err) {
             console.error(err)
@@ -1110,6 +1086,11 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                             </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => setDirectoryBrowserOpen(true)}>
+                                                <FolderOpen className="h-4 w-4" />
+                                                {t('actions.browseDirectory')}
+                                            </DropdownMenuItem>
+                                            <DropdownMenuSeparator />
                                             {presetAuthoringEnabled && (
                                                 <>
                                                     <DropdownMenuItem onClick={() => handleOpenPublishDialog('create')}>
@@ -1164,7 +1145,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                                 key={item.id}
                                                 onClick={() => {
                                                     setError(null)
-                                                    setDraftContent((prev) => replaceSkillCategoryInMarkdown(prev, item.id))
+                                                    setDraftCategory(item.id)
                                                 }}
                                             >
                                                 <item.icon className="h-4 w-4" />
@@ -1190,7 +1171,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                         <DropdownMenuItem
                                             onClick={() => {
                                                 setError(null)
-                                                setDraftContent((prev) => replaceSkillPromptInMarkdown(prev, ''))
+                                                setDraftPrompt('')
                                             }}
                                         >
                                             {t('editor.associatedPromptNone')}
@@ -1200,7 +1181,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                                 key={prompt.id}
                                                 onClick={() => {
                                                     setError(null)
-                                                    setDraftContent((prev) => replaceSkillPromptInMarkdown(prev, prompt.name))
+                                                    setDraftPrompt(prompt.name)
                                                 }}
                                             >
                                                 <span className="truncate">{prompt.name}</span>
@@ -1269,6 +1250,12 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                 )}
             </section>
         </div>
+
+        <SkillDirectoryBrowserDialog
+            open={directoryBrowserOpen}
+            onOpenChange={setDirectoryBrowserOpen}
+            skill={selectedSkill}
+        />
 
         <SkillPresetPublishDialog
             open={publishDialogOpen}

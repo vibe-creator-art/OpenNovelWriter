@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getCurrentUser } from '@/lib/auth'
 import { isPresetAuthoringEnabled } from '@/lib/preset-authoring'
+import { normalizeSkillCategory } from '@/lib/skills'
 import { syncActiveCodexConnectionSkills } from '@/lib/server/codex-skill-sync'
 import {
     deleteSkill,
@@ -45,8 +46,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         const { id } = await params
         const body = await request.json().catch(() => null)
         const content = typeof body?.content === 'string' ? body.content : ''
+        const category = normalizeSkillCategory(body?.category)
+        const prompt = body?.prompt === null
+            ? null
+            : typeof body?.prompt === 'string'
+                ? body.prompt.trim() || null
+                : undefined
         if (!content.trim()) {
             return NextResponse.json({ detail: 'Content is required' }, { status: 400 })
+        }
+        if (!category) {
+            return NextResponse.json({ detail: 'A valid category is required' }, { status: 400 })
+        }
+        if (prompt === undefined) {
+            return NextResponse.json({ detail: 'prompt must be a string or null' }, { status: 400 })
         }
 
         // Skills cloned from an official preset are read-only unless preset authoring is enabled.
@@ -64,6 +77,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             ownerId: user.userId,
             skillId: id,
             content,
+            category,
+            prompt,
         })
         await syncActiveCodexConnectionSkills(user.userId)
 
