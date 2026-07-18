@@ -8,7 +8,7 @@ import {
 import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
 import { encryptApiKey } from '@/lib/server/ai-credentials'
-import { syncCodexConnectionCoreAgents, syncActiveCodexConnectionCoreAgents } from '@/lib/server/codex-agent-sync'
+import { syncCodexConnectionCoreAgents } from '@/lib/server/codex-agent-sync'
 import { syncCodexConnectionAuthState } from '@/lib/server/codex-app-server'
 import {
     getDefaultCodexAuthJson,
@@ -16,7 +16,7 @@ import {
     readCodexConnectionFiles,
     writeCodexConnectionFiles,
 } from '@/lib/server/codex-connection-storage'
-import { syncCodexConnectionMcp, syncActiveCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
+import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
 import { syncCodexConnectionSkills } from '@/lib/server/codex-skill-sync'
 import { serializeCodexConnection } from '@/lib/server/codex-connection-serialize'
@@ -28,21 +28,20 @@ function isProviderType(value: unknown): value is CodexConnectionProviderType {
 }
 
 export async function GET(request: NextRequest) {
-    const user = await getCurrentUser(request)
-    if (!user) return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 })
+    try {
+        const user = await getCurrentUser(request)
+        if (!user) return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 })
 
-    const connections = await prisma.codexConnection.findMany({
-        where: { ownerId: user.userId },
-        orderBy: { createdAt: 'asc' },
-    })
-    await Promise.all(
-        connections.filter((connection) => connection.providerType === 'custom').map(syncCodexConnectionRuntimeFiles)
-    )
-    await Promise.all([
-        syncActiveCodexConnectionCoreAgents(user.userId),
-        syncActiveCodexConnectionMcp(user.userId),
-    ])
-    return NextResponse.json(connections.map(serializeCodexConnection))
+        const connections = await prisma.codexConnection.findMany({
+            where: { ownerId: user.userId },
+            orderBy: { createdAt: 'asc' },
+        })
+        return NextResponse.json(connections.map(serializeCodexConnection))
+    } catch (error) {
+        console.error('Failed to list Codex connections:', error)
+        const detail = error instanceof Error ? error.message : 'Failed to list Codex connections.'
+        return NextResponse.json({ detail }, { status: 500 })
+    }
 }
 
 export async function POST(request: NextRequest) {

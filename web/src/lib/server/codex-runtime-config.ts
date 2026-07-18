@@ -1,4 +1,3 @@
-import fs from 'fs/promises'
 import path from 'path'
 
 import {
@@ -7,6 +6,7 @@ import {
     parseCodexUpstreamFormat,
     type CodexConnectionProviderType,
 } from '@/lib/codex-config'
+import { writeFileAtomicallyIfChanged } from '@/lib/server/atomic-file-write'
 import { getCodexInternalBaseUrl, getCodexProxyToken } from '@/lib/server/codex-internal-auth'
 import { CODEX_MODEL_CATALOG_FILE, writeCodexModelCatalog } from '@/lib/server/codex-model-catalog'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
@@ -56,16 +56,10 @@ export async function syncCodexConnectionRuntimeFiles(connection: RuntimeConnect
     ].join('\n')
 
     await Promise.all([
-        writeAtomic(path.join(codexHome, 'auth.json'), authJson),
-        writeAtomic(path.join(codexHome, 'config.toml'), configToml),
+        writeFileAtomicallyIfChanged(path.join(codexHome, 'auth.json'), authJson, { mode: 0o600 }),
+        writeFileAtomicallyIfChanged(path.join(codexHome, 'config.toml'), configToml, { mode: 0o600 }),
     ])
     return codexHome
-}
-
-async function writeAtomic(filePath: string, content: string) {
-    const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`
-    await fs.writeFile(temporary, content, { encoding: 'utf8', mode: 0o600 })
-    await fs.rename(temporary, filePath)
 }
 
 function tomlString(value: string) {

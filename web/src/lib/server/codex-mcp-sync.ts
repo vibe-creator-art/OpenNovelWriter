@@ -1,12 +1,11 @@
 import fs from 'fs/promises'
 import path from 'path'
 
-import { getPrismaClient } from '@/lib/db'
+import { writeFileAtomicallyIfChanged } from '@/lib/server/atomic-file-write'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
 import { getCodexInternalBaseUrl, getCodexInternalToken } from '@/lib/server/codex-internal-auth'
 import { getOpenNovelWriterDataDir } from '@/lib/server/data-dir'
 
-const prisma = getPrismaClient({ ensureModel: 'codexConnection' })
 const MCP_SERVER_NAME = 'opennovelwriter'
 const CONFIG_FILE_NAME = 'config.toml'
 const MANAGED_BLOCK_START = '# BEGIN OpenNovelWriter MCP'
@@ -17,21 +16,6 @@ const MANAGED_BLOCK_END = '# END OpenNovelWriter MCP'
 // auto_review reviewer, where a prompt would be routed to a review subagent (an extra model
 // call that can 503 and block the tool).
 export type CodexToolsApprovalMode = 'prompt' | 'approve'
-
-export async function syncActiveCodexConnectionMcp(ownerId: string, toolsApprovalMode?: CodexToolsApprovalMode) {
-    const activeConnection = await prisma.codexConnection.findFirst({
-        where: { ownerId, isActive: true },
-        select: { id: true },
-    })
-
-    if (!activeConnection) return null
-
-    return syncCodexConnectionMcp({
-        ownerId,
-        connectionId: activeConnection.id,
-        toolsApprovalMode,
-    })
-}
 
 export async function syncCodexConnectionMcp(input: {
     ownerId: string
@@ -53,7 +37,7 @@ export async function syncCodexConnectionMcp(input: {
         reviewLevel: input.reviewLevel,
     })
 
-    await fs.writeFile(configPath, configToml, 'utf8')
+    await writeFileAtomicallyIfChanged(configPath, configToml, { mode: 0o600 })
 
     return {
         codexHome,

@@ -1,26 +1,10 @@
 import fs from 'fs/promises'
 import path from 'path'
 
-import { getPrismaClient } from '@/lib/db'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
 import { ensureManagedFileSymlink } from '@/lib/server/managed-symlink'
 
-const prisma = getPrismaClient({ ensureModel: 'codexConnection' })
 const AGENTS_FILE_NAME = 'AGENTS.md'
-
-export async function syncActiveCodexConnectionCoreAgents(ownerId: string) {
-    const activeConnection = await prisma.codexConnection.findFirst({
-        where: { ownerId, isActive: true },
-        select: { id: true },
-    })
-
-    if (!activeConnection) return null
-
-    return syncCodexConnectionCoreAgents({
-        ownerId,
-        connectionId: activeConnection.id,
-    })
-}
 
 export async function syncCodexConnectionCoreAgents(input: {
     ownerId: string

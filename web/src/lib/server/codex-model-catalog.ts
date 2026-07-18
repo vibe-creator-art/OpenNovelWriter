@@ -3,6 +3,7 @@ import os from 'os'
 import path from 'path'
 
 import type { CodexProviderModel, CodexUpstreamFormat } from '@/lib/codex-config'
+import { writeFileAtomicallyIfChanged } from '@/lib/server/atomic-file-write'
 
 export const CODEX_MODEL_CATALOG_FILE = 'opennovelwriter-model-catalog.json'
 
@@ -31,9 +32,7 @@ export async function writeCodexModelCatalog(input: {
         ),
     }
     const target = path.join(input.codexHome, CODEX_MODEL_CATALOG_FILE)
-    const temporary = `${target}.${process.pid}.${Date.now()}.tmp`
-    await fs.writeFile(temporary, `${JSON.stringify(catalog, null, 2)}\n`, 'utf8')
-    await fs.rename(temporary, target)
+    await writeFileAtomicallyIfChanged(target, `${JSON.stringify(catalog, null, 2)}\n`, { mode: 0o600 })
     return target
 }
 
