@@ -665,6 +665,9 @@ export function ChapterSceneEditor({
                                         }
                                     }}
                                     onSelectionUpdate={(editor) => {
+                                        if (!editor.state.selection.empty) {
+                                            setMentionPreview(null)
+                                        }
                                         if (!novelId) return
                                         if (!editor.isFocused) return
                                         setSceneCursorMemory({

@@ -323,6 +323,7 @@ export function TipTapEditor({
     const handleClickCapture = useCallback(
         (event: ReactMouseEvent<HTMLDivElement>) => {
             if (!onTermMentionClick) return
+            if (!editor || !editor.state.selection.empty) return
             const target = event.target as HTMLElement | null
             if (!target) return
             const mentionEl = target.closest?.('[data-term-mention="true"][data-term-id]') as HTMLElement | null
@@ -331,7 +332,7 @@ export function TipTapEditor({
             if (!termId) return
             onTermMentionClick(termId, mentionEl)
         },
-        [onTermMentionClick]
+        [editor, onTermMentionClick]
     )
 
     return (
