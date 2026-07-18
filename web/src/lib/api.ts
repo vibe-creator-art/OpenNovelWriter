@@ -1233,6 +1233,7 @@ export type CodexSession = {
     draftArtifacts: CodexDraftArtifact[]
     status: CodexSessionStatus
     lastError: string | null
+    unreadCompletionAt: string | null
     novelId: string
     ownerId: string
     createdAt: string
@@ -1381,6 +1382,12 @@ export const codexSessionApi = {
     delete: (id: string) =>
         fetchApi<{ ok: true; removedPanelId: string | null }>(`/codex/sessions/${encodeURIComponent(id)}`, {
             method: 'DELETE',
+        }),
+
+    markCompletionRead: (id: string, completedAt: string) =>
+        fetchApi<{ ok: true }>(`/codex/sessions/${encodeURIComponent(id)}/read-completion`, {
+            method: 'POST',
+            body: JSON.stringify({ completedAt }),
         }),
 
     uploadJsonArtifact: async (id: string, file: File) => {

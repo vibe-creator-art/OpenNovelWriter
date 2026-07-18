@@ -1185,7 +1185,7 @@ export default function EditorPage({ params }: EditorPageProps) {
                                 key={tab.id}
                                 variant="ghost"
                                 size="sm"
-                                className={`gap-1 ${activeTab === tab.id ? 'bg-gray-800 text-white hover:bg-gray-700' : ''}`}
+                                className={`gap-1 ${activeTab === tab.id ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}`}
                                 onClick={() => handleActiveTabChange(tab.id)}
                             >
                                 {tab.icon}
@@ -1403,7 +1403,7 @@ export default function EditorPage({ params }: EditorPageProps) {
 		                <div className="flex-1 min-w-0 relative overflow-hidden">
 		                    <main
 		                        ref={editorScrollRef}
-		                        className="absolute inset-0 overflow-auto bg-white onw-editor-scrollbar"
+		                        className="absolute inset-0 overflow-auto bg-background onw-editor-scrollbar"
 		                    >
 		                        <div ref={editorScrollContentRef} className="min-h-full">
 	                            {/* Menu View - Drag and drop reordering */}

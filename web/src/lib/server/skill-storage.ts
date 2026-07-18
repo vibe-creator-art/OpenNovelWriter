@@ -2,7 +2,12 @@ import fs from 'fs/promises'
 import path from 'path'
 
 import { getOpenNovelWriterDataDir } from '@/lib/server/data-dir'
-import { SKILL_CATEGORIES, normalizeSkillCategory, type SkillCategory } from '@/lib/skills'
+import {
+    isReservedSkillSlashCommand,
+    SKILL_CATEGORIES,
+    normalizeSkillCategory,
+    type SkillCategory,
+} from '@/lib/skills'
 
 type ParsedSkillDocument = {
     name: string
@@ -59,6 +64,7 @@ const MAX_TEXT_PREVIEW_BYTES = 2 * 1024 * 1024
 
 export class SkillNotFoundError extends Error {}
 export class DuplicateSkillNameError extends Error {}
+export class ReservedSkillNameError extends Error {}
 export class InvalidSkillDirectoryError extends Error {}
 
 export type SkillFileTreeNode = {
@@ -153,6 +159,7 @@ export async function createSkill(input: {
     name: string
     category: SkillCategory
 }) {
+    assertSkillNameAvailableForCategory(input.name, input.category)
     const root = getUserSkillsRoot(input.ownerId)
     await fs.mkdir(root, { recursive: true })
 
@@ -288,6 +295,7 @@ export async function updateSkill(input: {
     const directory = getSkillDirectory(input.ownerId, directoryName)
     const content = normalizeDocumentContent(input.content)
     const parsed = parseSkillDocument(content)
+    assertSkillNameAvailableForCategory(parsed.name, input.category)
     await ensureSkillExists(directory)
 
     const existingKeys = await loadSkillNameKeys(input.ownerId, directoryName)
@@ -413,6 +421,7 @@ export function toSkillDto(record: SkillRecord) {
 export function getSkillValidationErrorDetail(error: unknown) {
     if (error instanceof SkillNotFoundError) return 'Skill not found'
     if (error instanceof DuplicateSkillNameError) return error.message
+    if (error instanceof ReservedSkillNameError) return error.message
     const message = error instanceof Error ? error.message.trim() : String(error).trim()
     return message || 'Internal server error'
 }
@@ -609,6 +618,7 @@ export async function validateSkillDirectory(directory: string) {
     const metadata = await readSkillDirectoryMetadata(directory).catch((error) => {
         throw new InvalidSkillDirectoryError(error instanceof Error ? error.message : 'Invalid skill directory.')
     })
+    assertSkillNameAvailableForCategory(metadata.name, metadata.category)
     return metadata
 }
 
@@ -765,6 +775,14 @@ function getNextAvailableNumberedSkillName(baseName: string, existingKeys: Set<s
 
 function toSkillNameKey(name: string) {
     return name.trim().toLowerCase()
+}
+
+function assertSkillNameAvailableForCategory(name: string, category: SkillCategory) {
+    if (category === 'ai_chat' && isReservedSkillSlashCommand(name)) {
+        throw new ReservedSkillNameError(
+            `AI-chat skill name \`${name.trim()}\` is reserved for a built-in slash command.`
+        )
+    }
 }
 
 async function ensureSkillExists(directory: string) {

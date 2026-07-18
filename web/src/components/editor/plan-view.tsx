@@ -185,7 +185,7 @@ function ChapterCardContent({
     }
 
     return (
-        <div className={`border border-gray-200 rounded-lg w-56 shrink-0 ${isDragOverlay ? 'shadow-xl ring-2 ring-blue-300 bg-white' : 'bg-zinc-100'
+        <div className={`border rounded-lg w-56 shrink-0 ${isDragOverlay ? 'shadow-xl ring-2 ring-primary/30 bg-card' : 'bg-muted/60'
             }`}>
             {/* Chapter Header - Two Row Layout */}
             <div className="px-3 pt-3 pb-2">
@@ -197,11 +197,11 @@ function ChapterCardContent({
 
                     <div className="flex-1 min-w-0">
                         {/* First row: Chapter N - X words */}
-                        <div className="text-xs text-gray-400 mb-0.5">
+                        <div className="text-xs text-muted-foreground mb-0.5">
                             {chapterLabel} {globalIndex} – {chapter.wordCount || 0} {tCommon('words')}
                         </div>
                         {/* Second row: Title */}
-                        <div className="font-medium text-gray-900 truncate">
+                        <div className="font-medium text-foreground truncate">
                             {chapter.title}
                         </div>
                     </div>
@@ -209,7 +209,7 @@ function ChapterCardContent({
                     {/* Edit & More buttons */}
                     <div className="flex items-center gap-0.5 -mr-1">
                         <button
-                            className="p-1 opacity-40 hover:opacity-100 hover:bg-gray-100 rounded"
+                            className="p-1 opacity-40 hover:opacity-100 hover:bg-muted rounded"
                             title={t('chapter.label')}
                             onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
@@ -221,14 +221,14 @@ function ChapterCardContent({
                         </button>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <button className="p-1 opacity-40 hover:opacity-100 hover:bg-gray-100 rounded">
+                                <button className="p-1 opacity-40 hover:opacity-100 hover:bg-muted rounded">
                                     <MoreVertical className="h-3.5 w-3.5" />
                                 </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                                 <DropdownMenuItem
                                     variant={canDeleteDirectly ? 'destructive' : 'default'}
-                                    className={canDeleteDirectly ? 'text-destructive' : 'text-gray-500'}
+                                    className={canDeleteDirectly ? 'text-destructive' : 'text-muted-foreground'}
                                     disabled={!canDeleteDirectly}
                                     onClick={() => {
                                         if (canDeleteDirectly) {
@@ -246,8 +246,8 @@ function ChapterCardContent({
             </div>
 
             {/* Scene Section - Subtle styling */}
-            <div className="mx-2 mb-2 flex h-[224px] flex-col rounded border border-gray-100 bg-white p-2">
-                <div className="flex items-center gap-1 text-xs text-gray-400 mb-1">
+            <div className="mx-2 mb-2 flex h-[224px] flex-col rounded border bg-card p-2">
+                <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                     <GripVertical className="h-3 w-3 opacity-50" />
                     <span>{sceneLabel} {activeScene ? displayedSceneIndex + 1 : 1}</span>
                     <div className="ml-auto flex items-center gap-1">
@@ -255,18 +255,18 @@ function ChapterCardContent({
                             <>
                                 <button
                                     type="button"
-                                    className="rounded p-0.5 opacity-40 transition hover:bg-gray-100 hover:opacity-100"
+                                    className="rounded p-0.5 opacity-40 transition hover:bg-muted hover:opacity-100"
                                     onClick={() => setActiveSceneIndex(Math.max(0, displayedSceneIndex - 1))}
                                     aria-label="Previous scene"
                                 >
                                     <ChevronLeft className="h-3 w-3" />
                                 </button>
-                                <span className="min-w-8 text-center text-[11px] text-gray-400">
+                                <span className="min-w-8 text-center text-[11px] text-muted-foreground">
                                     {displayedSceneIndex + 1}/{scenes.length}
                                 </span>
                                 <button
                                     type="button"
-                                    className="rounded p-0.5 opacity-40 transition hover:bg-gray-100 hover:opacity-100"
+                                    className="rounded p-0.5 opacity-40 transition hover:bg-muted hover:opacity-100"
                                     onClick={() => setActiveSceneIndex(Math.min(scenes.length - 1, displayedSceneIndex + 1))}
                                     aria-label="Next scene"
                                 >
@@ -290,7 +290,7 @@ function ChapterCardContent({
                     </div>
                 </div>
                 <div
-                    className={`overflow-hidden text-[11px] leading-6 ${sceneSummary ? 'text-gray-600' : 'text-gray-400 italic'}`}
+                    className={`overflow-hidden text-[11px] leading-6 ${sceneSummary ? 'text-foreground/80' : 'text-muted-foreground italic'}`}
                     style={{
                         display: '-webkit-box',
                         WebkitBoxOrient: 'vertical',
@@ -337,10 +337,10 @@ function ChapterCardContent({
                         {sceneLabels.map((label) => (
                             <span
                                 key={label.id}
-                                className="inline-flex max-w-full items-center rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-medium text-gray-700"
+                                className="inline-flex max-w-full items-center rounded-full border bg-background px-2 py-0.5 text-xs font-medium text-foreground"
                                 title={label.name}
                             >
-                                <Tag className="mr-1 h-3 w-3 shrink-0 text-gray-400" />
+                                <Tag className="mr-1 h-3 w-3 shrink-0 text-muted-foreground" />
                                 <span className="truncate">{label.name}</span>
                                 {!isDragOverlay && (
                                     <button
@@ -361,7 +361,7 @@ function ChapterCardContent({
                     </div>
                 )}
 
-                <div className="flex items-center gap-3 text-xs text-gray-400">
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     {/* Add term */}
                     <DropdownMenu
                         open={termPickerOpen}
@@ -372,7 +372,7 @@ function ChapterCardContent({
                     >
                         <DropdownMenuTrigger asChild>
                             <button
-                                className="flex items-center gap-1 hover:text-gray-600 disabled:opacity-40"
+                                className="flex items-center gap-1 hover:text-foreground disabled:opacity-40"
                                 disabled={!activeScene}
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => e.stopPropagation()}
@@ -428,7 +428,7 @@ function ChapterCardContent({
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <button
-                                className="flex items-center gap-1 hover:text-gray-600 disabled:opacity-40"
+                                className="flex items-center gap-1 hover:text-foreground disabled:opacity-40"
                                 disabled={!activeScene}
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => e.stopPropagation()}
@@ -478,9 +478,9 @@ function ChapterCardContent({
             </div>
 
             {/* New Scene Button */}
-            <div className="border-t border-gray-200 py-2 px-3">
+            <div className="border-t py-2 px-3">
                 <button
-                    className="w-full text-center text-xs text-gray-400 hover:text-gray-600 flex items-center justify-center gap-1 disabled:opacity-40"
+                    className="w-full text-center text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 disabled:opacity-40"
                     disabled={isCreatingScene}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
@@ -544,7 +544,7 @@ function SortableChapterCard({
             <div
                 ref={setNodeRef}
                 style={style}
-                className="bg-blue-100 border-2 border-blue-200 border-dashed rounded-lg w-56 h-48 shrink-0"
+                className="bg-primary/10 border-2 border-primary/25 border-dashed rounded-lg w-56 h-48 shrink-0"
             />
         )
     }
@@ -657,7 +657,7 @@ function SortableAct({
         <div
             ref={setNodeRef}
             style={style}
-            className={`mb-6 ${isDragging ? 'ring-2 ring-blue-200 rounded-lg bg-blue-50/30' : ''}`}
+            className={`mb-6 ${isDragging ? 'ring-2 ring-primary/25 rounded-lg bg-primary/5' : ''}`}
         >
             {/* Act Header - Row 1: Drag, Chevron, Title */}
             <div className="flex items-center gap-2">
@@ -683,7 +683,7 @@ function SortableAct({
                 </button>
 
                 {/* Act Title - Bold */}
-                <span className="font-bold text-lg text-gray-800">
+                <span className="font-bold text-lg text-foreground">
                     {title}
                 </span>
             </div>
@@ -694,7 +694,7 @@ function SortableAct({
                 <Button
                     variant="outline"
                     size="sm"
-                    className="h-7 text-xs gap-1 border-gray-300 text-gray-600 hover:bg-gray-50"
+                    className="h-7 text-xs gap-1"
                     onClick={onCreateChapter}
                 >
                     <Plus className="h-3 w-3" />
@@ -703,7 +703,7 @@ function SortableAct({
 
                 {/* Edit & More buttons */}
                 <button
-                    className="p-1.5 opacity-40 hover:opacity-100 hover:bg-gray-100 rounded"
+                    className="p-1.5 opacity-40 hover:opacity-100 hover:bg-muted rounded"
                     title={title}
                     onClick={() => onNavigateToWrite({ kind: 'act', actNumber })}
                 >
@@ -712,7 +712,7 @@ function SortableAct({
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <button className="p-1.5 opacity-40 hover:opacity-100 hover:bg-gray-100 rounded">
+                        <button className="p-1.5 opacity-40 hover:opacity-100 hover:bg-muted rounded">
                             <MoreVertical className="h-4 w-4" />
                         </button>
                     </DropdownMenuTrigger>
@@ -721,7 +721,7 @@ function SortableAct({
                         <DropdownMenuItem>{t('act.insertActAfter')}</DropdownMenuItem>
                         <DropdownMenuItem
                             variant={canDeleteDirectly ? 'destructive' : 'default'}
-                            className={canDeleteDirectly ? 'text-destructive' : 'text-gray-500'}
+                            className={canDeleteDirectly ? 'text-destructive' : 'text-muted-foreground'}
                             disabled={!canDeleteDirectly}
                             onClick={() => {
                                 if (canDeleteDirectly) {
@@ -736,7 +736,7 @@ function SortableAct({
                 </DropdownMenu>
 
                 {/* Chapter Count & Word Count */}
-                <span className="text-sm text-gray-400">
+                <span className="text-sm text-muted-foreground">
                     {chapters.length} {chapters.length === 1 ? t('view.chapter') : t('view.chapters')} – {totalWords.toLocaleString()} {tCommon('words')}
                 </span>
             </div>
@@ -760,7 +760,7 @@ function SortableAct({
                                     items.push(
                                         <div
                                             key={`drop-placeholder-${actNumber}-${idx}`}
-                                            className="bg-blue-100 border-2 border-blue-200 border-dashed rounded-lg w-56 h-48 shrink-0"
+                                            className="bg-primary/10 border-2 border-primary/25 border-dashed rounded-lg w-56 h-48 shrink-0"
                                         />
                                     )
                                 }
@@ -784,10 +784,10 @@ function SortableAct({
                                 return items
                             })}
                             {showDropPlaceholder && placeholderIndex === chapters.length && (
-                                <div className="bg-blue-100 border-2 border-blue-200 border-dashed rounded-lg w-56 h-48 shrink-0" />
+                                <div className="bg-primary/10 border-2 border-primary/25 border-dashed rounded-lg w-56 h-48 shrink-0" />
                             )}
                             {chapters.length === 0 && !showDropPlaceholder && (
-                                <div className="text-gray-400 italic text-sm py-8 col-span-full">
+                                <div className="text-muted-foreground italic text-sm py-8 col-span-full">
                                     {t('chapter.noChaptersYet')}
                                 </div>
                             )}
@@ -1132,11 +1132,11 @@ export function PlanView({
             </DndContext>
 
             {/* Add New Act Button */}
-            <div className="mt-6 pt-4 border-t border-dashed border-gray-200">
+            <div className="mt-6 pt-4 border-t border-dashed">
                 <Button
                     variant="outline"
                     size="sm"
-                    className="gap-1 text-gray-600 border-gray-300 hover:bg-gray-50"
+                    className="gap-1"
                     onClick={onCreateAct}
                 >
                     <Plus className="h-4 w-4" />

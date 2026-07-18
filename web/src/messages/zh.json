@@ -825,6 +825,8 @@
         "formatMenu": {
             "typography": "排版",
             "aiOutput": "AI 输出",
+            "theme": "主题",
+            "themeHint": "切换整个应用的界面配色，设置会保存在当前设备。",
             "fontFamily": "字体",
             "textSize": "字号",
             "lineHeight": "行高",
@@ -842,7 +844,22 @@
             "reset": "重置",
             "tabs": {
                 "typography": "排版",
-                "aiOutput": "AI 输出"
+                "aiOutput": "AI 输出",
+                "theme": "主题"
+            },
+            "themeOptions": {
+                "light": {
+                    "title": "浅色",
+                    "description": "清晰明亮"
+                },
+                "eyeCare": {
+                    "title": "护眼",
+                    "description": "柔和暖色"
+                },
+                "dark": {
+                    "title": "夜间",
+                    "description": "低亮深色"
+                }
             },
             "outputStyleOptions": {
                 "none": "无",
@@ -983,6 +1000,7 @@
             "generalEmpty": "暂无通用会话。",
             "boundCategoryEmpty": "该分类的会话由对应工作流自动创建。",
             "noMessages": "还没有消息",
+            "unreadCompletion": "Codex 已完成",
             "startTitle": "让 Codex 帮你创作小说",
             "startDescription": "",
             "composerPlaceholder": "让 Codex 帮你创作小说。输入 @ 提及小说内容,输入 / 发送指令",
@@ -1326,6 +1344,10 @@
             "findRegex": "正则",
             "findWholeWord": "整词",
             "findCount": "{current}/{total}",
+            "format": "格式化",
+            "formatSuccess": "格式化完成",
+            "formatUnchanged": "格式已规范",
+            "formatSyntaxError": "语法有误，未格式化",
             "generalPlaceholder": "通用设置即将推出",
             "advancedPlaceholder": "高级设置即将推出",
             "usagesPlaceholder": "引用统计即将推出",

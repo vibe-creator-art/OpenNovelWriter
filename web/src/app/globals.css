@@ -48,6 +48,7 @@
 }
 
 :root {
+  color-scheme: light;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -82,38 +83,74 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+:root[data-color-theme="eyeCare"] {
+  color-scheme: light;
+  --background: #f7f1e3;
+  --foreground: #3b362e;
+  --card: #fcf8ef;
+  --card-foreground: #3b362e;
+  --popover: #fcf8ef;
+  --popover-foreground: #3b362e;
+  --primary: #4a4339;
+  --primary-foreground: #fcf8ef;
+  --secondary: #ede4d3;
+  --secondary-foreground: #403a31;
+  --muted: #ede4d3;
+  --muted-foreground: #756b5e;
+  --accent: #e9deca;
+  --accent-foreground: #3b362e;
+  --destructive: #b8473d;
+  --border: #ded2be;
+  --input: #d8ccb9;
+  --ring: #948674;
+  --chart-1: #bd6546;
+  --chart-2: #4e8a82;
+  --chart-3: #5e7185;
+  --chart-4: #ba8a3b;
+  --chart-5: #9c6b4c;
+  --sidebar: #f2eadb;
+  --sidebar-foreground: #3b362e;
+  --sidebar-primary: #4a4339;
+  --sidebar-primary-foreground: #fcf8ef;
+  --sidebar-accent: #e9deca;
+  --sidebar-accent-foreground: #3b362e;
+  --sidebar-border: #ded2be;
+  --sidebar-ring: #948674;
+}
+
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  color-scheme: dark;
+  --background: #191a1c;
+  --foreground: #d9d9d6;
+  --card: #222326;
+  --card-foreground: #d9d9d6;
+  --popover: #222326;
+  --popover-foreground: #d9d9d6;
+  --primary: #d9d9d6;
+  --primary-foreground: #222326;
+  --secondary: #2b2d31;
+  --secondary-foreground: #d9d9d6;
+  --muted: #2b2d31;
+  --muted-foreground: #9b9b98;
+  --accent: #303237;
+  --accent-foreground: #e1e1de;
+  --destructive: #df6b62;
+  --border: rgb(255 255 255 / 12%);
+  --input: rgb(255 255 255 / 16%);
+  --ring: #75777c;
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar: #202124;
+  --sidebar-foreground: #d9d9d6;
   --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-primary-foreground: #e1e1de;
+  --sidebar-accent: #303237;
+  --sidebar-accent-foreground: #e1e1de;
+  --sidebar-border: rgb(255 255 255 / 12%);
+  --sidebar-ring: #75777c;
 }
 
 @layer base {
@@ -134,6 +171,10 @@
 
   .dark .onw-editor-scrollbar {
     scrollbar-color: rgb(255 255 255 / 0.22) transparent;
+  }
+
+  [data-color-theme="eyeCare"] .onw-editor-scrollbar {
+    scrollbar-color: rgb(91 76 55 / 0.34) transparent;
   }
 
   .onw-editor-scrollbar::-webkit-scrollbar {
@@ -162,6 +203,14 @@
     background: rgb(255 255 255 / 0.32);
   }
 
+  [data-color-theme="eyeCare"] .onw-editor-scrollbar::-webkit-scrollbar-thumb {
+    background: rgb(91 76 55 / 0.34);
+  }
+
+  [data-color-theme="eyeCare"] .onw-editor-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgb(91 76 55 / 0.48);
+  }
+
   /* Horizontal scroll affordance for markdown tables: keep the bottom bar
      always visible (when the table overflows) and draggable, so the table is
      not silently clipped under macOS overlay scrollbars. Scoped to tables only. */
@@ -173,6 +222,10 @@
 
   .dark .onw-table-scroll {
     scrollbar-color: rgb(255 255 255 / 0.22) transparent;
+  }
+
+  [data-color-theme="eyeCare"] .onw-table-scroll {
+    scrollbar-color: rgb(91 76 55 / 0.34) transparent;
   }
 
   .onw-table-scroll::-webkit-scrollbar {
@@ -199,6 +252,14 @@
 
   .dark .onw-table-scroll::-webkit-scrollbar-thumb:hover {
     background: rgb(255 255 255 / 0.32);
+  }
+
+  [data-color-theme="eyeCare"] .onw-table-scroll::-webkit-scrollbar-thumb {
+    background: rgb(91 76 55 / 0.34);
+  }
+
+  [data-color-theme="eyeCare"] .onw-table-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(91 76 55 / 0.48);
   }
 
   .onw-middle-panel-write {

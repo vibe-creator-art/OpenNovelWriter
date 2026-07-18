@@ -825,6 +825,8 @@
         "formatMenu": {
             "typography": "TYPOGRAPHY",
             "aiOutput": "AI OUTPUT",
+            "theme": "THEME",
+            "themeHint": "Change the color theme across the app. This setting is saved on this device.",
             "fontFamily": "Font family",
             "textSize": "Text size",
             "lineHeight": "Line height",
@@ -842,7 +844,22 @@
             "reset": "Reset",
             "tabs": {
                 "typography": "TYPOGRAPHY",
-                "aiOutput": "AI OUTPUT"
+                "aiOutput": "AI OUTPUT",
+                "theme": "THEME"
+            },
+            "themeOptions": {
+                "light": {
+                    "title": "Light",
+                    "description": "Clear and bright"
+                },
+                "eyeCare": {
+                    "title": "Comfort",
+                    "description": "Soft and warm"
+                },
+                "dark": {
+                    "title": "Dark",
+                    "description": "Dim and calm"
+                }
             },
             "outputStyleOptions": {
                 "none": "None",
@@ -983,6 +1000,7 @@
             "generalEmpty": "No general sessions yet.",
             "boundCategoryEmpty": "This category is created by its workflow.",
             "noMessages": "No messages yet",
+            "unreadCompletion": "Codex finished",
             "startTitle": "Let Codex help write your novel",
             "startDescription": "",
             "composerPlaceholder": "Let Codex help write your novel. @ to mention novel content, / to run a command",
@@ -1326,6 +1344,10 @@
             "findRegex": "regex",
             "findWholeWord": "by word",
             "findCount": "{current}/{total}",
+            "format": "Format",
+            "formatSuccess": "Formatting complete",
+            "formatUnchanged": "Already formatted",
+            "formatSyntaxError": "Syntax error; not formatted",
             "generalPlaceholder": "General settings coming soon",
             "advancedPlaceholder": "Advanced settings coming soon",
             "usagesPlaceholder": "Usages coming soon",

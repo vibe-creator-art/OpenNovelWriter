@@ -970,7 +970,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                                                 isActive
                                                                     ? 'border-primary/40 bg-muted'
                                                                     : skill.enabled
-                                                                        ? 'border-emerald-200/80 bg-emerald-50/40 hover:border-emerald-300 hover:bg-emerald-50/60'
+                                                                        ? 'border-emerald-200/80 bg-emerald-50/40 hover:border-emerald-300 hover:bg-emerald-50/60 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:hover:border-emerald-800 dark:hover:bg-emerald-950/30'
                                                                         : 'border-border hover:border-sky-200/60 hover:bg-muted'
                                                             )}
                                                             onClick={() => setSelectedSkillId(skill.id)}

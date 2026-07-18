@@ -124,7 +124,7 @@ const tools = [
     },
     {
         name: 'edit_scene_content',
-        description: 'Edit the prose body of a scene with one or more search/replace hunks. Each hunk replaces an exact run of existing scene text (old_text) with new_text. Edits apply immediately but stay pending until the author accepts or rejects them in the app. Use this only for the scene Content/正文 (not summaries or titles). Read the scene from novel/chapters/<chapter_id>.md first and copy old_text exactly. Keep each hunk small and locally unique; split unrelated changes into separate hunks so the author can review them one by one. To insert a long model-written passage (e.g. a scene continuation), use an empty old_text plus `source` so the prose comes straight from the run_llm artifact instead of being retyped; blank-line-separated paragraphs in the reply become separate paragraphs in the scene.',
+        description: 'Edit the prose body of a scene with one or more search/replace hunks. Each hunk replaces an exact run of existing scene text (old_text) with new_text. Edits apply immediately but stay pending until the author accepts or rejects them in the app. Use this only for the scene Content/正文 (not summaries or titles). Read the scene from novel/chapters/<chapter_id>.md first and copy old_text exactly, including **bold** and *italic* markers. new_text supports those same two inline formats; do not introduce other Markdown formatting. Keep each hunk small and locally unique; split unrelated changes into separate hunks so the author can review them one by one. To insert a long model-written passage (e.g. a scene continuation), use an empty old_text plus `source` so the prose comes straight from the run_llm artifact instead of being retyped; blank-line-separated paragraphs in the reply become separate paragraphs in the scene.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -137,8 +137,8 @@ const tools = [
                     items: {
                         type: 'object',
                         properties: {
-                            old_text: { type: 'string', description: 'Exact existing scene text to replace. Must be unique within the scene; add surrounding context if needed. Use an empty string to append the replacement to the end of the scene — this is also how you write into an empty scene.' },
-                            new_text: { type: 'string', description: 'Replacement text as a literal string. Use an empty string to delete the matched text. Separate paragraphs with a blank line. Omit this when using `source`.' },
+                            old_text: { type: 'string', description: 'Exact existing scene text to replace, including any **bold** or *italic* markers shown in the chapter projection. Must be unique within the scene; add surrounding context if needed. Use an empty string to append the replacement to the end of the scene — this is also how you write into an empty scene.' },
+                            new_text: { type: 'string', description: 'Replacement text. Use **text** for bold and *text* for italic; no other Markdown formatting is supported. Use an empty string to delete the matched text. Separate paragraphs with a blank line. Omit this when using `source`.' },
                             source: LLM_REPLY_SOURCE_SCHEMA,
                         },
                         required: ['old_text'],

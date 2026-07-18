@@ -3,7 +3,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { normalizeSkillCategory } from '@/lib/skills'
 import { syncActiveCodexConnectionSkills } from '@/lib/server/codex-skill-sync'
-import { createSkill, getSkillValidationErrorDetail, listSkills, toSkillDto } from '@/lib/server/skill-storage'
+import {
+    createSkill,
+    getSkillValidationErrorDetail,
+    listSkills,
+    ReservedSkillNameError,
+    toSkillDto,
+} from '@/lib/server/skill-storage'
 
 export async function GET(request: NextRequest) {
     try {
@@ -56,6 +62,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ skill: toSkillDto(skill) }, { status: 201 })
     } catch (error) {
         console.error('Create skill error:', error)
-        return NextResponse.json({ detail: getSkillValidationErrorDetail(error) }, { status: 500 })
+        const status = error instanceof ReservedSkillNameError ? 400 : 500
+        return NextResponse.json({ detail: getSkillValidationErrorDetail(error) }, { status })
     }
 }

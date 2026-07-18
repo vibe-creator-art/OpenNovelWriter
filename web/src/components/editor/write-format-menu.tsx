@@ -2,10 +2,12 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Settings, RotateCcw, Sparkles } from 'lucide-react'
+import { Leaf, Moon, Palette, RotateCcw, Settings, Sparkles, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { type AppColorTheme } from '@/lib/app-theme'
+import { useAppThemeStore } from '@/lib/app-theme-store'
 import { cn } from '@/lib/utils'
 import {
     WRITE_FONT_FAMILY_STACK,
@@ -124,7 +126,7 @@ function OutputStyleCard({
                     className={cn(
                         'rounded-lg border px-3 py-2',
                         style === 'card'
-                            ? 'border-amber-200/70 bg-gradient-to-br from-amber-50/80 via-background to-orange-50/60'
+                            ? 'border-amber-200/70 bg-gradient-to-br from-amber-50/80 via-background to-orange-50/60 dark:border-amber-900/50 dark:from-amber-950/30 dark:to-orange-950/20'
                             : 'border-dashed bg-muted/20'
                     )}
                 >
@@ -139,10 +141,86 @@ function OutputStyleCard({
     )
 }
 
+const THEME_PREVIEW_COLORS: Record<AppColorTheme, { background: string; surface: string; text: string; muted: string; border: string }> = {
+    light: {
+        background: '#ffffff',
+        surface: '#f7f7f7',
+        text: '#252525',
+        muted: '#8a8a8a',
+        border: '#dddddd',
+    },
+    eyeCare: {
+        background: '#f7f1e3',
+        surface: '#fcf8ef',
+        text: '#3b362e',
+        muted: '#948674',
+        border: '#ded2be',
+    },
+    dark: {
+        background: '#191a1c',
+        surface: '#222326',
+        text: '#d9d9d6',
+        muted: '#75777c',
+        border: '#3d3e42',
+    },
+}
+
+function ThemePreviewCard({
+    theme,
+    selected,
+    onClick,
+    title,
+    description,
+}: {
+    theme: AppColorTheme
+    selected: boolean
+    onClick: () => void
+    title: string
+    description: string
+}) {
+    const colors = THEME_PREVIEW_COLORS[theme]
+    const Icon = theme === 'light' ? Sun : theme === 'eyeCare' ? Leaf : Moon
+
+    return (
+        <button
+            type="button"
+            className={cn(
+                'rounded-xl border p-2 text-left transition-colors',
+                selected ? 'border-foreground ring-2 ring-foreground/20' : 'border-input hover:bg-accent/40'
+            )}
+            onClick={onClick}
+            aria-pressed={selected}
+        >
+            <div
+                className="h-20 rounded-lg border p-2"
+                style={{ backgroundColor: colors.background, borderColor: colors.border }}
+            >
+                <div
+                    className="flex h-full flex-col justify-between rounded-md border p-2"
+                    style={{ backgroundColor: colors.surface, borderColor: colors.border }}
+                >
+                    <Icon className="h-4 w-4" style={{ color: colors.text }} />
+                    <div className="space-y-1">
+                        <div className="h-1.5 w-4/5 rounded-full" style={{ backgroundColor: colors.text }} />
+                        <div className="h-1.5 w-full rounded-full" style={{ backgroundColor: colors.muted }} />
+                    </div>
+                </div>
+            </div>
+            <div className="mt-2 text-center">
+                <div className="text-sm font-medium">{title}</div>
+                <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">{description}</div>
+            </div>
+        </button>
+    )
+}
+
 export function WriteFormatMenu() {
     const tEditor = useTranslations('editor')
     const t = useTranslations('editor.formatMenu')
-    const [activeTab, setActiveTab] = useState<'typography' | 'aiOutput'>('typography')
+    const [activeTab, setActiveTab] = useState<'typography' | 'aiOutput' | 'theme'>('typography')
+    const colorTheme = useAppThemeStore((state) => state.colorTheme)
+    const setColorTheme = useAppThemeStore((state) => state.setColorTheme)
+    const resetColorTheme = useAppThemeStore((state) => state.resetColorTheme)
     const {
         fontFamily,
         textSize,
@@ -188,7 +266,7 @@ export function WriteFormatMenu() {
                 }}
             >
                 <div className="space-y-5">
-                    <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted/40 p-1">
+                    <div className="grid grid-cols-3 gap-2 rounded-xl bg-muted/40 p-1">
                         <button
                             type="button"
                             className={cn(
@@ -210,6 +288,19 @@ export function WriteFormatMenu() {
                             <span className="inline-flex items-center gap-1.5">
                                 <Sparkles className="h-4 w-4" />
                                 {t('tabs.aiOutput')}
+                            </span>
+                        </button>
+                        <button
+                            type="button"
+                            className={cn(
+                                'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                                activeTab === 'theme' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                            )}
+                            onClick={() => setActiveTab('theme')}
+                        >
+                            <span className="inline-flex items-center gap-1.5">
+                                <Palette className="h-4 w-4" />
+                                {t('tabs.theme')}
                             </span>
                         </button>
                     </div>
@@ -393,7 +484,7 @@ export function WriteFormatMenu() {
                                 </div>
                             </div>
                         </>
-                    ) : (
+                    ) : activeTab === 'aiOutput' ? (
                         <div className="space-y-5">
                             <div className="space-y-1">
                                 <div className="text-xs font-semibold tracking-wide text-muted-foreground">
@@ -442,10 +533,37 @@ export function WriteFormatMenu() {
                                 </div>
                             </div>
                         </div>
+                    ) : (
+                        <div className="space-y-5">
+                            <div className="space-y-1">
+                                <div className="text-xs font-semibold tracking-wide text-muted-foreground">
+                                    {t('theme')}
+                                </div>
+                                <div className="text-sm text-muted-foreground">{t('themeHint')}</div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                                {(['light', 'eyeCare', 'dark'] as const).map((theme) => (
+                                    <ThemePreviewCard
+                                        key={theme}
+                                        theme={theme}
+                                        selected={colorTheme === theme}
+                                        onClick={() => setColorTheme(theme)}
+                                        title={t(`themeOptions.${theme}.title`)}
+                                        description={t(`themeOptions.${theme}.description`)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
                     )}
 
                     <div className="pt-3 border-t flex items-center justify-end">
-                        <Button variant="ghost" size="sm" className="gap-1" onClick={reset}>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1"
+                            onClick={activeTab === 'theme' ? resetColorTheme : reset}
+                        >
                             <RotateCcw className="h-4 w-4" />
                             {t('reset')}
                         </Button>

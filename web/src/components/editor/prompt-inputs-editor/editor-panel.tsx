@@ -310,7 +310,7 @@ export function EditorPanel({ model }: { model: InputsEditorModel }) {
 		                            </div>
 
                                 {!usedInputIds.has(selectedInput.id) && (
-                                    <div className="rounded-md border bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
+                                    <div className="rounded-md border bg-yellow-50 px-3 py-2 text-sm text-yellow-900 dark:border-yellow-900/50 dark:bg-yellow-950/30 dark:text-yellow-200">
                                         {t('advanced.inputs.unusedNotice')}
                                     </div>
                                 )}

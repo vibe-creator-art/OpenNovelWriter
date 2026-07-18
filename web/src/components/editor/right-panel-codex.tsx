@@ -223,20 +223,21 @@ function expandModelMentions(text: string, groups: ModelGroup[]): string {
 }
 
 /**
- * Convert `@<skill name>` mentions into `[name](skill:SKILL_ID)` tokens (parallel to model
- * mentions) and collect the referenced skill ids so the turn can attach a `skill` input item.
+ * Convert `/<skill name>` commands into `[name](skill:SKILL_ID)` tokens and collect the referenced
+ * skill ids so the turn can attach a `skill` input item.
  * The message renderer turns these into pills; the server rewrites them to Codex-native `$name`
  * before running the turn. Longer names are matched first so a prefix skill can't shadow a more
- * specific one. Runs after model-mention expansion.
+ * specific one. Runs after model-mention expansion. `/` is the only composer trigger for skills;
+ * `@` remains reserved for models and novel content references.
  */
-function expandSkillMentions(text: string, skills: Skill[]): { text: string; skillIds: string[] } {
-    if (!text.includes('@') || skills.length === 0) return { text, skillIds: [] }
+function expandSkillCommands(text: string, skills: Skill[]): { text: string; skillIds: string[] } {
+    if (!text.includes('/') || skills.length === 0) return { text, skillIds: [] }
     const sorted = [...skills].sort((a, b) => b.name.length - a.name.length)
     const skillIds = new Set<string>()
     let result = text
     for (const skill of sorted) {
         const escaped = skill.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const regex = new RegExp(`(^|\\s)@${escaped}(?=$|\\s|[，。、,.!?;:；])`, 'g')
+        const regex = new RegExp(`(^|\\s)/${escaped}(?=$|\\s|[，。、,.!?;:；])`, 'g')
         result = result.replace(regex, (_match, prefix) => {
             skillIds.add(skill.id)
             return `${prefix}[${skill.name}](skill:${skill.id})`
@@ -509,7 +510,6 @@ function expandDetailedOutlineMentions(text: string, outlines: DetailedOutlineMe
 
 type MentionItem =
     | { kind: 'model'; group: ModelGroup }
-    | { kind: 'skill'; skill: Skill }
     | { kind: 'term'; term: TermEntry }
     | { kind: 'snippet'; snippet: SnippetMention }
     | { kind: 'material'; material: MaterialMention }
@@ -519,7 +519,6 @@ type MentionItem =
 
 function mentionItemName(item: MentionItem) {
     if (item.kind === 'model') return item.group.name
-    if (item.kind === 'skill') return item.skill.name
     if (item.kind === 'term') return item.term.title
     if (item.kind === 'snippet') return item.snippet.label
     if (item.kind === 'material') return item.material.label
@@ -528,7 +527,7 @@ function mentionItemName(item: MentionItem) {
     return item.chapter.label
 }
 
-type ComposerMentionKind = MentionItem['kind']
+type ComposerMentionKind = MentionItem['kind'] | 'skill'
 type ComposerMentionTarget = { name: string; kind: ComposerMentionKind }
 type ComposerSegment =
     | { type: 'text'; text: string }
@@ -537,14 +536,19 @@ type ComposerSegment =
 const MENTION_BOUNDARY_CHARS = '，。、,.!?;:；'
 
 /**
- * Split composer text into plain segments and `@<group name>` mention segments,
+ * Split composer text into plain segments, `@<reference>` mentions, and `/<skill>` commands,
  * for the highlight overlay rendered behind the textarea. Segments concatenate
  * back to the exact original text so the overlay stays glyph-aligned with the
  * textarea (the caret depends on this). Longer names win to avoid prefix shadowing.
  */
-function buildComposerSegments(value: string, mentionTargets: ComposerMentionTarget[]): ComposerSegment[] {
+function buildComposerSegments(
+    value: string,
+    mentionTargets: ComposerMentionTarget[],
+    skillTargets: ComposerMentionTarget[]
+): ComposerSegment[] {
     if (!value) return []
-    const targets = [...mentionTargets].sort((a, b) => b.name.length - a.name.length)
+    const atTargets = [...mentionTargets].sort((a, b) => b.name.length - a.name.length)
+    const slashTargets = [...skillTargets].sort((a, b) => b.name.length - a.name.length)
     const segments: ComposerSegment[] = []
     let buffer = ''
     let index = 0
@@ -558,8 +562,8 @@ function buildComposerSegments(value: string, mentionTargets: ComposerMentionTar
 
     while (index < value.length) {
         const atBoundary = index === 0 || /\s/.test(value[index - 1])
-        if (value[index] === '@' && atBoundary && targets.length > 0) {
-            const matched = targets.find((target) => {
+        if (value[index] === '@' && atBoundary && atTargets.length > 0) {
+            const matched = atTargets.find((target) => {
                 if (!value.startsWith(`@${target.name}`, index)) return false
                 const after = value[index + 1 + target.name.length]
                 return after === undefined || /\s/.test(after) || MENTION_BOUNDARY_CHARS.includes(after)
@@ -567,6 +571,19 @@ function buildComposerSegments(value: string, mentionTargets: ComposerMentionTar
             if (matched) {
                 flush()
                 segments.push({ type: 'mention', text: `@${matched.name}`, kind: matched.kind })
+                index += 1 + matched.name.length
+                continue
+            }
+        }
+        if (value[index] === '/' && atBoundary && slashTargets.length > 0) {
+            const matched = slashTargets.find((target) => {
+                if (!value.startsWith(`/${target.name}`, index)) return false
+                const after = value[index + 1 + target.name.length]
+                return after === undefined || /\s/.test(after) || MENTION_BOUNDARY_CHARS.includes(after)
+            })
+            if (matched) {
+                flush()
+                segments.push({ type: 'mention', text: `/${matched.name}`, kind: 'skill' })
                 index += 1 + matched.name.length
                 continue
             }
@@ -602,6 +619,24 @@ function detectMentionAtCaret(value: string, caret: number): { start: number; qu
     return null
 }
 
+function detectSlashAtCaret(value: string, caret: number): { start: number; query: string } | null {
+    let index = caret - 1
+    while (index >= 0) {
+        const char = value[index]
+        if (char === '/') {
+            const before = index === 0 ? '' : value[index - 1]
+            if (index === 0 || /\s/.test(before)) {
+                const query = value.slice(index + 1, caret)
+                if (/^\S*$/.test(query)) return { start: index, query }
+            }
+            return null
+        }
+        if (/\s/.test(char)) return null
+        index -= 1
+    }
+    return null
+}
+
 /**
  * When the caret sits right after a completed `@mention` (or right after the single space that was
  * auto-inserted with it), return the range to delete so Backspace removes the whole token at once
@@ -610,10 +645,11 @@ function detectMentionAtCaret(value: string, caret: number): { start: number; qu
 function findMentionTokenToDeleteBeforeCaret(
     value: string,
     caret: number,
-    mentionTargets: ComposerMentionTarget[]
+    mentionTargets: ComposerMentionTarget[],
+    skillTargets: ComposerMentionTarget[]
 ): { start: number; end: number } | null {
-    if (caret <= 0 || mentionTargets.length === 0) return null
-    const segments = buildComposerSegments(value, mentionTargets)
+    if (caret <= 0 || (mentionTargets.length === 0 && skillTargets.length === 0)) return null
+    const segments = buildComposerSegments(value, mentionTargets, skillTargets)
     let offset = 0
     for (const segment of segments) {
         const start = offset
@@ -1005,8 +1041,8 @@ function CodexLlmArtifactRef({ target }: { target: string; label: string }) {
     )
 }
 
-// Matches the inline tokens that can appear in a user message: model/skill mentions
-// (rendered as pills) and chapter/act/scene jump links (rendered as clickable nav links).
+// Matches the inline tokens that can appear in a user message: model/content mentions and skill
+// commands (rendered as pills), plus chapter/act/scene jump links (rendered as clickable nav links).
 const USER_MENTION_RE = /\[([^\]]+)\]\((model|skill|term|snippet|material|outlineChapter|outlineAct|chapter|act|scene|continuation):([^)]+)\)/g
 
 function UserMessageContent({ content }: { content: string }) {
@@ -1036,7 +1072,7 @@ function UserMessageContent({ content }: { content: string }) {
                         {kind === 'snippet' ? <StickyNote className="h-3 w-3 shrink-0" /> : null}
                         {kind === 'material' ? <FileText className="h-3 w-3 shrink-0" /> : null}
                         {kind === 'outlineChapter' || kind === 'outlineAct' ? <ListTree className="h-3 w-3 shrink-0" /> : null}
-                        @{label}
+                        {kind === 'skill' ? '/' : '@'}{label}
                     </span>
                 )
             } else if (kind === 'act' || kind === 'chapter') {
@@ -1100,7 +1136,6 @@ function CodexMentionMenu({
     onSelect: (item: MentionItem) => void
     onHover: (index: number) => void
 }) {
-    const firstSkillIndex = items.findIndex((item) => item.kind === 'skill')
     const firstTermIndex = items.findIndex((item) => item.kind === 'term')
     const firstSnippetIndex = items.findIndex((item) => item.kind === 'snippet')
     const firstMaterialIndex = items.findIndex((item) => item.kind === 'material')
@@ -1112,12 +1147,11 @@ function CodexMentionMenu({
             <div className="max-h-60 overflow-y-auto pb-1">
                 {loading && <div className="px-3 py-2 text-sm text-muted-foreground">加载中…</div>}
                 {!loading && items.length === 0 && (
-                    <div className="px-3 py-2 text-sm text-muted-foreground">没有匹配的模型组、技能、词条、片段、资料、细纲、卷或章</div>
+                    <div className="px-3 py-2 text-sm text-muted-foreground">没有匹配的模型组、词条、片段、资料、细纲、卷或章</div>
                 )}
                 {items.map((item, index) => {
                     const isModel = item.kind === 'model'
                     const showLlmHeader = index === 0 && isModel
-                    const showSkillHeader = index === firstSkillIndex && item.kind === 'skill'
                     const showTermHeader = index === firstTermIndex && item.kind === 'term'
                     const showSnippetHeader = index === firstSnippetIndex && item.kind === 'snippet'
                     const showMaterialHeader = index === firstMaterialIndex && item.kind === 'material'
@@ -1127,29 +1161,22 @@ function CodexMentionMenu({
                     const key =
                         item.kind === 'model'
                             ? `model:${item.group.id}`
-                            : item.kind === 'skill'
-                                ? `skill:${item.skill.id}`
-                                : item.kind === 'term'
-                                    ? `term:${item.term.id}`
-                                    : item.kind === 'snippet'
-                                        ? `snippet:${item.snippet.id}`
-                                        : item.kind === 'material'
-                                            ? `material:${item.material.id}`
-                                            : item.kind === 'detailedOutline'
-                                                ? `detailedOutline:${item.outline.targetKind === 'chapter' ? `c:${item.outline.chapterId}` : `a:${item.outline.actNumber}`}`
-                                                : item.kind === 'act'
-                                                    ? `act:${item.act.actNumber}`
-                                                    : `chapter:${item.chapter.chapterId}`
+                            : item.kind === 'term'
+                                ? `term:${item.term.id}`
+                                : item.kind === 'snippet'
+                                    ? `snippet:${item.snippet.id}`
+                                    : item.kind === 'material'
+                                        ? `material:${item.material.id}`
+                                        : item.kind === 'detailedOutline'
+                                            ? `detailedOutline:${item.outline.targetKind === 'chapter' ? `c:${item.outline.chapterId}` : `a:${item.outline.actNumber}`}`
+                                            : item.kind === 'act'
+                                                ? `act:${item.act.actNumber}`
+                                                : `chapter:${item.chapter.chapterId}`
                     return (
                         <Fragment key={key}>
                             {showLlmHeader && (
                                 <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                                     LLM
-                                </div>
-                            )}
-                            {showSkillHeader && (
-                                <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                    Skills
                                 </div>
                             )}
                             {showTermHeader && (
@@ -1196,8 +1223,6 @@ function CodexMentionMenu({
                             >
                                 {item.kind === 'model' ? (
                                     <ModelGroupLogoIcon group={item.group} className="h-5 w-5" />
-                                ) : item.kind === 'skill' ? (
-                                    <Sparkles className="h-5 w-5 shrink-0 text-muted-foreground" />
                                 ) : item.kind === 'term' ? (
                                     <BookMarked className="h-5 w-5 shrink-0 text-muted-foreground" />
                                 ) : item.kind === 'snippet' ? (
@@ -1216,6 +1241,98 @@ function CodexMentionMenu({
                         </Fragment>
                     )
                 })}
+            </div>
+        </div>
+    )
+}
+
+type BuiltinSlashCommandName = 'plan' | 'compact' | 'fast'
+
+type BuiltinSlashCommandItem = {
+    kind: 'builtin'
+    name: BuiltinSlashCommandName
+    title: string
+    description: string
+    disabled: boolean
+}
+
+type SkillSlashCommandItem = {
+    kind: 'skill'
+    name: string
+    description: string | null
+    skill: Skill
+    disabled: boolean
+}
+
+type SlashCommandItem = BuiltinSlashCommandItem | SkillSlashCommandItem
+
+function SlashCommandIcon({ item }: { item: SlashCommandItem }) {
+    if (item.kind === 'skill') return <Sparkles className="h-5 w-5 shrink-0 text-violet-600 dark:text-violet-300" />
+    if (item.name === 'compact') return <FoldVertical className="h-5 w-5 shrink-0 text-muted-foreground" />
+    if (item.name === 'fast') return <Zap className="h-5 w-5 shrink-0 text-muted-foreground" />
+    return <ListChecks className="h-5 w-5 shrink-0 text-muted-foreground" />
+}
+
+function CodexSlashMenu({
+    items,
+    activeIndex,
+    loadingSkills,
+    onSelect,
+    onHover,
+}: {
+    items: SlashCommandItem[]
+    activeIndex: number
+    loadingSkills: boolean
+    onSelect: (item: SlashCommandItem) => void
+    onHover: (index: number) => void
+}) {
+    const firstSkillIndex = items.findIndex((item) => item.kind === 'skill')
+    return (
+        <div className="absolute bottom-full left-2 right-2 z-50 mb-2 overflow-hidden rounded-xl border bg-popover shadow-lg">
+            <div className="max-h-60 overflow-y-auto pb-1">
+                {items.length === 0 && !loadingSkills && (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">没有匹配的命令或技能</div>
+                )}
+                {items.map((item, index) => (
+                    <Fragment key={item.kind === 'skill' ? `skill:${item.skill.id}` : `builtin:${item.name}`}>
+                        {index === 0 && item.kind === 'builtin' && (
+                            <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Commands
+                            </div>
+                        )}
+                        {index === firstSkillIndex && item.kind === 'skill' && (
+                            <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Skills
+                            </div>
+                        )}
+                        <button
+                            type="button"
+                            disabled={item.disabled}
+                            className={cn(
+                                'flex w-full items-center gap-2 px-3 py-2 text-left',
+                                item.disabled
+                                    ? 'cursor-not-allowed opacity-45'
+                                    : index === activeIndex
+                                        ? 'bg-accent text-accent-foreground'
+                                        : 'hover:bg-accent/60'
+                            )}
+                            onMouseEnter={() => onHover(index)}
+                            onMouseDown={(event) => {
+                                event.preventDefault()
+                                if (!item.disabled) onSelect(item)
+                            }}
+                        >
+                            <SlashCommandIcon item={item} />
+                            <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium">/{item.name}</span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                    {item.kind === 'builtin' ? item.description : item.description || '运行此技能'}
+                                </span>
+                            </span>
+                        </button>
+                    </Fragment>
+                ))}
+                {loadingSkills && <div className="px-3 py-2 text-sm text-muted-foreground">正在加载技能…</div>}
             </div>
         </div>
     )
@@ -1437,19 +1554,19 @@ function ProposedPlanEvent({ content }: { content: string }) {
 function PlanStepIcon({ status }: { status: CodexPlanStepStatus }) {
     if (status === 'completed') {
         return (
-            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-400 text-white">
+            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted-foreground text-background">
                 <Check className="h-3.5 w-3.5" />
             </span>
         )
     }
     if (status === 'inProgress') {
         return (
-            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-zinc-400 bg-background">
-                <span className="h-2.5 w-2.5 rounded-full bg-zinc-400" />
+            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground bg-background">
+                <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground" />
             </span>
         )
     }
-    return <span className="mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 border-zinc-300 bg-background" />
+    return <span className="mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 border-border bg-background" />
 }
 
 function PlanProgressCard({
@@ -1531,9 +1648,9 @@ function PlanProgressCard({
                                 <PlanStepIcon status={item.status} />
                                 <span
                                     className={cn(
-                                        'min-w-0 break-words text-zinc-700',
-                                        item.status === 'completed' && 'text-zinc-500',
-                                        item.status === 'inProgress' && 'font-medium text-zinc-800'
+                                        'min-w-0 break-words text-foreground/80',
+                                        item.status === 'completed' && 'text-muted-foreground',
+                                        item.status === 'inProgress' && 'font-medium text-foreground'
                                     )}
                                 >
                                     {item.step}
@@ -1850,12 +1967,19 @@ function QueuedMessageRow({
     )
 }
 
-// Copying a user message should yield what the author sees — `@name` for mention pills and the
-// plain label for nav links — not the internal `[label](kind:id)` tokens.
+// Copying a user message should yield what the author sees — `/name` for skill commands, `@name`
+// for mention pills, and the plain label for nav links — not the internal `[label](kind:id)` tokens.
 function stripUserMessageTokens(content: string) {
-    return content.replace(USER_MENTION_RE, (_match, label: string, kind: string) =>
-        kind === 'model' || kind === 'skill' || kind === 'term' || kind === 'snippet' ? `@${label}` : label
-    )
+    return content.replace(USER_MENTION_RE, (_match, label: string, kind: string) => {
+        if (kind === 'skill') return `/${label}`
+        return kind === 'model' || kind === 'term' || kind === 'snippet' ? `@${label}` : label
+    })
+}
+
+// Active-turn steering has no skill input channel. Keep the user's canonical slash command as
+// ordinary text instead of leaking the internal message token into `turn/steer`.
+function flattenSkillCommandsForSteer(content: string) {
+    return content.replace(/\[([^\]]+)\]\(skill:[^)]+\)/g, (_match, label: string) => `/${label}`)
 }
 
 function MessageActions({ message }: { message: CodexSessionMessage }) {
@@ -2609,7 +2733,9 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     }, [])
     const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
     const [mentionIndex, setMentionIndex] = useState(0)
-    // Dismiss the `/compact` suggestion for the current keystroke (Escape); reset on the next edit.
+    const [slash, setSlash] = useState<{ start: number; query: string } | null>(null)
+    const [slashIndex, setSlashIndex] = useState(0)
+    // Dismiss the slash menu for the current keystroke (Escape); reset on the next edit.
     const [slashCommandDismissed, setSlashCommandDismissed] = useState(false)
     const [modelGroups, setModelGroups] = useState<ModelGroup[] | null>(null)
     const [skills, setSkills] = useState<Skill[] | null>(null)
@@ -2628,7 +2754,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     // Detailed outlines (细纲) are `@`-mentionable too: the author can point Codex at a chapter's 章纲
     // or a volume's 卷纲. Only chapters/acts that have a non-empty 细纲 surface as mentions.
     const [outlines, setOutlines] = useState<OutlineSummary[] | null>(null)
-    // When an `@`-mentioned ai_chat skill has a bound prompt, a Tweak dialog lets the author fill it
+    // When a `/`-invoked ai_chat skill has a bound prompt, a Tweak dialog lets the author fill it
     // (auto-injecting overview + terms) and ship the resolved blocks as the message's artifact.
     const [tweakOpen, setTweakOpen] = useState(false)
     const [tweakChatInput, setTweakChatInput] = useState('')
@@ -2760,22 +2886,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                     if (!cancelled) setModelGroups([])
                 })
         }
-        if (skills === null) {
-            void skillApi.list()
-                .then((data) => {
-                    if (cancelled) return
-                    // Only AI-chat skills are mentionable in the composer; the other
-                    // categories are driven by their own workflows, not `@` mentions.
-                    setSkills(
-                        (data.skills ?? []).filter(
-                            (skill) => skill.enabled && normalizeSkillCategory(skill.category) === 'ai_chat'
-                        )
-                    )
-                })
-                .catch(() => {
-                    if (!cancelled) setSkills([])
-                })
-        }
         if (snippets === null && novelId) {
             void snippetApi.list(novelId)
                 .then((list) => {
@@ -2824,7 +2934,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         return () => {
             cancelled = true
         }
-    }, [mention, modelGroups, skills, snippets, materials, acts, chapters, outlines, novelId])
+    }, [mention, modelGroups, snippets, materials, acts, chapters, outlines, novelId])
 
     const snippetMentions = useMemo(() => buildSnippetMentionList(snippets ?? []), [snippets])
     const materialMentions = useMemo(() => buildMaterialMentionList(materials ?? []), [materials])
@@ -2847,9 +2957,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         const groupItems: MentionItem[] = isNumericQuery ? [] : (modelGroups ?? [])
             .filter((group) => !query || group.name.toLocaleLowerCase().includes(query))
             .map((group) => ({ kind: 'model', group }))
-        const skillItems: MentionItem[] = isNumericQuery ? [] : (skills ?? [])
-            .filter((skill) => !query || skill.name.toLocaleLowerCase().includes(query))
-            .map((skill) => ({ kind: 'skill', skill }))
         const termItems: MentionItem[] = isNumericQuery ? [] : termEntries
             .filter((term) => term.title.trim() && (!query || term.title.toLocaleLowerCase().includes(query)))
             .map((term) => ({ kind: 'term', term }))
@@ -2906,8 +3013,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             })
             .map((chapter) => ({ kind: 'chapter', chapter }))
 
-        return [...groupItems, ...skillItems, ...termItems, ...snippetItems, ...materialItems, ...detailedOutlineItems, ...actItems, ...chapterItems].slice(0, 10)
-    }, [mention, modelGroups, skills, termEntries, snippetMentions, materialMentions, detailedOutlineMentions, actMentions, chapterMentions])
+        return [...groupItems, ...termItems, ...snippetItems, ...materialItems, ...detailedOutlineItems, ...actItems, ...chapterItems].slice(0, 10)
+    }, [mention, modelGroups, termEntries, snippetMentions, materialMentions, detailedOutlineMentions, actMentions, chapterMentions])
 
     useEffect(() => {
         setMentionIndex(0)
@@ -2943,6 +3050,32 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             return []
         }
     }
+
+    const slashMenuOpen = slash !== null && !slashCommandDismissed
+
+    // Refresh once whenever a new slash-menu interaction starts so newly created, renamed, enabled,
+    // or deleted skills appear without reloading the editor. Scene-bound skills stay in their own
+    // structured workflows; only enabled AI-chat skills are composer commands.
+    useEffect(() => {
+        if (!slashMenuOpen) return
+        let cancelled = false
+        setSkills(null)
+        void skillApi.list()
+            .then(({ skills: list }) => {
+                if (cancelled) return
+                setSkills(
+                    list.filter(
+                        (skill) => skill.enabled && normalizeSkillCategory(skill.category) === 'ai_chat'
+                    )
+                )
+            })
+            .catch(() => {
+                if (!cancelled) setSkills([])
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [slashMenuOpen])
 
     const ensureSnippets = async (): Promise<Snippet[]> => {
         if (snippets) return snippets
@@ -3016,13 +3149,13 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
 
     const handleComposerChange = (value: string, caret: number) => {
         setMention(detectMentionAtCaret(value, caret))
+        setSlash(detectSlashAtCaret(value, caret))
         setSlashCommandDismissed(false)
         // Reset the (transient) plan-hint dismissal once the trigger word leaves the draft, so a
         // fresh "plan" later re-shows the hint while a single dismissal still sticks for this draft.
         if (!/\bplan\b/iu.test(value)) setPlanHintDismissed(false)
         if (value.includes('@')) {
             if (modelGroups === null) void ensureModelGroups()
-            if (skills === null) void ensureSkills()
             if (snippets === null) void ensureSnippets()
             if (materials === null) void ensureMaterials()
             if (acts === null) void ensureActs()
@@ -3034,8 +3167,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const insertMentionName = (name: string, sessionId: string) => {
         if (mention === null) return
         const value = selectedSession?.draftContent ?? draft
-        // Show a clean `@name` in the textarea; models expand to `[name](model:id)` and skills to
-        // `$name` at submit time.
+        // Show a clean `@name` in the textarea; references expand to their structured tokens at
+        // submit time. Skills are inserted separately through the slash menu.
         const token = `@${name} `
         const nextValue = `${value.slice(0, mention.start)}${token}${value.slice(mention.start + 1 + mention.query.length)}`
         updateDraft(novelId, sessionId, nextValue)
@@ -3058,6 +3191,23 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         if (!item) return
         const sessionId = selectedSession?.id ?? (await ensureSession())
         if (sessionId) insertMentionItem(item, sessionId)
+    }
+
+    const insertSlashSkill = (skill: Skill, sessionId: string) => {
+        if (slash === null) return
+        const value = selectedSession?.draftContent ?? draft
+        const token = `/${skill.name} `
+        const tokenEnd = slash.start + 1 + slash.query.length
+        const nextValue = `${value.slice(0, slash.start)}${token}${value.slice(tokenEnd)}`
+        updateDraft(novelId, sessionId, nextValue)
+        setSlash(null)
+        const caret = slash.start + token.length
+        requestAnimationFrame(() => {
+            const textarea = composerRef.current
+            if (!textarea) return
+            textarea.focus()
+            textarea.setSelectionRange(caret, caret)
+        })
     }
 
     useEffect(() => {
@@ -3090,49 +3240,31 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             })
     }, [selectedSession?.id])
 
-    // `/compact` slash command. Only matches when the WHOLE composer is `/` + a prefix of "compact"
-    // (so any other text — including a bare "compact" without the slash — suppresses it), the turn
-    // is idle, and the session already has a Codex thread worth compacting.
-    const slashCommandActive = useMemo(() => {
-        if (running || slashCommandDismissed) return false
-        if (!selectedSession?.codexThreadId) return false
-        const match = /^\/([a-zA-Z]+)$/.exec(draft)
-        if (!match) return false
-        return 'compact'.startsWith(match[1].toLowerCase())
-    }, [draft, running, slashCommandDismissed, selectedSession?.codexThreadId])
-
-    // `/plan` slash command. Unlike `/compact`, it triggers as a trailing `/`-token even with other
-    // text in the box (e.g. "你这个 /pl"), needs no Codex thread, and only toggles plan mode locally.
-    // Returns the slice range of the command token so activating it can strip the token from the draft.
-    const planSlash = useMemo(() => {
-        if (running || slashCommandDismissed) return null
-        const match = /(^|\s)\/([a-zA-Z]*)$/u.exec(draft)
-        if (!match) return null
-        const query = match[2].toLowerCase()
-        if (query.length === 0 || !'plan'.startsWith(query)) return null
-        return { tokenStart: match.index + match[1].length }
-    }, [draft, running, slashCommandDismissed])
-
-    // Load model groups and skills when a restored draft already contains an `@` mention so the
-    // overlay can highlight it (and the Tweak button can appear) without the user reopening the
-    // menu. Skills must be re-ensured here too — otherwise a draft that survives a re-render keeps
-    // model/term highlights (those come from other sources) but silently loses the skill pill.
+    // Load reference data when a restored draft already contains an `@` mention so its pills remain
+    // highlighted without reopening the menu.
     useEffect(() => {
         if (!draft.includes('@')) return
         if (modelGroups === null) void ensureModelGroups()
-        if (skills === null) void ensureSkills()
         if (snippets === null) void ensureSnippets()
         if (materials === null) void ensureMaterials()
         if (acts === null) void ensureActs()
         if (chapters === null) void ensureChapters()
         if (outlines === null) void ensureOutlines()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [draft, modelGroups, skills, snippets, materials, acts, chapters, outlines])
+    }, [draft, modelGroups, snippets, materials, acts, chapters, outlines])
+
+    // Skills use `/`, not `@`. Load them for restored drafts so slash-skill coloring and the bound
+    // prompt Tweak action survive a reload.
+    useEffect(() => {
+        // An open slash menu owns its refresh request; do not issue a duplicate fetch here.
+        if (!draft.includes('/') || skills !== null || slashMenuOpen) return
+        void ensureSkills()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [draft, skills, slashMenuOpen])
 
     const mentionTargets = useMemo<ComposerMentionTarget[]>(
         () => [
             ...(modelGroups ?? []).map((group) => ({ name: group.name, kind: 'model' as const })),
-            ...(skills ?? []).map((skill) => ({ name: skill.name, kind: 'skill' as const })),
             ...termEntries
                 .map((term) => term.title)
                 .filter(Boolean)
@@ -3143,12 +3275,17 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             ...actMentions.map((act) => ({ name: act.label, kind: 'act' as const })),
             ...chapterMentions.map((chapter) => ({ name: chapter.label, kind: 'chapter' as const })),
         ],
-        [modelGroups, skills, termEntries, snippetMentions, materialMentions, detailedOutlineMentions, actMentions, chapterMentions]
+        [modelGroups, termEntries, snippetMentions, materialMentions, detailedOutlineMentions, actMentions, chapterMentions]
+    )
+
+    const skillTargets = useMemo<ComposerMentionTarget[]>(
+        () => (skills ?? []).map((skill) => ({ name: skill.name, kind: 'skill' as const })),
+        [skills]
     )
 
     const composerSegments = useMemo(
-        () => buildComposerSegments(draft, mentionTargets),
-        [draft, mentionTargets]
+        () => buildComposerSegments(draft, mentionTargets, skillTargets),
+        [draft, mentionTargets, skillTargets]
     )
 
     useLayoutEffect(() => {
@@ -3164,12 +3301,12 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         }
     }, [composerSegments, syncComposerOverlayScroll])
 
-    // The first `@`-mentioned ai_chat skill that carries a bound prompt — it gets a Tweak dialog.
+    // The first `/`-invoked ai_chat skill that carries a bound prompt — it gets a Tweak dialog.
     const activePromptSkill = useMemo(() => {
-        if (!draft.includes('@') || !skills) return null
+        if (!draft.includes('/') || !skills) return null
         const promptSkills = skills.filter((skill) => skill.prompt?.trim())
         if (promptSkills.length === 0) return null
-        const { skillIds } = expandSkillMentions(draft, promptSkills)
+        const { skillIds } = expandSkillCommands(draft, promptSkills)
         return promptSkills.find((skill) => skill.id === skillIds[0]) ?? null
     }, [draft, skills])
 
@@ -3297,16 +3434,62 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const currentModelSupportsFastMode = modelSupportsFastMode(activeModelCatalog, modelId)
     const showServiceTier = hasCodexFastModeAuth && currentModelSupportsFastMode
     const fastModeActive = showServiceTier && serviceTier === 'fast'
-    // `/fast` follows the same trailing-token completion behavior as `/plan`: `/fa` is only a
-    // prefix used to find the canonical command, not a separate compatibility alias.
-    const fastSlash = useMemo(() => {
-        if (running || slashCommandDismissed || !showServiceTier) return null
-        const match = /(^|\s)\/([a-zA-Z]*)$/u.exec(draft)
-        if (!match) return null
-        const query = match[2].toLowerCase()
-        if (query.length === 0 || !'fast'.startsWith(query)) return null
-        return { tokenStart: match.index + match[1].length }
-    }, [draft, running, showServiceTier, slashCommandDismissed])
+    const slashOccupiesWholeDraft = Boolean(
+        slash
+        && !draft.slice(0, slash.start).trim()
+        && !draft.slice(slash.start + 1 + slash.query.length).trim()
+    )
+    const builtinSlashCommands = useMemo<BuiltinSlashCommandItem[]>(() => {
+        const items: BuiltinSlashCommandItem[] = [
+            {
+                kind: 'builtin',
+                name: 'plan',
+                title: t('codex.slashPlan.title'),
+                description: planMode ? t('codex.slashPlan.turnOff') : t('codex.slashPlan.turnOn'),
+                disabled: running,
+            },
+            {
+                kind: 'builtin',
+                name: 'compact',
+                title: t('codex.slashCompact.title'),
+                description: t('codex.slashCompact.description'),
+                disabled: running || !selectedSession?.codexThreadId || !slashOccupiesWholeDraft,
+            },
+        ]
+        if (showServiceTier) {
+            items.push({
+                kind: 'builtin',
+                name: 'fast',
+                title: t('codex.slashFast.title'),
+                description: fastModeActive ? t('codex.slashFast.turnOff') : t('codex.slashFast.turnOn'),
+                disabled: running,
+            })
+        }
+        return items
+    }, [fastModeActive, planMode, running, selectedSession?.codexThreadId, showServiceTier, slashOccupiesWholeDraft, t])
+    const slashMatches = useMemo<SlashCommandItem[]>(() => {
+        if (!slashMenuOpen || !slash) return []
+        const query = slash.query.toLocaleLowerCase()
+        const matches = (value: string) => !query || value.toLocaleLowerCase().includes(query)
+        const builtins = builtinSlashCommands.filter((item) =>
+            matches(`${item.name} ${item.title} ${item.description}`)
+        )
+        const skillItems: SlashCommandItem[] = (skills ?? [])
+            .filter((skill) => matches(`${skill.name} ${skill.description ?? ''}`))
+            .map((skill) => ({
+                kind: 'skill',
+                name: skill.name,
+                description: skill.description,
+                skill,
+                disabled: running && !queueingEnabled,
+            }))
+        return [...builtins, ...skillItems].slice(0, 12)
+    }, [builtinSlashCommands, queueingEnabled, running, skills, slash, slashMenuOpen])
+
+    useEffect(() => {
+        const firstEnabled = slashMatches.findIndex((item) => !item.disabled)
+        setSlashIndex(firstEnabled >= 0 ? firstEnabled : 0)
+    }, [slash?.query, slashMatches])
     const quotaSummary = useMemo(
         () =>
             getCodexRateLimitSummary(
@@ -3317,7 +3500,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     )
     const quotaSummaryText = quotaSummary.join(', ')
     const showQuotaSummary = hasCodexFastModeAuth && hasMeaningfulCodexRateLimits(activeConnectionRateLimits) && quotaSummary.length > 0
-    const showPlanHint = !planMode && !planHintDismissed && !running && !planSlash && /\bplan\b/iu.test(draft)
+    const showPlanHint = !planMode && !planHintDismissed && !running && !slashMenuOpen && /\bplan\b/iu.test(draft)
     const approvalOptions = pendingApproval ? getApprovalComposerOptions(pendingApproval, t) : []
     const selectedApprovalOptionId =
         pendingApproval && approvalActionSelection?.approvalId === pendingApproval.id
@@ -3484,7 +3667,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     })
 
     const steerContent = async (content: string, sessionId?: string | null, attachments: string[] = []) => {
-        const normalizedContent = content.trim()
+        const normalizedContent = flattenSkillCommandsForSteer(content).trim()
         if (!normalizedContent) return
         setRunError(null)
         const targetSessionId = sessionId ?? await ensureSession()
@@ -3520,6 +3703,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const runCompaction = () => {
         const sessionId = selectedSession?.id
         if (!sessionId || running) return
+        setSlash(null)
         setSlashCommandDismissed(false)
         setRunError(null)
         // The store action clears the draft and flips to the running (stop) state optimistically.
@@ -3528,64 +3712,97 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         })
     }
 
-    // Activate the `/plan` command: toggle plan mode, strip the command token from the draft, keep
-    // the rest. It never sends — `/plan` only flips the mode.
-    const runPlanSlash = () => {
-        if (running || !planSlash) return
-        const nextDraft = draft.slice(0, planSlash.tokenStart)
-        const caret = nextDraft.length
+    const removeSlashToken = (token: { start: number; query: string }) => {
+        const tokenEnd = token.start + 1 + token.query.length
+        return {
+            value: `${draft.slice(0, token.start)}${draft.slice(tokenEnd)}`,
+            caret: token.start,
+        }
+    }
+
+    // Built-in slash commands toggle local/session state and remove only their command token. They
+    // never become user messages.
+    const runPlanSlash = (token: { start: number; query: string }) => {
+        if (running) return
+        const nextDraft = removeSlashToken(token)
         setRunError(null)
+        setSlash(null)
         void (async () => {
             const sessionId = await applyPlanMode(!planMode)
             if (!sessionId) return
-            updateDraft(novelId, sessionId, nextDraft)
+            updateDraft(novelId, sessionId, nextDraft.value)
             requestAnimationFrame(() => {
                 const textarea = composerRef.current
                 if (!textarea) return
                 textarea.focus()
-                textarea.setSelectionRange(caret, caret)
+                textarea.setSelectionRange(nextDraft.caret, nextDraft.caret)
             })
         })().catch((error) => {
             setRunError(error instanceof Error ? error.message : String(error))
         })
     }
 
-    const runFastSlash = () => {
-        if (running || !fastSlash) return
-        const nextDraft = draft.slice(0, fastSlash.tokenStart)
-        const caret = nextDraft.length
+    const runFastSlash = (token: { start: number; query: string }) => {
+        if (running) return
+        const nextDraft = removeSlashToken(token)
         setRunError(null)
+        setSlash(null)
         void (async () => {
             const sessionId = await applyModelSettings({
                 serviceTier: fastModeActive ? 'standard' : 'fast',
             })
             if (!sessionId) return
-            updateDraft(novelId, sessionId, nextDraft)
+            updateDraft(novelId, sessionId, nextDraft.value)
             requestAnimationFrame(() => {
                 const textarea = composerRef.current
                 if (!textarea) return
                 textarea.focus()
-                textarea.setSelectionRange(caret, caret)
+                textarea.setSelectionRange(nextDraft.caret, nextDraft.caret)
             })
         })().catch((error) => {
             setRunError(error instanceof Error ? error.message : String(error))
         })
     }
 
+    const activateSlashItem = (item: SlashCommandItem) => {
+        if (!slash || item.disabled) return
+        if (item.kind === 'builtin') {
+            if (item.name === 'compact') runCompaction()
+            else if (item.name === 'fast') runFastSlash(slash)
+            else runPlanSlash(slash)
+            return
+        }
+
+        void (async () => {
+            const sessionId = selectedSession?.id ?? await ensureSession()
+            if (sessionId) insertSlashSkill(item.skill, sessionId)
+        })().catch((error) => {
+            setRunError(error instanceof Error ? error.message : String(error))
+        })
+    }
+
+    const confirmSlash = () => {
+        const item = slashMatches[slashIndex]
+        if (item) activateSlashItem(item)
+    }
+
+    const moveSlashSelection = (direction: 1 | -1) => {
+        if (slashMatches.length === 0) return
+        setSlashIndex((current) => {
+            for (let offset = 1; offset <= slashMatches.length; offset += 1) {
+                const candidate = (current + direction * offset + slashMatches.length) % slashMatches.length
+                if (!slashMatches[candidate]?.disabled) return candidate
+            }
+            return current
+        })
+    }
+
     const submit = () => {
-        // A pending `/compact` is a command, never a message — route it to compaction even if the
-        // user clicks the send button instead of pressing Tab/Enter.
-        if (slashCommandActive) {
-            runCompaction()
-            return
-        }
-        // Likewise `/plan` is a command — toggle plan mode instead of sending the literal text.
-        if (planSlash) {
-            runPlanSlash()
-            return
-        }
-        if (fastSlash) {
-            runFastSlash()
+        const exactBuiltin = slash && slash.query
+            ? builtinSlashCommands.find((item) => item.name === slash.query.toLocaleLowerCase() && !item.disabled)
+            : null
+        if (exactBuiltin) {
+            activateSlashItem(exactBuiltin)
             return
         }
         if (!draft.trim() || imageAttachments.uploading || jsonArtifactUploading) return
@@ -3595,15 +3812,16 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             if (!targetSessionId) return
 
             const hasMention = draft.includes('@')
+            const hasSkillCommand = draft.includes('/')
             const groups = hasMention ? await ensureModelGroups() : []
-            const skillList = hasMention ? await ensureSkills() : []
+            const skillList = hasSkillCommand ? await ensureSkills() : []
             const snippetList = hasMention ? await ensureSnippets() : []
             const materialList = hasMention ? await ensureMaterials() : []
             const actList = hasMention ? await ensureActs() : []
             const chapterList = hasMention ? await ensureChapters() : []
             const outlineList = hasMention ? await ensureOutlines() : []
             const expandedModels = expandModelMentions(draft, groups)
-            const { text: expandedSkills, skillIds } = expandSkillMentions(expandedModels, skillList)
+            const { text: expandedSkills, skillIds } = expandSkillCommands(expandedModels, skillList)
             const expandedTerms = expandTermMentions(expandedSkills, hasMention ? termEntries : [])
             const expandedSnippets = expandSnippetMentions(expandedTerms, hasMention ? buildSnippetMentionList(snippetList) : [])
             const expandedMaterials = expandMaterialMentions(expandedSnippets, hasMention ? buildMaterialMentionList(materialList) : [])
@@ -3619,8 +3837,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
 
             if (running) {
                 if (queueingEnabled) {
-                    // Steering/queueing can't carry a skill input item; the `$name` text still
-                    // lets Codex resolve the skill itself.
+                    // This becomes a normal turn after the active one finishes, so retain the
+                    // structured token for the messages route to resolve into a skill input item.
                     enqueueQueuedMessage(targetSessionId, content, attachments)
                     imageAttachments.clear()
                     updateDraft(novelId, targetSessionId, '')
@@ -4038,7 +4256,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         <CodexMentionMenu
                             items={mentionMatches}
                             activeIndex={mentionIndex}
-                            loading={modelGroups === null || skills === null}
+                            loading={modelGroups === null}
                             onHover={setMentionIndex}
                             onSelect={(item) => {
                                 const sessionId = selectedSession?.id
@@ -4050,59 +4268,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             }}
                         />
                     )}
-                    {slashCommandActive && mention === null && (
-                        <div className="absolute bottom-full left-2 right-2 z-50 mb-2 overflow-hidden rounded-xl border bg-popover shadow-lg">
-                            <button
-                                type="button"
-                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-accent"
-                                // mousedown (not click) fires before the textarea blur so the menu acts before it closes.
-                                onMouseDown={(event) => {
-                                    event.preventDefault()
-                                    runCompaction()
-                                }}
-                            >
-                                <FoldVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                <span className="text-sm font-medium text-foreground">{t('codex.slashCompact.title')}</span>
-                                <span className="truncate text-xs text-muted-foreground">{t('codex.slashCompact.description')}</span>
-                            </button>
-                        </div>
-                    )}
-                    {planSlash && !slashCommandActive && mention === null && (
-                        <div className="absolute bottom-full left-2 right-2 z-50 mb-2 overflow-hidden rounded-xl border bg-popover shadow-lg">
-                            <button
-                                type="button"
-                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-accent"
-                                // mousedown (not click) fires before the textarea blur so the menu acts before it closes.
-                                onMouseDown={(event) => {
-                                    event.preventDefault()
-                                    runPlanSlash()
-                                }}
-                            >
-                                <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                <span className="text-sm font-medium text-foreground">{t('codex.slashPlan.title')}</span>
-                                <span className="truncate text-xs text-muted-foreground">
-                                    {planMode ? t('codex.slashPlan.turnOff') : t('codex.slashPlan.turnOn')}
-                                </span>
-                            </button>
-                        </div>
-                    )}
-                    {fastSlash && !slashCommandActive && !planSlash && mention === null && (
-                        <div className="absolute bottom-full left-2 right-2 z-50 mb-2 overflow-hidden rounded-xl border bg-popover shadow-lg">
-                            <button
-                                type="button"
-                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-accent"
-                                onMouseDown={(event) => {
-                                    event.preventDefault()
-                                    runFastSlash()
-                                }}
-                            >
-                                <Zap className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                <span className="text-sm font-medium text-foreground">{t('codex.slashFast.title')}</span>
-                                <span className="truncate text-xs text-muted-foreground">
-                                    {fastModeActive ? t('codex.slashFast.turnOff') : t('codex.slashFast.turnOn')}
-                                </span>
-                            </button>
-                        </div>
+                    {slashMenuOpen && mention === null && (
+                        <CodexSlashMenu
+                            items={slashMatches}
+                            activeIndex={slashIndex}
+                            loadingSkills={skills === null}
+                            onHover={setSlashIndex}
+                            onSelect={activateSlashItem}
+                        />
                     )}
                     <div className="relative">
                     <div
@@ -4153,43 +4326,33 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         onPaste={handleComposerPaste}
                         onBlur={() => {
                             // Delay so a menu click (mousedown) can fire before close.
-                            window.setTimeout(closeMention, 120)
+                            window.setTimeout(() => {
+                                closeMention()
+                                setSlash(null)
+                            }, 120)
                         }}
                         onKeyDown={(event) => {
                             if (isKeyboardEventComposing(event)) return
-                            if (slashCommandActive && mention === null) {
-                                if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
+                            if (slashMenuOpen && mention === null) {
+                                if (event.key === 'ArrowDown') {
                                     event.preventDefault()
-                                    runCompaction()
+                                    moveSlashSelection(1)
+                                    return
+                                }
+                                if (event.key === 'ArrowUp') {
+                                    event.preventDefault()
+                                    moveSlashSelection(-1)
+                                    return
+                                }
+                                if (slashMatches.length > 0 && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
+                                    event.preventDefault()
+                                    confirmSlash()
                                     return
                                 }
                                 if (event.key === 'Escape') {
                                     event.preventDefault()
                                     setSlashCommandDismissed(true)
-                                    return
-                                }
-                            }
-                            if (planSlash && !slashCommandActive && mention === null) {
-                                if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
-                                    event.preventDefault()
-                                    runPlanSlash()
-                                    return
-                                }
-                                if (event.key === 'Escape') {
-                                    event.preventDefault()
-                                    setSlashCommandDismissed(true)
-                                    return
-                                }
-                            }
-                            if (fastSlash && !slashCommandActive && !planSlash && mention === null) {
-                                if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
-                                    event.preventDefault()
-                                    runFastSlash()
-                                    return
-                                }
-                                if (event.key === 'Escape') {
-                                    event.preventDefault()
-                                    setSlashCommandDismissed(true)
+                                    setSlash(null)
                                     return
                                 }
                             }
@@ -4220,16 +4383,23 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                     return
                                 }
                             }
-                            // Backspace at a mention edge deletes the whole `@mention` token at once.
+                            // Backspace at a reference edge deletes the whole `@reference` or
+                            // `/skill` token at once.
                             if (event.key === 'Backspace' && !event.metaKey && !event.ctrlKey && !event.altKey) {
                                 const { selectionStart, selectionEnd } = event.currentTarget
                                 if (selectionStart !== null && selectionStart === selectionEnd) {
-                                    const removal = findMentionTokenToDeleteBeforeCaret(draft, selectionStart, mentionTargets)
+                                    const removal = findMentionTokenToDeleteBeforeCaret(
+                                        draft,
+                                        selectionStart,
+                                        mentionTargets,
+                                        skillTargets
+                                    )
                                     if (removal) {
                                         event.preventDefault()
                                         const nextValue = draft.slice(0, removal.start) + draft.slice(removal.end)
                                         const caret = removal.start
                                         setMention(detectMentionAtCaret(nextValue, caret))
+                                        setSlash(detectSlashAtCaret(nextValue, caret))
                                         const applyCaret = () => requestAnimationFrame(() => {
                                             const textarea = composerRef.current
                                             if (!textarea) return
@@ -4349,7 +4519,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                 type="button"
                                 size="sm"
                                 variant="ghost"
-                                className="group h-8 gap-2 rounded-full bg-muted/70 px-3 text-muted-foreground hover:bg-sky-100 hover:text-foreground"
+                                className="group h-8 gap-2 rounded-full bg-muted/70 px-3 text-muted-foreground hover:bg-sky-100 hover:text-foreground dark:hover:bg-sky-950/40"
                                 disabled={running}
                                 onClick={() => setPlanMode(false)}
                                 title={t('codex.disablePlan')}

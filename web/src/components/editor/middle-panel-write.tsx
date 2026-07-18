@@ -279,9 +279,9 @@ export function MiddlePanelWrite({
                             placeholder={chapter.title || t('chapter.untitledChapter')}
                             className={`text-3xl font-bold bg-transparent rounded px-2 py-1 -ml-2 outline-none w-full max-w-md cursor-text
                                 ${editingChapterId === chapter.id
-                                    ? 'ring-2 ring-gray-300 bg-gray-50/50'
+                                    ? 'ring-2 ring-ring bg-muted/50'
                                     : 'hover:bg-muted/30'}
-                                placeholder:text-gray-400`}
+                                placeholder:text-muted-foreground`}
                         />
                     </div>
 
@@ -347,9 +347,9 @@ export function MiddlePanelWrite({
                     placeholder={getActDisplayTitle(actNum)}
                     className={`text-xl font-semibold text-center bg-transparent rounded px-4 py-1 outline-none max-w-xs cursor-text
                         ${editingActNumber === actNum
-                            ? 'ring-2 ring-gray-300 bg-gray-50/50'
+                            ? 'ring-2 ring-ring bg-muted/50'
                             : 'hover:bg-muted/30'}
-                        placeholder:text-gray-400`}
+                        placeholder:text-muted-foreground`}
                 />
             </div>
             {/* Right: Act info panel - with group hover effect */}
@@ -392,7 +392,7 @@ export function MiddlePanelWrite({
                     }}
                     placeholder={t('act.addSummary')}
                     matcher={termMentionMatcher}
-                    containerClassName={`rounded transition-colors ${editingActSummaryNumber === actNum ? 'bg-gray-50/50 text-foreground' : 'group-hover:bg-muted/30'}`}
+                    containerClassName={`rounded transition-colors ${editingActSummaryNumber === actNum ? 'bg-muted/50 text-foreground' : 'group-hover:bg-muted/30'}`}
                     className="w-full text-xs border-transparent rounded px-2 py-1 resize-none outline-none cursor-text placeholder:text-muted-foreground/60"
                     textareaClassName="onw-editor-scrollbar max-h-40 overflow-y-auto overscroll-contain"
                     style={{ maxHeight: '10rem', overflowY: 'auto' }}

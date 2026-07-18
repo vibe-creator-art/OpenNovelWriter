@@ -300,9 +300,9 @@ export function PromptClipboardDialogs({
                             )}
 
                             {clipboardImportConflictNames.length > 0 && (
-                                <div className="rounded-md border border-amber-300/50 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                <div className="rounded-md border border-amber-300/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
                                     <div className="font-medium">{t('clipboard.import.conflictsTitle')}</div>
-                                    <div className="mt-1 text-xs text-amber-800">{clipboardImportConflictNames.join(', ')}</div>
+                                    <div className="mt-1 text-xs text-amber-800 dark:text-amber-300">{clipboardImportConflictNames.join(', ')}</div>
                                 </div>
                             )}
 
@@ -340,7 +340,7 @@ export function PromptClipboardDialogs({
                             {t('clipboard.import.overwriteDialog.description')}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="rounded-md border border-amber-300/50 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <div className="rounded-md border border-amber-300/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
                         {clipboardImportConflictNames.join(', ')}
                     </div>
                     <AlertDialogFooter>

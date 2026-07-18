@@ -63,7 +63,7 @@ export default function RegisterPage() {
                     <form onSubmit={handleSubmit}>
                         <CardContent className="space-y-4">
                             {error && (
-                                <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md">
+                                <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md dark:bg-red-950/30 dark:text-red-300">
                                     {error}
                                 </div>
                             )}

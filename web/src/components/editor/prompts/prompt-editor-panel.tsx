@@ -784,9 +784,9 @@ export function PromptEditorPanel({
                             </div>
 
                             {includeWarnings.length > 0 && (
-                                <div className="rounded-md border bg-yellow-50 px-3 py-3 text-sm text-yellow-900 space-y-2">
+                                <div className="rounded-md border bg-yellow-50 px-3 py-3 text-sm text-yellow-900 space-y-2 dark:border-yellow-900/50 dark:bg-yellow-950/30 dark:text-yellow-200">
                                     <div className="font-medium">{t('advanced.preview.warningsTitle')}</div>
-                                    <ul className="list-disc pl-5 text-xs text-yellow-900/80 space-y-1">
+                                    <ul className="list-disc pl-5 text-xs text-yellow-900/80 space-y-1 dark:text-yellow-300">
                                         {includeWarnings.map((warning) => (
                                             <li key={`${warning.type}:${warning.name}`}>{getPromptWarningMessage(warning, t)}</li>
                                         ))}

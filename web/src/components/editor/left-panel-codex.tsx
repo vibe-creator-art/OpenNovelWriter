@@ -178,7 +178,16 @@ export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCod
                                                                         {session.status === 'running' ? (
                                                                             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
                                                                         ) : session.status === 'idle' && session.messages.length > 0 ? (
-                                                                            <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                                                            session.unreadCompletionAt ? (
+                                                                                <span
+                                                                                    role="status"
+                                                                                    aria-label={t('codex.unreadCompletion')}
+                                                                                    title={t('codex.unreadCompletion')}
+                                                                                    className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500"
+                                                                                />
+                                                                            ) : (
+                                                                                <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                                                            )
                                                                         ) : null}
                                                                     </div>
                                                                 </div>

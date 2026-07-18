@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
+import { formatPromptTemplate, getPromptTemplateSyntaxError } from '@/lib/prompt-template-format'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ChevronDown, ChevronUp, Search } from 'lucide-react'
+import { AlertTriangle, AlignLeft, CheckCircle2, ChevronDown, ChevronUp, Search } from 'lucide-react'
 
 type PromptTemplateInsertRequest = {
     id: number
@@ -29,6 +30,13 @@ type FindOptions = {
 }
 
 type FindMatch = { start: number; end: number }
+
+type FormatFeedback = {
+    kind: 'success' | 'error'
+    message: string
+    detail?: string
+    value: string
+}
 
 const LINE_HEIGHT_PX = 24
 
@@ -285,7 +293,7 @@ function isNunjucksKeyword(value: string, tokenKind: NunjucksTokenKind) {
 function highlightNunjucksInner(inner: string, tokenKind: NunjucksTokenKind): ReactNode[] {
     if (tokenKind === 'comment') {
         return [
-            <span key="comment" className="text-zinc-500 dark:text-zinc-400 italic">
+            <span key="comment" className="text-muted-foreground italic">
                 {inner}
             </span>,
         ]
@@ -401,7 +409,7 @@ function highlightPromptLine(line: string): ReactNode[] {
                 ? 'text-sky-700 dark:text-sky-400'
                 : token.tokenKind === 'stmt'
                     ? 'text-violet-700 dark:text-violet-400'
-                    : 'text-zinc-500 dark:text-zinc-400'
+                    : 'text-muted-foreground'
 
         nodes.push(
             <span key={`o-${key++}`} className={delimiterColor}>
@@ -448,11 +456,13 @@ export function PromptTemplateEditor({
     })
     const [activeMatchIndex, setActiveMatchIndex] = useState(-1)
     const [lineHeights, setLineHeights] = useState<number[]>([])
+    const [formatFeedback, setFormatFeedback] = useState<FormatFeedback | null>(null)
 
     const lineStarts = useMemo(() => computeLineStarts(value), [value])
     const lines = useMemo(() => value.split('\n'), [value])
     const activeLine = useMemo(() => findLineIndex(lineStarts, selectionStart), [lineStarts, selectionStart])
     const matches = useMemo(() => findAllMatches(value, findQuery, findOptions), [value, findQuery, findOptions])
+    const activeFormatFeedback = formatFeedback?.value === value ? formatFeedback : null
     const resolvedLineHeights = useMemo(
         () => lines.map((_, index) => lineHeights[index] ?? LINE_HEIGHT_PX),
         [lineHeights, lines]
@@ -657,6 +667,45 @@ export function PromptTemplateEditor({
         })
     }, [disabled, insertRequest, onChange, syncTransforms, value])
 
+    const handleFormat = useCallback(() => {
+        if (disabled) return
+
+        const syntaxError = getPromptTemplateSyntaxError(value)
+        if (syntaxError) {
+            setFormatFeedback({
+                kind: 'error',
+                message: t('editor.formatSyntaxError'),
+                detail: syntaxError.name,
+                value,
+            })
+            return
+        }
+
+        const textarea = textareaRef.current
+        const caret = textarea?.selectionStart ?? 0
+        const nextValue = formatPromptTemplate(value)
+        const changed = nextValue !== value
+
+        setFormatFeedback({
+            kind: 'success',
+            message: t(changed ? 'editor.formatSuccess' : 'editor.formatUnchanged'),
+            value: nextValue,
+        })
+
+        if (changed) onChange(nextValue)
+
+        requestAnimationFrame(() => {
+            const nextTextarea = textareaRef.current
+            if (!nextTextarea) return
+            const nextCaret = Math.min(caret, nextValue.length)
+            nextTextarea.focus()
+            nextTextarea.setSelectionRange(nextCaret, nextCaret)
+            selectionRangeRef.current = { start: nextCaret, end: nextCaret }
+            setSelectionStart(nextCaret)
+            syncTransforms()
+        })
+    }, [disabled, onChange, syncTransforms, t, value])
+
     const matchCountLabel = useMemo(() => {
         if (!findQuery.trim()) return ''
         return t('editor.findCount', {
@@ -728,7 +777,10 @@ export function PromptTemplateEditor({
                         disabled={disabled}
                         placeholder={placeholder}
                         spellCheck={false}
-                        onChange={(e) => onChange(e.target.value)}
+                        onChange={(e) => {
+                            setFormatFeedback(null)
+                            onChange(e.target.value)
+                        }}
                         onScroll={() => syncTransforms()}
                         onSelect={() => syncSelection()}
                         onKeyUp={() => syncSelection()}
@@ -860,9 +912,42 @@ export function PromptTemplateEditor({
                     </label>
                 </div>
 
-                {matchCountLabel && (
-                    <div className="ml-auto text-xs text-muted-foreground tabular-nums">{matchCountLabel}</div>
-                )}
+                <div className="ml-auto flex min-w-0 items-center gap-2">
+                    {matchCountLabel && (
+                        <div className="text-xs text-muted-foreground tabular-nums">{matchCountLabel}</div>
+                    )}
+
+                    {activeFormatFeedback && (
+                        <div
+                            className={cn(
+                                'flex min-w-0 max-w-[280px] items-center gap-1 text-xs',
+                                activeFormatFeedback.kind === 'error' ? 'text-destructive' : 'text-emerald-700 dark:text-emerald-400'
+                            )}
+                            title={activeFormatFeedback.detail ?? activeFormatFeedback.message}
+                            aria-live="polite"
+                        >
+                            {activeFormatFeedback.kind === 'error' ? (
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                            ) : (
+                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                            )}
+                            <span className="truncate">{activeFormatFeedback.message}</span>
+                        </div>
+                    )}
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shrink-0 gap-1 px-2"
+                        disabled={disabled}
+                        onClick={handleFormat}
+                        title={t('editor.format')}
+                    >
+                        <AlignLeft className="h-4 w-4" />
+                        {t('editor.format')}
+                    </Button>
+                </div>
             </div>
         </div>
     )

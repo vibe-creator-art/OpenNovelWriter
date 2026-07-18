@@ -59,8 +59,8 @@ const SCENE_CONTINUATION_PANEL_STORAGE_PREFIX = 'onw.editor.sceneContinuation.pr
 function getDecoratedBlockClass(style: WriteAiOutputStyle, tone: 'planning' | 'reasoning') {
     if (style === 'card') {
         return tone === 'planning'
-            ? 'rounded-xl border border-sky-200/70 bg-gradient-to-br from-sky-50/80 via-background to-cyan-50/60 px-4 py-3 shadow-sm'
-            : 'rounded-xl border border-amber-200/70 bg-gradient-to-br from-amber-50/80 via-background to-orange-50/60 px-4 py-3 shadow-sm'
+            ? 'rounded-xl border border-sky-200/70 bg-gradient-to-br from-sky-50/80 via-background to-cyan-50/60 px-4 py-3 shadow-sm dark:border-sky-900/50 dark:from-sky-950/30 dark:to-cyan-950/20'
+            : 'rounded-xl border border-amber-200/70 bg-gradient-to-br from-amber-50/80 via-background to-orange-50/60 px-4 py-3 shadow-sm dark:border-amber-900/50 dark:from-amber-950/30 dark:to-orange-950/20'
     }
 
     return 'rounded-lg border bg-muted/30 px-4 py-3'

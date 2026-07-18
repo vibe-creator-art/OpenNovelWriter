@@ -1,11 +1,17 @@
 'use client'
 
-import { useEditor, EditorContent } from '@tiptap/react'
+import { EditorContent, useEditor, useEditorState } from '@tiptap/react'
+import { BubbleMenu } from '@tiptap/react/menus'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import type { AnyExtension, Editor } from '@tiptap/core'
+import { TextSelection } from 'prosemirror-state'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
+import { Bold, Italic } from 'lucide-react'
+import { useTranslations } from 'next-intl'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import type { TermMentionMatcher } from '@/components/editor/terms/term-mentions-utils'
 import { EMPTY_TERM_MENTION_MATCHER } from '@/components/editor/terms/term-mentions-utils'
 import { TermMentionsExtension, termMentionsPluginKey } from '@/components/editor/terms/term-mentions-extension'
@@ -22,6 +28,7 @@ interface TipTapEditorProps {
     extraExtensions?: AnyExtension[]
     onEditorReady?: (editor: Editor | null) => void
     onSelectionUpdate?: (editor: Editor) => void
+    showSelectionFormatMenu?: boolean
     typewriter?: {
         enabled: boolean
         smooth?: boolean
@@ -31,6 +38,82 @@ interface TipTapEditorProps {
         onSelect: (id: string, editor: Editor) => void
         triggerKeys?: Array<'tab' | 'slash'>
     }
+}
+
+function SelectionFormatMenu({ editor }: { editor: Editor }) {
+    const t = useTranslations('editor.markdownToolbar')
+    const activeMarks = useEditorState({
+        editor,
+        selector: ({ editor: currentEditor }) => ({
+            bold: currentEditor.isActive('bold'),
+            italic: currentEditor.isActive('italic'),
+        }),
+    })
+    const controls = [
+        {
+            id: 'bold',
+            label: t('bold'),
+            icon: Bold,
+            active: activeMarks.bold,
+            toggle: () => editor.chain().focus().toggleBold().run(),
+        },
+        {
+            id: 'italic',
+            label: t('italic'),
+            icon: Italic,
+            active: activeMarks.italic,
+            toggle: () => editor.chain().focus().toggleItalic().run(),
+        },
+    ] as const
+
+    return (
+        <BubbleMenu
+            editor={editor}
+            pluginKey="selectionFormatMenu"
+            updateDelay={0}
+            shouldShow={({ editor: currentEditor, state, from, to }) => (
+                currentEditor.isFocused
+                && state.selection instanceof TextSelection
+                && !state.selection.empty
+                && state.doc.textBetween(from, to, ' ').trim().length > 0
+            )}
+            options={{
+                placement: 'bottom',
+                offset: 9,
+                flip: { fallbackPlacements: ['top'] },
+                shift: { padding: 12 },
+                inline: true,
+            }}
+        >
+            <div
+                data-selection-format-menu="true"
+                className="relative z-50 flex items-center gap-0.5 rounded-xl border border-border/70 bg-popover/95 p-1 text-popover-foreground shadow-[0_12px_32px_-12px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+            >
+                {controls.map((control) => {
+                    const Icon = control.icon
+                    return (
+                        <Button
+                            key={control.id}
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className={cn(
+                                'size-8 rounded-lg transition-colors',
+                                control.active && 'bg-foreground text-background hover:bg-foreground/90 hover:text-background'
+                            )}
+                            aria-label={control.label}
+                            aria-pressed={control.active}
+                            title={control.label}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={control.toggle}
+                        >
+                            <Icon className="size-4" />
+                        </Button>
+                    )
+                })}
+            </div>
+        </BubbleMenu>
+    )
 }
 
 export function TipTapEditor({
@@ -44,6 +127,7 @@ export function TipTapEditor({
     extraExtensions,
     onEditorReady,
     onSelectionUpdate,
+    showSelectionFormatMenu = false,
     typewriter,
     commandMenu,
 }: TipTapEditorProps) {
@@ -253,6 +337,7 @@ export function TipTapEditor({
     return (
         <div className="w-full" onClickCapture={handleClickCapture} onKeyDownCapture={handleKeyDownCapture}>
             <EditorContent editor={editor} className="w-full" />
+            {showSelectionFormatMenu && editor && <SelectionFormatMenu editor={editor} />}
             {commandMenu && (
                 <EditorCommandMenu
                     open={commandMenuOpen}

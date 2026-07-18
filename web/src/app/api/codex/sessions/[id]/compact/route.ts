@@ -64,6 +64,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             draftContent: '',
             status: 'running',
             lastError: null,
+            unreadCompletionAt: null,
             updatedAt: now,
         },
     })

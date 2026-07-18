@@ -315,6 +315,12 @@ function shouldRefreshNovelAfterCodexEvent(event: CodexRunEvent) {
     return event.kind === 'tool' && event.title.startsWith('opennovelwriter.')
 }
 
+function persistCompletionRead(sessionId: string, completedAt: string) {
+    void codexSessionApi.markCompletionRead(sessionId, completedAt).catch((error) => {
+        console.error('Failed to mark Codex completion as read:', error)
+    })
+}
+
 /**
  * Reduce a single Codex SSE event into store state. Shared by `sendMessage` and `compact` so both
  * streams handle done/error/approval/deltas/events identically. Returns the error detail when the
@@ -322,14 +328,20 @@ function shouldRefreshNovelAfterCodexEvent(event: CodexRunEvent) {
  */
 function applyCodexStreamEvent(
     set: StoreApi<CodexStoreState>['setState'],
+    get: StoreApi<CodexStoreState>['getState'],
     novelKey: string,
     sessionId: string,
     event: CodexSessionStreamEvent
 ): string | null {
     if (event.type === 'done') {
+        const completedAt = event.session.unreadCompletionAt
+        const selected = get().sessionsByNovel[novelKey]?.selectedSessionId === sessionId
+        const completedSession = selected && completedAt
+            ? { ...event.session, unreadCompletionAt: null }
+            : event.session
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            const session = mergeSessionPreservingComposer(current, event.session)
+            const session = mergeSessionPreservingComposer(current, completedSession)
             return {
                 pendingApprovalsBySession: {
                     ...state.pendingApprovalsBySession,
@@ -341,6 +353,7 @@ function applyCodexStreamEvent(
                 },
             }
         })
+        if (selected && completedAt) persistCompletionRead(sessionId, completedAt)
         return null
     }
 
@@ -615,15 +628,27 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     },
     selectSession: (novelId, sessionId) => {
         const novelKey = getNovelKey(novelId)
+        const completedAt = get().sessionsByNovel[novelKey]?.sessions.find(
+            (session) => session.id === sessionId
+        )?.unreadCompletionAt ?? null
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             return {
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: { ...current, selectedSessionId: sessionId },
+                    [novelKey]: {
+                        ...current,
+                        selectedSessionId: sessionId,
+                        sessions: completedAt
+                            ? current.sessions.map((session) =>
+                                session.id === sessionId ? { ...session, unreadCompletionAt: null } : session
+                            )
+                            : current.sessions,
+                    },
                 },
             }
         })
+        if (completedAt) persistCompletionRead(sessionId, completedAt)
     },
     updateDraft: (novelId, sessionId, draftContent) => {
         const novelKey = getNovelKey(novelId)
@@ -912,6 +937,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                                 ? {
                                     ...session,
                                     status: 'running',
+                                    unreadCompletionAt: null,
                                     draftContent: '',
                                     draftAttachments: [],
                                     draftArtifacts: [],
@@ -941,7 +967,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             attachments: options?.attachments,
             artifactFiles: options?.artifactFiles,
             onEvent: (event) => {
-                const detail = applyCodexStreamEvent(set, novelKey, sessionId, event)
+                const detail = applyCodexStreamEvent(set, get, novelKey, sessionId, event)
                 if (detail) streamError = detail
             },
         })
@@ -967,7 +993,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                         ...current,
                         sessions: current.sessions.map((session) =>
                             session.id === sessionId
-                                ? { ...session, status: 'running', draftContent: '' }
+                                ? { ...session, status: 'running', unreadCompletionAt: null, draftContent: '' }
                                 : session
                         ),
                     },
@@ -978,7 +1004,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         let streamError: string | null = null
         await codexSessionApi.streamCompaction(sessionId, {
             onEvent: (event) => {
-                const detail = applyCodexStreamEvent(set, novelKey, sessionId, event)
+                const detail = applyCodexStreamEvent(set, get, novelKey, sessionId, event)
                 if (detail) streamError = detail
             },
         })

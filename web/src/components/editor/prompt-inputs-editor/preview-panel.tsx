@@ -74,9 +74,9 @@ export function PreviewPanel({
                     )}
 
                     {missingInputNames.length > 0 && (
-                        <div className="rounded-md border bg-yellow-50 px-3 py-3 text-sm text-yellow-900 space-y-2">
+                        <div className="rounded-md border bg-yellow-50 px-3 py-3 text-sm text-yellow-900 space-y-2 dark:border-yellow-900/50 dark:bg-yellow-950/30 dark:text-yellow-200">
                             <div className="font-medium">{t('advanced.preview.missingTitle')}</div>
-                            <div className="text-xs text-yellow-900/80">{missingInputNames.join(', ')}</div>
+                            <div className="text-xs text-yellow-900/80 dark:text-yellow-300">{missingInputNames.join(', ')}</div>
                             {!hideAddMissingButton && (
                                 <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={handleAddMissingInputs}>
                                     {t('advanced.preview.addMissing')}

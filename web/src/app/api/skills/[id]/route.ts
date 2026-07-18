@@ -9,6 +9,7 @@ import {
     DuplicateSkillNameError,
     getSkillValidationErrorDetail,
     readSkill,
+    ReservedSkillNameError,
     setSkillEnabled,
     SkillNotFoundError,
     toSkillDto,
@@ -88,6 +89,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         const status =
             error instanceof DuplicateSkillNameError
                 ? 409
+                : error instanceof ReservedSkillNameError
+                    ? 400
                 : error instanceof SkillNotFoundError
                     ? 404
                     : 400

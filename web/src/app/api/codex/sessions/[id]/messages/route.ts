@@ -160,8 +160,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         }
     }
 
-    // Skill mentions are stored in the message as `[name](skill:SKILL_ID)` (parallel to model
-    // mentions). Collect their ids from the content (and any explicit `skillIds` in the body),
+    // Skill commands are stored in the message as `[name](skill:SKILL_ID)`. Collect their ids from
+    // the content (and any explicit `skillIds` in the body),
     // resolve to `{ id, name }` for the turn's skill input items, and rewrite the tokens to
     // Codex-native `$name` in the prompt that is actually sent to the model.
     const bodySkillIds = Array.isArray(body?.skillIds)
@@ -355,6 +355,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             draftArtifactsJson: '[]',
             status: 'running',
             lastError: null,
+            unreadCompletionAt: null,
             title,
             updatedAt: now,
         },
@@ -448,6 +449,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                         })
                     }
                     attachContextWindowToLastAssistant(streamedMessages, contextWindow)
+                    const completedAt = new Date()
                     const session = await prisma.codexSession.update({
                         where: { id },
                         data: {
@@ -456,7 +458,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                             messagesJson: JSON.stringify(streamedMessages),
                             status: 'idle',
                             lastError: null,
-                            updatedAt: new Date(),
+                            unreadCompletionAt: completedAt,
+                            updatedAt: completedAt,
                         },
                     })
 
@@ -512,6 +515,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             createdAt: new Date().toISOString(),
         }
         const messages = [...optimisticMessages, ...eventMessages, assistantMessage]
+        const completedAt = new Date()
         const session = await prisma.codexSession.update({
             where: { id },
             data: {
@@ -520,7 +524,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 messagesJson: JSON.stringify(messages),
                 status: 'idle',
                 lastError: null,
-                updatedAt: new Date(),
+                unreadCompletionAt: completedAt,
+                updatedAt: completedAt,
             },
         })
 

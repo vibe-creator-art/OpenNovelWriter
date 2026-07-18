@@ -342,11 +342,11 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
                                         className={cn(
                                             'group mb-2 w-full rounded-xl border px-3 py-3 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/70 focus-visible:ring-offset-1',
                                             isSelected && agent.enabled
-                                                ? 'border-amber-400 bg-amber-50/80 ring-1 ring-amber-200'
+                                                ? 'border-amber-400 bg-amber-50/80 ring-1 ring-amber-200 dark:bg-amber-950/35 dark:ring-amber-900/60'
                                                 : isSelected
                                                     ? 'border-primary/40 bg-muted'
                                                     : agent.enabled
-                                                        ? 'border-amber-300 bg-amber-50/70 hover:border-amber-400'
+                                                        ? 'border-amber-300 bg-amber-50/70 hover:border-amber-400 dark:bg-amber-950/25'
                                                         : 'border-border hover:border-sky-200/60 hover:bg-muted'
                                         )}
                                         onClick={() => setSelectedAgentId(agent.id)}
@@ -361,7 +361,7 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
                                             <Bot className="h-4 w-4 shrink-0 text-muted-foreground" />
                                             <span className="truncate text-sm font-medium">{agent.name}</span>
                                             {agent.enabled && (
-                                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+                                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
                                                     {t('actions.enabled')}
                                                 </span>
                                             )}

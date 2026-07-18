@@ -223,7 +223,7 @@ export function LeftPanelMenu({
                                                     }
                                                 }}
                                                 className={`w-full flex items-center gap-1 px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-muted rounded transition-colors
-                                                    ${editingActNumber === actNum ? 'ring-[3px] ring-gray-300 bg-gray-50' : ''}`}
+                                                    ${editingActNumber === actNum ? 'ring-[3px] ring-ring bg-muted' : ''}`}
                                             >
                                                 {isActExpanded ? (
                                                     <ChevronDown className="h-3 w-3" />
@@ -249,7 +249,7 @@ export function LeftPanelMenu({
                                                                 ? 'bg-muted ring-1 ring-primary/50'
                                                                 : 'hover:bg-muted'}
                                                             ${editingChapterId === chapter.id
-                                                                ? 'ring-[3px] ring-gray-300 bg-gray-50'
+                                                                ? 'ring-[3px] ring-ring bg-muted'
                                                                 : ''}`}
                                                         onClick={() => onChapterClick(chapter, actNum)}
                                                     >

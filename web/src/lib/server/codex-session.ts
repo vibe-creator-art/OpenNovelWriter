@@ -243,6 +243,7 @@ export function serializeCodexSession(record: CodexSessionRecord) {
         draftArtifacts: parseCodexDraftArtifacts(record.draftArtifactsJson),
         status: normalizeCodexSessionStatus(record.status),
         lastError: record.lastError,
+        unreadCompletionAt: record.unreadCompletionAt?.toISOString() ?? null,
         novelId: record.novelId,
         ownerId: record.ownerId,
         createdAt: record.createdAt.toISOString(),

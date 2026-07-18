@@ -11,7 +11,7 @@ export function NovelLoadingOverlay({ novelTitle, isVisible }: NovelLoadingOverl
     return (
         <div
             aria-hidden={!isVisible}
-            className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-stone-100 transition-opacity duration-300 ${isVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+            className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-background transition-opacity duration-300 ${isVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
                 }`}
         >
             {/* Loading Animation Container */}
@@ -23,12 +23,12 @@ export function NovelLoadingOverlay({ novelTitle, isVisible }: NovelLoadingOverl
                         animation: 'spin 3s linear infinite'
                     }}
                 >
-                    <svg className="w-full h-full" viewBox="0 0 112 112">
+                    <svg className="w-full h-full text-muted-foreground" viewBox="0 0 112 112">
                         {/* Top-left corner arc */}
                         <path
                             d="M 28 12 Q 12 12 12 28"
                             fill="none"
-                            stroke="#9ca3af"
+                            stroke="currentColor"
                             strokeWidth="2"
                             strokeDasharray="6 4"
                             strokeLinecap="round"
@@ -37,7 +37,7 @@ export function NovelLoadingOverlay({ novelTitle, isVisible }: NovelLoadingOverl
                         <path
                             d="M 84 12 Q 100 12 100 28"
                             fill="none"
-                            stroke="#9ca3af"
+                            stroke="currentColor"
                             strokeWidth="2"
                             strokeDasharray="6 4"
                             strokeLinecap="round"
@@ -46,7 +46,7 @@ export function NovelLoadingOverlay({ novelTitle, isVisible }: NovelLoadingOverl
                         <path
                             d="M 100 84 Q 100 100 84 100"
                             fill="none"
-                            stroke="#9ca3af"
+                            stroke="currentColor"
                             strokeWidth="2"
                             strokeDasharray="6 4"
                             strokeLinecap="round"
@@ -55,7 +55,7 @@ export function NovelLoadingOverlay({ novelTitle, isVisible }: NovelLoadingOverl
                         <path
                             d="M 28 100 Q 12 100 12 84"
                             fill="none"
-                            stroke="#9ca3af"
+                            stroke="currentColor"
                             strokeWidth="2"
                             strokeDasharray="6 4"
                             strokeLinecap="round"
@@ -64,8 +64,8 @@ export function NovelLoadingOverlay({ novelTitle, isVisible }: NovelLoadingOverl
                 </div>
 
                 {/* Center Icon Container */}
-                <div className="relative w-20 h-20 bg-white rounded-2xl shadow-lg flex items-center justify-center z-10">
-                    <BookOpen className="w-10 h-10 text-gray-700" strokeWidth={1.5} />
+                <div className="relative w-20 h-20 bg-card rounded-2xl shadow-lg flex items-center justify-center z-10">
+                    <BookOpen className="w-10 h-10 text-foreground" strokeWidth={1.5} />
                 </div>
 
                 {/* Decorative Sparkle */}
@@ -82,12 +82,12 @@ export function NovelLoadingOverlay({ novelTitle, isVisible }: NovelLoadingOverl
             </div>
 
             {/* Title Text */}
-            <h2 className="text-xl font-medium text-gray-800 mb-2">
+            <h2 className="text-xl font-medium text-foreground mb-2">
                 AI 小说创作平台
             </h2>
 
             {/* Loading Text */}
-            <p className="text-gray-500 flex items-center gap-1">
+            <p className="text-muted-foreground flex items-center gap-1">
                 {novelTitle ? `正在打开《${novelTitle}》` : '灵感汇聚中'}
                 <span className="animate-pulse">...</span>
             </p>

@@ -54,6 +54,8 @@ ONW 专属信息写在 `onw.json`：
 
 `category` 只能是 `scene_continuation`、`scene_action`、`ai_chat`。`prompt` 为已有 ONW 提示词的精确名称或 `null`；不确定或无需额外模型时使用 `null`。
 
+`ai_chat` 技能在聊天输入框中的唯一显式调用方式是 `/` 加 `SKILL.md` frontmatter 中的精确 `name`，例如 `/story-deslop`。不要创造别名、`@skill` 调用方式或把触发词写成额外注册机制；`plan`、`compact`、`fast` 是 ONW 保留的内置 slash 命令，不得用作 `ai_chat` 技能名。`scene_action` 和 `scene_continuation` 技能仍由各自的场景工作流直接调用，不要为它们伪造 slash 命令。
+
 ## 从想法或工作流创建
 
 1. 调用 `export_skill_library`，检查现有名称、目录格式和相关技能，避免重复。

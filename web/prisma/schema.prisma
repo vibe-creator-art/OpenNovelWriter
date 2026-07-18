@@ -470,6 +470,7 @@ model CodexSession {
   draftArtifactsJson   String   @default("[]")
   status              String   @default("idle")
   lastError           String?
+  unreadCompletionAt  DateTime?
   messagesJson        String   @default("[]")
   novelId             String
   novel               Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)

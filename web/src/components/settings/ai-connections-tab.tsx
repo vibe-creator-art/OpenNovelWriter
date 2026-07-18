@@ -1351,7 +1351,7 @@ function ModelGroupCard({
                             </div>
                             <div className="flex items-center gap-2">
                                 {hasManualModelTypeOverride && (
-                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700">
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
                                         {t('modelTypesManualOverride')}
                                     </span>
                                 )}
@@ -1457,15 +1457,15 @@ function getModelTypeBadgeClassName(modelType: CherryStudioModelType, active: bo
 
     switch (modelType) {
         case 'vision':
-            return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300'
         case 'reasoning':
-            return 'border-violet-200 bg-violet-50 text-violet-700'
+            return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/35 dark:text-violet-300'
         case 'tool':
-            return 'border-amber-200 bg-amber-50 text-amber-700'
+            return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/35 dark:text-amber-300'
         case 'reranker':
-            return 'border-slate-200 bg-slate-100 text-slate-700'
+            return 'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300'
         case 'embedding':
-            return 'border-stone-200 bg-stone-100 text-stone-700'
+            return 'border-stone-200 bg-stone-100 text-stone-700 dark:border-stone-700 dark:bg-stone-800/60 dark:text-stone-300'
     }
 }
 

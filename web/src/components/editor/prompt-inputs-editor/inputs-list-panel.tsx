@@ -134,7 +134,7 @@ export function InputsListPanel({ model }: { model: InputsEditorModel }) {
                                                     </span>
                                                 )}
                                                 {!isUsed && (
-                                                    <span className="inline-flex items-center rounded-full border border-yellow-200 bg-yellow-50 px-2 py-0.5 text-xs font-medium text-yellow-900">
+                                                    <span className="inline-flex items-center rounded-full border border-yellow-200 bg-yellow-50 px-2 py-0.5 text-xs font-medium text-yellow-900 dark:border-yellow-900/50 dark:bg-yellow-950/30 dark:text-yellow-300">
                                                         {t('advanced.inputs.unusedBadge')}
                                                     </span>
                                                 )}
@@ -200,7 +200,7 @@ export function InputsListPanel({ model }: { model: InputsEditorModel }) {
                                                                 </span>
                                                             )}
                                                             {!isUsed && (
-                                                                <span className="inline-flex items-center rounded-full border border-yellow-200 bg-yellow-50 px-2 py-0.5 text-xs font-medium text-yellow-900">
+                                                                <span className="inline-flex items-center rounded-full border border-yellow-200 bg-yellow-50 px-2 py-0.5 text-xs font-medium text-yellow-900 dark:border-yellow-900/50 dark:bg-yellow-950/30 dark:text-yellow-300">
                                                                     {t('advanced.inputs.unusedBadge')}
                                                                 </span>
                                                             )}

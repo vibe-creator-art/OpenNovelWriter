@@ -2,10 +2,10 @@
 // Block-level search/replace for manuscript (scene) HTML.
 //
 // Scene content is stored as TipTap HTML (a flat sequence of block elements such
-// as <p>, <h2>, <blockquote>). Codex reads a lossy plain-text projection of it, so
-// it proposes edits as { old_text -> new_text } search/replace hunks against that
-// text. This module locates the hunk, rewrites only the block(s) it touches, and
-// leaves every other block byte-identical so untouched formatting is preserved.
+// as <p>, <h2>, <blockquote>). Codex reads a Markdown projection that preserves
+// bold and italic marks, then proposes { old_text -> new_text } search/replace
+// hunks against it. This module performs the matching and the limited
+// HTML/Markdown round trip while leaving untouched blocks byte-identical.
 
 const crypto = require('crypto')
 
@@ -14,11 +14,13 @@ const BLOCK_RE = /<(p|h[1-6]|blockquote|pre|ul|ol|figure|table)\b[^>]*>[\s\S]*?<
 function decodeEntities(value) {
     return String(value)
         .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
+        .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (_match, code) => String.fromCodePoint(parseInt(code, 16)))
+        .replace(/&amp;/g, '&')
         .replace(/ /g, ' ')
 }
 
@@ -27,6 +29,13 @@ function escapeHtml(value) {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
+}
+
+function escapeMarkdownText(value) {
+    return String(value)
+        .replace(/\\/g, '\\\\')
+        .replace(/\*/g, '\\*')
+        .replace(/_/g, '\\_')
 }
 
 // Split scene HTML into an ordered list of top-level block strings. Whitespace-only
@@ -69,6 +78,42 @@ function blockText(blockHtml) {
         .trim()
 }
 
+// Markdown for a single block. Only bold and italic are projected as formatting;
+// every other inline tag is intentionally flattened to its text content.
+function blockMarkdown(blockHtml) {
+    const tokens = String(blockHtml).match(/<[^>]+>|[^<]+/g) ?? []
+    let markdown = ''
+
+    for (const token of tokens) {
+        if (!token.startsWith('<')) {
+            markdown += escapeMarkdownText(decodeEntities(token))
+            continue
+        }
+
+        const tagMatch = token.match(/^<\s*(\/?)\s*([a-z0-9-]+)/i)
+        if (!tagMatch) continue
+        const closing = tagMatch[1] === '/'
+        const tag = tagMatch[2].toLowerCase()
+
+        if (tag === 'br') {
+            markdown += '\n'
+        } else if (tag === 'strong' || tag === 'b') {
+            markdown += '**'
+        } else if (tag === 'em' || tag === 'i') {
+            markdown += '*'
+        } else if (closing && /^(p|h[1-6]|blockquote|pre|li|tr)$/.test(tag)) {
+            markdown += '\n'
+        }
+    }
+
+    return markdown
+        .replace(/\r\n?/g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\t+\n/g, '\n')
+        .replace(/\n{2,}/g, '\n')
+        .trim()
+}
+
 // Build the projection text plus, for each block, the [start, end) range it occupies.
 function buildProjection(blocks) {
     let text = ''
@@ -83,8 +128,25 @@ function buildProjection(blocks) {
     return { text, ranges }
 }
 
+function buildMarkdownProjection(blocks) {
+    let text = ''
+    const ranges = []
+    blocks.forEach((block, index) => {
+        const value = blockMarkdown(block)
+        const separator = text && value ? '\n\n' : ''
+        const start = text.length + separator.length
+        text += separator + value
+        ranges.push({ blockIndex: index, start, end: text.length })
+    })
+    return { text, ranges }
+}
+
 function htmlToText(html) {
     return buildProjection(splitBlocks(html)).text
+}
+
+function htmlToManuscriptMarkdown(html) {
+    return buildMarkdownProjection(splitBlocks(html)).text
 }
 
 // A regex that matches old_text with flexible whitespace (Codex may copy it with
@@ -95,13 +157,146 @@ function buildFlexibleMatcher(oldText, flags) {
     return new RegExp(pattern, flags)
 }
 
-function textToHtml(text) {
-    return String(text)
+function tokenizeInlineMarkdown(value) {
+    const tokens = []
+    let text = ''
+    const flushText = () => {
+        if (!text) return
+        tokens.push({ type: 'text', value: text })
+        text = ''
+    }
+
+    for (let index = 0; index < value.length;) {
+        const char = value[index]
+        if (char === '\\' && index + 1 < value.length) {
+            text += value[index + 1]
+            index += 2
+            continue
+        }
+        if (char === '\n') {
+            flushText()
+            tokens.push({ type: 'break' })
+            index += 1
+            continue
+        }
+        if (char === '*') {
+            let end = index + 1
+            while (end < value.length && value[end] === '*') end += 1
+            const length = end - index
+            if (length <= 3) {
+                flushText()
+                tokens.push({ type: 'marker', length })
+            } else {
+                text += '*'.repeat(length)
+            }
+            index = end
+            continue
+        }
+        text += char
+        index += 1
+    }
+    flushText()
+    return tokens
+}
+
+function markerStateAfter(tokens) {
+    let bold = false
+    let italic = false
+    for (const token of tokens) {
+        if (token.type !== 'marker') continue
+        if (token.length === 1) {
+            italic = !italic
+        } else if (token.length === 2) {
+            bold = !bold
+        } else if (bold && italic) {
+            bold = false
+            italic = false
+        } else if (bold) {
+            bold = false
+            italic = true
+        } else if (italic) {
+            italic = false
+            bold = true
+        } else {
+            bold = true
+            italic = true
+        }
+    }
+    return { bold, italic }
+}
+
+function inlineMarkdownToHtml(value) {
+    const tokens = tokenizeInlineMarkdown(String(value))
+    const finalState = markerStateAfter(tokens)
+    const hasBalancedMarks = !finalState.bold && !finalState.italic
+    if (!hasBalancedMarks) {
+        return tokens.map((token) => {
+            if (token.type === 'break') return '<br>'
+            if (token.type === 'marker') return '*'.repeat(token.length)
+            return escapeHtml(token.value)
+        }).join('')
+    }
+
+    let html = ''
+    const stack = []
+    const tagByMark = { bold: 'strong', italic: 'em' }
+    const toggleMark = (mark) => {
+        const openIndex = stack.lastIndexOf(mark)
+        if (openIndex < 0) {
+            html += `<${tagByMark[mark]}>`
+            stack.push(mark)
+            return
+        }
+
+        const temporarilyClosed = stack.splice(openIndex + 1)
+        for (let index = temporarilyClosed.length - 1; index >= 0; index -= 1) {
+            html += `</${tagByMark[temporarilyClosed[index]]}>`
+        }
+        html += `</${tagByMark[mark]}>`
+        stack.pop()
+        for (const nestedMark of temporarilyClosed) {
+            html += `<${tagByMark[nestedMark]}>`
+            stack.push(nestedMark)
+        }
+    }
+
+    for (const token of tokens) {
+        if (token.type === 'text') {
+            html += escapeHtml(token.value)
+        } else if (token.type === 'break') {
+            html += '<br>'
+        } else if (token.length === 1) {
+            toggleMark('italic')
+        } else if (token.length === 2) {
+            toggleMark('bold')
+        } else {
+            const hasBold = stack.includes('bold')
+            const hasItalic = stack.includes('italic')
+            if (hasBold && hasItalic) {
+                toggleMark('italic')
+                toggleMark('bold')
+            } else if (hasBold) {
+                toggleMark('bold')
+                toggleMark('italic')
+            } else if (hasItalic) {
+                toggleMark('italic')
+                toggleMark('bold')
+            } else {
+                toggleMark('bold')
+                toggleMark('italic')
+            }
+        }
+    }
+    return html
+}
+
+function manuscriptMarkdownToHtml(markdown) {
+    return String(markdown)
         .replace(/\r\n?/g, '\n')
         .split(/\n{2,}/)
         .map((paragraph) => paragraph.trim())
         .filter((paragraph) => paragraph.length > 0)
-        .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
+        .map((paragraph) => `<p>${inlineMarkdownToHtml(paragraph)}</p>`)
         .join('')
 }
 
@@ -119,7 +314,7 @@ function applyHunk(html, oldText, newText) {
     // Empty old_text = append new_text as new paragraph(s) at the end of the scene.
     // This is also the only way to write into an empty scene (there is no anchor to match).
     if (!rawOld) {
-        const appended = textToHtml(rawNew)
+        const appended = manuscriptMarkdownToHtml(rawNew)
         if (!appended) {
             return { ok: false, error: 'old_text 与 new_text 不能同时为空。' }
         }
@@ -137,7 +332,7 @@ function applyHunk(html, oldText, newText) {
     }
 
     const blocks = splitBlocks(html)
-    const projection = buildProjection(blocks)
+    const projection = buildMarkdownProjection(blocks)
 
     let matcher
     try {
@@ -165,11 +360,11 @@ function applyHunk(html, oldText, newText) {
     const firstBlock = covered[0].blockIndex
     const lastBlock = covered[covered.length - 1].blockIndex
 
-    const sourceText = blocks.slice(firstBlock, lastBlock + 1).map(blockText).join('\n\n')
+    const sourceText = blocks.slice(firstBlock, lastBlock + 1).map(blockMarkdown).filter(Boolean).join('\n\n')
     const replacedText = sourceText.replace(buildFlexibleMatcher(rawOld), () => rawNew.trim())
 
     const beforeHtml = blocks.slice(firstBlock, lastBlock + 1).join('')
-    const afterHtml = textToHtml(replacedText)
+    const afterHtml = manuscriptMarkdownToHtml(replacedText)
 
     const newHtml = [
         ...blocks.slice(0, firstBlock),
@@ -230,7 +425,7 @@ function diffBlockOps(aKeys, bKeys) {
 function diffRegions(originalHtml, finalHtml) {
     const origBlocks = splitBlocks(originalHtml)
     const finalBlocks = splitBlocks(finalHtml)
-    const ops = diffBlockOps(origBlocks.map(blockText), finalBlocks.map(blockText))
+    const ops = diffBlockOps(origBlocks.map(blockMarkdown), finalBlocks.map(blockMarkdown))
 
     const regions = []
     let current = null
@@ -309,6 +504,9 @@ module.exports = {
     revertHunk,
     diffRegions,
     htmlToText,
+    htmlToManuscriptMarkdown,
+    manuscriptMarkdownToHtml,
     splitBlocks,
     blockText,
+    blockMarkdown,
 }

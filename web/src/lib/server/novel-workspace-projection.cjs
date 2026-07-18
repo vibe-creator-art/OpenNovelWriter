@@ -1,3 +1,7 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+
+const { htmlToManuscriptMarkdown } = require('./manuscript-edit.cjs')
+
 function buildGeneratedMarkdownHeader(input) {
     const notice = isChineseLanguage(input.language)
         ? '<!-- 由 OpenNovelWriter 生成。请勿直接编辑此文件。 -->'
@@ -94,7 +98,7 @@ function buildNovelWorkspaceChapterMarkdown(chapter) {
         lines.push('', `#### ${isChineseLanguage(language) ? '摘要' : 'Summary'}`)
         pushOptionalText(lines, scene.summary)
         lines.push('', `#### ${isChineseLanguage(language) ? '正文' : 'Content'}`)
-        pushOptionalText(lines, htmlToProjectionText(scene.content))
+        pushOptionalText(lines, htmlToManuscriptMarkdown(scene.content))
     }
 
     return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`
