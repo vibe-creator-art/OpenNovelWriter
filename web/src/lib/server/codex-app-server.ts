@@ -1325,12 +1325,16 @@ export async function runNovelCodexTurn(input: {
                 if (message.method === 'turn/completed') {
                     const turn = params.turn as Record<string, unknown> | undefined
                     if (turn?.id !== turnId) return
-                    const status = (turn.status as Record<string, unknown> | undefined)?.type
+                    const status = turn.status
                     if (status === 'failed') {
                         const error = turn.error as Record<string, unknown> | undefined
                         reject(new Error(typeof error?.message === 'string' ? error.message : 'Codex turn failed.'))
-                    } else {
+                    } else if (status === 'completed') {
                         resolve()
+                    } else if (status === 'interrupted') {
+                        reject(new Error('Codex turn was interrupted.'))
+                    } else {
+                        reject(new Error(`Codex turn completed with an unexpected status: ${String(status)}.`))
                     }
                 }
             })
