@@ -5,7 +5,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { normalizeManagedAttachmentUrls } from '@/lib/server/storage'
 import { getPrismaClient } from '@/lib/db'
-import { runNovelCodexTurn } from '@/lib/server/codex-app-server'
+import {
+    finishActiveCodexRun,
+    isCodexRunInterruptedError,
+    reserveActiveCodexRun,
+    runNovelCodexTurn,
+} from '@/lib/server/codex-app-server'
 import { readSkill } from '@/lib/server/skill-storage'
 import { getNovelWorkspaceTermFileMap } from '@/lib/server/novel-workspace'
 import { seedSkillSessionArtifact } from '@/lib/server/codex-skill-session'
@@ -45,17 +50,6 @@ type CodexRouteRunEvent = {
     content: string
     attachments?: string[]
     createdAt: string
-}
-
-function toEventMessages(events: CodexRouteRunEvent[]) {
-    return events.map((event): CodexSessionMessage => ({
-        id: event.id,
-        role: 'event',
-        kind: event.kind,
-        content: [event.title, event.content].filter(Boolean).join('\n\n'),
-        attachments: event.attachments ?? [],
-        createdAt: event.createdAt,
-    }))
 }
 
 function appendAssistantDeltaMessage(messages: CodexSessionMessage[], delta: string, id: string, createdAt: string) {
@@ -134,14 +128,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     ) {
         return NextResponse.json({ detail: 'This Codex session category is not runnable yet.' }, { status: 400 })
     }
-    if (existing.status === 'running') {
-        return NextResponse.json({ detail: 'Codex session is already running.' }, { status: 409 })
-    }
-
     const body = await request.json().catch(() => null)
     const content = normalizeCodexString(body?.content).trim()
     if (!content) return NextResponse.json({ detail: 'Message content is required.' }, { status: 400 })
-    const stream = body?.stream === true
     const attachments = normalizeManagedAttachmentUrls(body?.attachments)
     const artifactFiles = Array.isArray(body?.artifactFiles)
         ? [...new Set((body.artifactFiles as unknown[]).filter((value): value is string =>
@@ -151,237 +140,300 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     if (artifactFiles.length !== (Array.isArray(body?.artifactFiles) ? body.artifactFiles.length : 0)) {
         return NextResponse.json({ detail: 'artifactFiles must contain unique JSON file names.' }, { status: 400 })
     }
-    const artifactsPath = path.join(getCodexSessionWorkspacePath(user.userId, existing.id), 'artifacts')
-    for (const fileName of artifactFiles) {
-        const filePath = path.join(artifactsPath, fileName)
-        const stat = await fs.lstat(filePath).catch(() => null)
-        if (!stat?.isFile() || stat.isSymbolicLink()) {
-            return NextResponse.json({ detail: `Artifact ${fileName} was not found in this session.` }, { status: 400 })
-        }
-    }
 
-    // Skill commands are stored in the message as `[name](skill:SKILL_ID)`. Collect their ids from
-    // the content (and any explicit `skillIds` in the body),
-    // resolve to `{ id, name }` for the turn's skill input items, and rewrite the tokens to
-    // Codex-native `$name` in the prompt that is actually sent to the model.
-    const bodySkillIds = Array.isArray(body?.skillIds)
-        ? (body.skillIds as unknown[]).filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        : []
-    const contentSkillIds: string[] = []
-    for (const match of content.matchAll(/\[[^\]]+\]\(skill:([^)]+)\)/g)) {
-        if (match[1]) contentSkillIds.push(match[1])
+    const activeRun = reserveActiveCodexRun(id)
+    if (!activeRun) {
+        return NextResponse.json({ detail: 'Codex session is already running.' }, { status: 409 })
     }
-    const uniqueSkillIds = [...new Set([...contentSkillIds, ...bodySkillIds])]
-    const skillRefs = (
-        await Promise.all(
-            uniqueSkillIds.map(async (skillId) => {
-                const skill = await readSkill(user.userId, skillId).catch(() => null)
-                return skill ? { id: skill.id, name: skill.name } : null
-            })
-        )
-    ).filter((ref): ref is { id: string; name: string } => ref !== null)
-
-    // Term mentions `[title](term:TERM_ID)` point Codex at the read-only Markdown file the term is
-    // projected to under `novel/terms/`. Resolve each id to its (collision-free) file name so the
-    // rewritten instruction names an exact path Codex can open.
-    const contentTermIds: string[] = []
-    for (const match of content.matchAll(/\[[^\]]+\]\(term:([^)]+)\)/g)) {
-        if (match[1]) contentTermIds.push(match[1])
-    }
-    const termFileById = contentTermIds.length > 0
-        ? await getNovelWorkspaceTermFileMap(user.userId, existing.novelId)
-        : new Map<string, { title: string; fileName: string }>()
-
-    // Detailed-outline (细纲) mentions are offered for every chapter/act that has an outline ROW,
-    // including ones the author created but left blank. Only non-blank outlines are projected to a
-    // file, so look up which referenced outlines are empty and word those as a write target instead
-    // of a (dangling) read instruction.
-    const refOutlineChapterIds: string[] = []
-    for (const match of content.matchAll(/\[[^\]]+\]\(outlineChapter:([^)]+)\)/g)) {
-        if (match[1]) refOutlineChapterIds.push(match[1])
-    }
-    const refOutlineActNumbers: number[] = []
-    for (const match of content.matchAll(/\[[^\]]+\]\(outlineAct:([^)]+)\)/g)) {
-        const parsed = Number.parseInt(match[1] ?? '', 10)
-        if (Number.isInteger(parsed)) refOutlineActNumbers.push(parsed)
-    }
-    const emptyOutlineChapterIds = new Set<string>()
-    const emptyOutlineActNumbers = new Set<number>()
-    if (refOutlineChapterIds.length > 0 || refOutlineActNumbers.length > 0) {
-        const rows = await prisma.outline.findMany({
-            where: {
-                novelId: existing.novelId,
-                OR: [
-                    { chapterId: { in: refOutlineChapterIds } },
-                    { type: 'ACT', actNumber: { in: refOutlineActNumbers } },
-                ],
+    let claimResult: { count: number }
+    try {
+        claimResult = await prisma.codexSession.updateMany({
+            where: existing.status === 'running'
+                ? { id, ownerId: user.userId, status: 'running', updatedAt: existing.updatedAt }
+                : { id, ownerId: user.userId, status: existing.status },
+            data: {
+                status: 'running',
+                lastError: null,
+                unreadCompletionAt: null,
+                updatedAt: new Date(),
             },
-            select: { chapterId: true, actNumber: true, type: true, wordCount: true },
         })
-        const wordCountByChapterId = new Map<string, number>()
-        const wordCountByActNumber = new Map<number, number>()
-        for (const row of rows) {
-            if (row.type === 'CHAPTER' && row.chapterId) wordCountByChapterId.set(row.chapterId, row.wordCount)
-            else if (row.type === 'ACT' && row.actNumber != null) wordCountByActNumber.set(row.actNumber, row.wordCount)
-        }
-        // A referenced outline counts as empty when its row has no words or no longer exists.
-        for (const id of refOutlineChapterIds) if ((wordCountByChapterId.get(id) ?? 0) <= 0) emptyOutlineChapterIds.add(id)
-        for (const num of refOutlineActNumbers) if ((wordCountByActNumber.get(num) ?? 0) <= 0) emptyOutlineActNumbers.add(num)
+    } catch (error) {
+        finishActiveCodexRun(activeRun)
+        throw error
+    }
+    if (claimResult.count !== 1) {
+        finishActiveCodexRun(activeRun)
+        return NextResponse.json({ detail: 'Codex session is already running.' }, { status: 409 })
     }
 
-    const promptText = content
-        .replace(/\[([^\]]+)\]\(skill:([^)]+)\)/g, (_full, label: string) => `$${label}`)
-        // A continuation panel reference becomes an explicit instruction carrying the panelId,
-        // which Codex passes to get_continuation_draft / set_continuation_draft to write the result.
-        .replace(
-            /\[([^\]]+)\]\(continuation:([^:)]+):([^:)]+):([^)]+)\)/g,
-            (_full, label: string, chapterId: string, sceneId: string, panelId: string) =>
-                `${label} (scene-continuation panel — write your result here with set_continuation_draft: panelId=${panelId}, chapterId=${chapterId}, sceneId=${sceneId})`
-        )
-        // A term reference becomes an explicit instruction to read that term's projected file.
-        .replace(/\[([^\]]+)\]\(term:([^)]+)\)/g, (_full, label: string, termId: string) => {
-            const entry = termFileById.get(termId)
-            return entry
-                ? `${label} (term — read its full details in novel/terms/${entry.fileName} before responding)`
-                : label
-        })
-        // A snippet reference points Codex at the snippet's projected file (keyed by id).
-        .replace(
-            /\[([^\]]+)\]\(snippet:([^)]+)\)/g,
-            (_full, label: string, snippetId: string) =>
-                `${label} (snippet — read its full content in novel/snippets/${snippetId}.md before responding)`
-        )
-        // A material reference points Codex at the imported document's projected file (keyed by id).
-        // Materials can be large, so this @-mention is the only signal to open one — Codex otherwise
-        // leaves novel/materials/ alone (see AGENTS.md).
-        .replace(
-            /\[([^\]]+)\]\(material:([^)]+)\)/g,
-            (_full, label: string, materialId: string) =>
-                `${label} (material — read its full content in novel/materials/${materialId}.md before responding)`
-        )
-        // A chapter detailed-outline (章纲) reference: read the projected file when it has content,
-        // otherwise tell Codex the slot exists but is empty (a write target). Must run before the bare
-        // `chapter:` rewrite — it is a longer, more specific token, but they are textually distinct.
-        .replace(
-            /\[([^\]]+)\]\(outlineChapter:([^)]+)\)/g,
-            (_full, label: string, chapterId: string) =>
-                emptyOutlineChapterIds.has(chapterId)
-                    ? `${label} (章纲 — this chapter's detailed outline exists but is currently empty; if the author asks you to write it, save it with edit_outline (chapterId=${chapterId}))`
-                    : `${label} (章纲 — read this chapter's detailed outline in novel/DetailedOutline/chapters/${chapterId}.md before responding)`
-        )
-        // A volume detailed-outline (卷纲) reference, keyed by act number — same empty-vs-content split.
-        .replace(
-            /\[([^\]]+)\]\(outlineAct:([^)]+)\)/g,
-            (_full, label: string, actNumber: string) =>
-                emptyOutlineActNumbers.has(Number(actNumber))
-                    ? `${label} (卷纲 — this volume's detailed outline exists but is currently empty; if the author asks you to write it, save it with edit_outline (actNumber=${actNumber}))`
-                    : `${label} (卷纲 — read this volume's detailed outline in novel/DetailedOutline/acts/${actNumber}.md before responding)`
-        )
-        // A chapter reference points Codex at that chapter's projected file (keyed by chapter id).
-        .replace(
-            /\[([^\]]+)\]\(chapter:([^)]+)\)/g,
-            (_full, label: string, chapterId: string) =>
-                `${label} (章 — read this chapter's full content in novel/chapters/${chapterId}.md before responding)`
-        )
-        // A volume (act) has no single file — point Codex at the volume's section in the outline,
-        // where it can read the per-chapter summaries and open the chapter files it actually needs.
-        .replace(
-            /\[([^\]]+)\]\(act:([^)]+)\)/g,
-            (_full, label: string, actNumber: string) =>
-                `${label} (卷 — read the section marked \`<!-- act_number: ${actNumber} -->\` in novel/outline.md for this volume's chapter structure and summaries, then open the relevant novel/chapters/<id>.md when you need the prose, before responding)`
-        )
-
-    // A chat skill with a bound prompt assembles that prompt on the client (filled inputs + the
-    // overview + referenced terms) and ships the resolved blocks here. Materialize them into the
-    // session's `artifacts/` so Codex can run_llm against the file or read it for context — the
-    // mid-session equivalent of seeding a scene_operation/continuation artifact at creation time.
-    const promptArtifact = body?.promptArtifact && typeof body.promptArtifact === 'object'
-        ? (body.promptArtifact as Record<string, unknown>)
-        : null
-    const artifactSkillId = promptArtifact && typeof promptArtifact.skillId === 'string' ? promptArtifact.skillId.trim() : ''
-    const artifactBlocks = promptArtifact && Array.isArray(promptArtifact.renderedBlocks)
-        ? (promptArtifact.renderedBlocks as unknown[])
-            .map((block) => {
-                const record = block as { role?: unknown; text?: unknown }
-                return typeof record?.role === 'string' && typeof record?.text === 'string'
-                    ? { role: record.role, text: record.text }
-                    : null
-            })
-            .filter((block): block is { role: string; text: string } => block !== null)
-        : []
-    let seededArtifactFileName: string | null = null
-    if (artifactSkillId && artifactBlocks.length > 0) {
+    let claimReleased = false
+    const releaseClaim = async () => {
+        if (claimReleased) return
+        claimReleased = true
         try {
-            const seeded = await seedSkillSessionArtifact({
-                ownerId: user.userId,
-                novelId: existing.novelId,
-                sessionId: existing.id,
-                skillId: artifactSkillId,
-                renderedBlocks: artifactBlocks,
+            await prisma.codexSession.updateMany({
+                where: { id, ownerId: user.userId, status: 'running' },
+                data: {
+                    status: existing.status === 'running' ? 'idle' : existing.status,
+                    lastError: existing.status === 'running' ? null : existing.lastError,
+                    unreadCompletionAt: existing.unreadCompletionAt,
+                    updatedAt: new Date(),
+                },
             })
-            seededArtifactFileName = seeded?.fileName ?? null
-        } catch (error) {
-            console.error('Seed chat skill artifact error:', error)
+        } finally {
+            finishActiveCodexRun(activeRun)
         }
     }
 
-    let finalPromptText = seededArtifactFileName
-        ? `${promptText}\n\n[OpenNovelWriter] The prompt for the skill above is pre-assembled with the author's inputs (overview + referenced terms included) in artifacts/${seededArtifactFileName}. Follow the skill's instructions — call run_llm against that file, or read it for context.`
-        : promptText
-    if (artifactFiles.length > 0) {
-        finalPromptText += `\n\n[OpenNovelWriter] The author attached these JSON files to this turn: ${artifactFiles.map((fileName) => `artifacts/${fileName}`).join(', ')}. Read them as source material for the request.`
-    }
+    try {
+        const artifactsPath = path.join(getCodexSessionWorkspacePath(user.userId, existing.id), 'artifacts')
+        for (const fileName of artifactFiles) {
+            const filePath = path.join(artifactsPath, fileName)
+            const stat = await fs.lstat(filePath).catch(() => null)
+            if (!stat?.isFile() || stat.isSymbolicLink()) {
+                await releaseClaim()
+                return NextResponse.json({ detail: `Artifact ${fileName} was not found in this session.` }, { status: 400 })
+            }
+        }
 
-    const now = new Date()
-    const startedAt = now.toISOString()
-    const currentMessages = parseCodexSessionMessages(existing.messagesJson)
-    const userMessage: CodexSessionMessage = {
-        id: createCodexMessageId('codex_user'),
-        role: 'user',
-        content,
-        attachments,
-        jsonArtifacts: artifactFiles,
-        createdAt: startedAt,
-    }
-    const optimisticMessages = [...currentMessages, userMessage]
-    const title = existing.titleManuallyEdited ? existing.title : createCodexSessionTitle(optimisticMessages)
+        // Skill commands are stored in the message as `[name](skill:SKILL_ID)`. Collect their ids from
+        // the content (and any explicit `skillIds` in the body),
+        // resolve to `{ id, name }` for the turn's skill input items, and rewrite the tokens to
+        // Codex-native `$name` in the prompt that is actually sent to the model.
+        const bodySkillIds = Array.isArray(body?.skillIds)
+            ? (body.skillIds as unknown[]).filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            : []
+        const contentSkillIds: string[] = []
+        for (const match of content.matchAll(/\[[^\]]+\]\(skill:([^)]+)\)/g)) {
+            if (match[1]) contentSkillIds.push(match[1])
+        }
+        const uniqueSkillIds = [...new Set([...contentSkillIds, ...bodySkillIds])]
+        const skillRefs = (
+            await Promise.all(
+                uniqueSkillIds.map(async (skillId) => {
+                    const skill = await readSkill(user.userId, skillId).catch(() => null)
+                    return skill ? { id: skill.id, name: skill.name } : null
+                })
+            )
+        ).filter((ref): ref is { id: string; name: string } => ref !== null)
 
-    await prisma.codexSession.update({
-        where: { id },
-        data: {
-            messagesJson: JSON.stringify(optimisticMessages),
-            draftContent: '',
-            draftAttachmentsJson: '[]',
-            draftArtifactsJson: '[]',
-            status: 'running',
-            lastError: null,
-            unreadCompletionAt: null,
-            title,
-            updatedAt: now,
-        },
-    })
+        // Term mentions `[title](term:TERM_ID)` point Codex at the read-only Markdown file the term is
+        // projected to under `novel/terms/`. Resolve each id to its (collision-free) file name so the
+        // rewritten instruction names an exact path Codex can open.
+        const contentTermIds: string[] = []
+        for (const match of content.matchAll(/\[[^\]]+\]\(term:([^)]+)\)/g)) {
+            if (match[1]) contentTermIds.push(match[1])
+        }
+        const termFileById = contentTermIds.length > 0
+            ? await getNovelWorkspaceTermFileMap(user.userId, existing.novelId)
+            : new Map<string, { title: string; fileName: string }>()
 
-    const runInput = {
-        sessionId: existing.id,
-        ownerId: user.userId,
-        novelId: existing.novelId,
-        codexThreadId: existing.codexThreadId,
-        codexConnectionId: existing.codexConnectionId,
-        reviewLevel: existing.reviewLevel,
-        modelId: existing.modelId,
-        reasoningEffort: existing.reasoningEffort,
-        serviceTier: existing.serviceTier,
-        planMode: existing.planMode,
-        prompt: finalPromptText,
-        imageUrls: attachments,
-        skillRefs,
-    }
+        // Detailed-outline (细纲) mentions are offered for every chapter/act that has an outline ROW,
+        // including ones the author created but left blank. Only non-blank outlines are projected to a
+        // file, so look up which referenced outlines are empty and word those as a write target instead
+        // of a (dangling) read instruction.
+        const refOutlineChapterIds: string[] = []
+        for (const match of content.matchAll(/\[[^\]]+\]\(outlineChapter:([^)]+)\)/g)) {
+            if (match[1]) refOutlineChapterIds.push(match[1])
+        }
+        const refOutlineActNumbers: number[] = []
+        for (const match of content.matchAll(/\[[^\]]+\]\(outlineAct:([^)]+)\)/g)) {
+            const parsed = Number.parseInt(match[1] ?? '', 10)
+            if (Number.isInteger(parsed)) refOutlineActNumbers.push(parsed)
+        }
+        const emptyOutlineChapterIds = new Set<string>()
+        const emptyOutlineActNumbers = new Set<number>()
+        if (refOutlineChapterIds.length > 0 || refOutlineActNumbers.length > 0) {
+            const rows = await prisma.outline.findMany({
+                where: {
+                    novelId: existing.novelId,
+                    OR: [
+                        { chapterId: { in: refOutlineChapterIds } },
+                        { type: 'ACT', actNumber: { in: refOutlineActNumbers } },
+                    ],
+                },
+                select: { chapterId: true, actNumber: true, type: true, wordCount: true },
+            })
+            const wordCountByChapterId = new Map<string, number>()
+            const wordCountByActNumber = new Map<number, number>()
+            for (const row of rows) {
+                if (row.type === 'CHAPTER' && row.chapterId) wordCountByChapterId.set(row.chapterId, row.wordCount)
+                else if (row.type === 'ACT' && row.actNumber != null) wordCountByActNumber.set(row.actNumber, row.wordCount)
+            }
+            // A referenced outline counts as empty when its row has no words or no longer exists.
+            for (const id of refOutlineChapterIds) if ((wordCountByChapterId.get(id) ?? 0) <= 0) emptyOutlineChapterIds.add(id)
+            for (const num of refOutlineActNumbers) if ((wordCountByActNumber.get(num) ?? 0) <= 0) emptyOutlineActNumbers.add(num)
+        }
 
-    if (stream) {
+        const promptText = content
+            .replace(/\[([^\]]+)\]\(skill:([^)]+)\)/g, (_full, label: string) => `$${label}`)
+            // A continuation panel reference becomes an explicit instruction carrying the panelId,
+            // which Codex passes to get_continuation_draft / set_continuation_draft to write the result.
+            .replace(
+                /\[([^\]]+)\]\(continuation:([^:)]+):([^:)]+):([^)]+)\)/g,
+                (_full, label: string, chapterId: string, sceneId: string, panelId: string) =>
+                    `${label} (scene-continuation panel — write your result here with set_continuation_draft: panelId=${panelId}, chapterId=${chapterId}, sceneId=${sceneId})`
+            )
+            // A term reference becomes an explicit instruction to read that term's projected file.
+            .replace(/\[([^\]]+)\]\(term:([^)]+)\)/g, (_full, label: string, termId: string) => {
+                const entry = termFileById.get(termId)
+                return entry
+                    ? `${label} (term — read its full details in novel/terms/${entry.fileName} before responding)`
+                    : label
+            })
+            // A snippet reference points Codex at the snippet's projected file (keyed by id).
+            .replace(
+                /\[([^\]]+)\]\(snippet:([^)]+)\)/g,
+                (_full, label: string, snippetId: string) =>
+                    `${label} (snippet — read its full content in novel/snippets/${snippetId}.md before responding)`
+            )
+            // A material reference points Codex at the imported document's projected file (keyed by id).
+            // Materials can be large, so this @-mention is the only signal to open one — Codex otherwise
+            // leaves novel/materials/ alone (see AGENTS.md).
+            .replace(
+                /\[([^\]]+)\]\(material:([^)]+)\)/g,
+                (_full, label: string, materialId: string) =>
+                    `${label} (material — read its full content in novel/materials/${materialId}.md before responding)`
+            )
+            // A chapter detailed-outline (章纲) reference: read the projected file when it has content,
+            // otherwise tell Codex the slot exists but is empty (a write target). Must run before the bare
+            // `chapter:` rewrite — it is a longer, more specific token, but they are textually distinct.
+            .replace(
+                /\[([^\]]+)\]\(outlineChapter:([^)]+)\)/g,
+                (_full, label: string, chapterId: string) =>
+                    emptyOutlineChapterIds.has(chapterId)
+                        ? `${label} (章纲 — this chapter's detailed outline exists but is currently empty; if the author asks you to write it, save it with edit_outline (chapterId=${chapterId}))`
+                        : `${label} (章纲 — read this chapter's detailed outline in novel/DetailedOutline/chapters/${chapterId}.md before responding)`
+            )
+            // A volume detailed-outline (卷纲) reference, keyed by act number — same empty-vs-content split.
+            .replace(
+                /\[([^\]]+)\]\(outlineAct:([^)]+)\)/g,
+                (_full, label: string, actNumber: string) =>
+                    emptyOutlineActNumbers.has(Number(actNumber))
+                        ? `${label} (卷纲 — this volume's detailed outline exists but is currently empty; if the author asks you to write it, save it with edit_outline (actNumber=${actNumber}))`
+                        : `${label} (卷纲 — read this volume's detailed outline in novel/DetailedOutline/acts/${actNumber}.md before responding)`
+            )
+            // A chapter reference points Codex at that chapter's projected file (keyed by chapter id).
+            .replace(
+                /\[([^\]]+)\]\(chapter:([^)]+)\)/g,
+                (_full, label: string, chapterId: string) =>
+                    `${label} (章 — read this chapter's full content in novel/chapters/${chapterId}.md before responding)`
+            )
+            // A volume (act) has no single file — point Codex at the volume's section in the outline,
+            // where it can read the per-chapter summaries and open the chapter files it actually needs.
+            .replace(
+                /\[([^\]]+)\]\(act:([^)]+)\)/g,
+                (_full, label: string, actNumber: string) =>
+                    `${label} (卷 — read the section marked \`<!-- act_number: ${actNumber} -->\` in novel/outline.md for this volume's chapter structure and summaries, then open the relevant novel/chapters/<id>.md when you need the prose, before responding)`
+            )
+
+        // A chat skill with a bound prompt assembles that prompt on the client (filled inputs + the
+        // overview + referenced terms) and ships the resolved blocks here. Materialize them into the
+        // session's `artifacts/` so Codex can run_llm against the file or read it for context — the
+        // mid-session equivalent of seeding a scene_operation/continuation artifact at creation time.
+        const promptArtifact = body?.promptArtifact && typeof body.promptArtifact === 'object'
+            ? (body.promptArtifact as Record<string, unknown>)
+            : null
+        const artifactSkillId = promptArtifact && typeof promptArtifact.skillId === 'string' ? promptArtifact.skillId.trim() : ''
+        const artifactBlocks = promptArtifact && Array.isArray(promptArtifact.renderedBlocks)
+            ? (promptArtifact.renderedBlocks as unknown[])
+                .map((block) => {
+                    const record = block as { role?: unknown; text?: unknown }
+                    return typeof record?.role === 'string' && typeof record?.text === 'string'
+                        ? { role: record.role, text: record.text }
+                        : null
+                })
+                .filter((block): block is { role: string; text: string } => block !== null)
+            : []
+        let seededArtifactFileName: string | null = null
+        if (artifactSkillId && artifactBlocks.length > 0) {
+            try {
+                const seeded = await seedSkillSessionArtifact({
+                    ownerId: user.userId,
+                    novelId: existing.novelId,
+                    sessionId: existing.id,
+                    skillId: artifactSkillId,
+                    renderedBlocks: artifactBlocks,
+                })
+                seededArtifactFileName = seeded?.fileName ?? null
+            } catch (error) {
+                console.error('Seed chat skill artifact error:', error)
+            }
+        }
+
+        let finalPromptText = seededArtifactFileName
+            ? `${promptText}\n\n[OpenNovelWriter] The prompt for the skill above is pre-assembled with the author's inputs (overview + referenced terms included) in artifacts/${seededArtifactFileName}. Follow the skill's instructions — call run_llm against that file, or read it for context.`
+            : promptText
+        if (artifactFiles.length > 0) {
+            finalPromptText += `\n\n[OpenNovelWriter] The author attached these JSON files to this turn: ${artifactFiles.map((fileName) => `artifacts/${fileName}`).join(', ')}. Read them as source material for the request.`
+        }
+
+        const now = new Date()
+        const startedAt = now.toISOString()
+        const currentMessages = parseCodexSessionMessages(existing.messagesJson)
+        const userMessage: CodexSessionMessage = {
+            id: createCodexMessageId('codex_user'),
+            role: 'user',
+            content,
+            attachments,
+            jsonArtifacts: artifactFiles,
+            createdAt: startedAt,
+        }
+        const optimisticMessages = [...currentMessages, userMessage]
+        const title = existing.titleManuallyEdited ? existing.title : createCodexSessionTitle(optimisticMessages)
+
+        await prisma.codexSession.update({
+            where: { id },
+            data: {
+                messagesJson: JSON.stringify(optimisticMessages),
+                draftContent: '',
+                draftAttachmentsJson: '[]',
+                draftArtifactsJson: '[]',
+                status: 'running',
+                lastError: null,
+                unreadCompletionAt: null,
+                title,
+                updatedAt: now,
+            },
+        })
+
+        const runInput = {
+            activeRun,
+            sessionId: existing.id,
+            ownerId: user.userId,
+            novelId: existing.novelId,
+            codexThreadId: existing.codexThreadId,
+            codexConnectionId: existing.codexConnectionId,
+            reviewLevel: existing.reviewLevel,
+            modelId: existing.modelId,
+            reasoningEffort: existing.reasoningEffort,
+            serviceTier: existing.serviceTier,
+            planMode: existing.planMode,
+            prompt: finalPromptText,
+            imageUrls: attachments,
+            skillRefs,
+        }
+
+        const streamState = { closed: false }
         const bodyStream = new ReadableStream<Uint8Array>({
             async start(controller) {
                 const send = (event: string, data: unknown) => {
-                    controller.enqueue(encodeSse(event, data))
+                    if (streamState.closed) return
+                    try {
+                        controller.enqueue(encodeSse(event, data))
+                    } catch {
+                        streamState.closed = true
+                    }
+                }
+                const close = () => {
+                    if (streamState.closed) return
+                    streamState.closed = true
+                    try {
+                        controller.close()
+                    } catch {
+                        return
+                    }
                 }
                 const streamedMessages = [...optimisticMessages]
                 let assistantSegmentId: string | null = null
@@ -440,7 +492,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                     contextWindow = result.contextWindow ?? contextWindow
 
                     const hasAssistantMessage = streamedMessages.slice(optimisticMessages.length).some((message) => message.role === 'assistant')
-                    if (!hasAssistantMessage) {
+                    if (result.status === 'completed' && !hasAssistantMessage) {
                         streamedMessages.push({
                             id: createCodexMessageId('codex_assistant'),
                             role: 'assistant',
@@ -458,13 +510,27 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                             messagesJson: JSON.stringify(streamedMessages),
                             status: 'idle',
                             lastError: null,
-                            unreadCompletionAt: completedAt,
+                            unreadCompletionAt: result.status === 'completed' ? completedAt : null,
                             updatedAt: completedAt,
                         },
                     })
 
                     send('done', { session: serializeCodexSession(session) })
                 } catch (error) {
+                    if (isCodexRunInterruptedError(error)) {
+                        const session = await prisma.codexSession.update({
+                            where: { id },
+                            data: {
+                                messagesJson: JSON.stringify(streamedMessages),
+                                status: 'idle',
+                                lastError: null,
+                                unreadCompletionAt: null,
+                                updatedAt: new Date(),
+                            },
+                        })
+                        send('done', { session: serializeCodexSession(session) })
+                        return
+                    }
                     const message = error instanceof Error ? error.message : 'Codex run failed.'
                     const failedMessages: CodexSessionMessage[] = [
                         ...optimisticMessages,
@@ -488,8 +554,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
                     send('error', { session: serializeCodexSession(session), detail: message })
                 } finally {
-                    controller.close()
+                    finishActiveCodexRun(activeRun)
+                    close()
                 }
+            },
+            cancel() {
+                streamState.closed = true
             },
         })
 
@@ -501,57 +571,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 Connection: 'keep-alive',
             },
         })
-    }
-
-    try {
-        const result = await runNovelCodexTurn(runInput)
-
-        const eventMessages = toEventMessages(result.events)
-        const assistantMessage: CodexSessionMessage = {
-            id: createCodexMessageId('codex_assistant'),
-            role: 'assistant',
-            content: result.assistantText || 'Codex finished without a text response.',
-            contextWindow: result.contextWindow,
-            createdAt: new Date().toISOString(),
-        }
-        const messages = [...optimisticMessages, ...eventMessages, assistantMessage]
-        const completedAt = new Date()
-        const session = await prisma.codexSession.update({
-            where: { id },
-            data: {
-                codexThreadId: result.threadId,
-                codexConnectionId: result.connectionId,
-                messagesJson: JSON.stringify(messages),
-                status: 'idle',
-                lastError: null,
-                unreadCompletionAt: completedAt,
-                updatedAt: completedAt,
-            },
-        })
-
-        return NextResponse.json({ session: serializeCodexSession(session) }, { status: 201 })
     } catch (error) {
-        const message = error instanceof Error ? error.message : 'Codex run failed.'
-        const failedMessages: CodexSessionMessage[] = [
-            ...optimisticMessages,
-            {
-                id: createCodexMessageId('codex_error'),
-                role: 'event',
-                kind: 'error',
-                content: message,
-                createdAt: new Date().toISOString(),
-            },
-        ]
-        const session = await prisma.codexSession.update({
-            where: { id },
-            data: {
-                messagesJson: JSON.stringify(failedMessages),
-                status: 'error',
-                lastError: message,
-                updatedAt: new Date(),
-            },
-        })
-
-        return NextResponse.json({ session: serializeCodexSession(session), detail: message }, { status: 500 })
+        await releaseClaim()
+        throw error
     }
 }

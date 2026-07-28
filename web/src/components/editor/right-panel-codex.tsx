@@ -144,7 +144,7 @@ function JsonArtifactChips({
             {fileNames.map((fileName) => (
                 <span
                     key={fileName}
-                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-primary-foreground/25 bg-primary-foreground/10 px-2 py-1 text-xs text-primary-foreground"
+                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-primary-foreground/25 bg-primary-foreground/10 px-2 py-1 text-xs text-primary-foreground dark:border-accent-foreground/25 dark:bg-accent-foreground/10 dark:text-accent-foreground"
                     title={fileName}
                 >
                     <FileText className="h-3.5 w-3.5 shrink-0" />
@@ -1065,7 +1065,7 @@ function UserMessageContent({ content }: { content: string }) {
                 out.push(
                     <span
                         key={`mention-${key++}`}
-                        className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/20 px-1.5 py-0.5 text-[0.85em] font-medium"
+                        className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/20 px-1.5 py-0.5 text-[0.85em] font-medium dark:bg-accent-foreground/10"
                     >
                         {kind === 'skill' ? <Sparkles className="h-3 w-3 shrink-0" /> : null}
                         {kind === 'term' ? <BookMarked className="h-3 w-3 shrink-0" /> : null}
@@ -1086,8 +1086,8 @@ function UserMessageContent({ content }: { content: string }) {
                         role={clickable ? 'button' : undefined}
                         tabIndex={clickable ? 0 : undefined}
                         className={cn(
-                            'inline-flex items-center gap-1 rounded-md bg-primary-foreground/20 px-1.5 py-0.5 text-[0.85em] font-medium',
-                            clickable ? 'cursor-pointer hover:bg-primary-foreground/30' : ''
+                            'inline-flex items-center gap-1 rounded-md bg-primary-foreground/20 px-1.5 py-0.5 text-[0.85em] font-medium dark:bg-accent-foreground/10',
+                            clickable ? 'cursor-pointer hover:bg-primary-foreground/30 dark:hover:bg-accent-foreground/20' : ''
                         )}
                         onClick={clickable && navTarget ? () => onNavigate?.(navTarget) : undefined}
                     >
@@ -1103,7 +1103,7 @@ function UserMessageContent({ content }: { content: string }) {
                         role={onNavigate && navTarget ? 'button' : undefined}
                         tabIndex={onNavigate && navTarget ? 0 : undefined}
                         className={cn(
-                            'underline underline-offset-2 decoration-primary-foreground/50',
+                            'underline underline-offset-2 decoration-primary-foreground/50 dark:decoration-accent-foreground/50',
                             onNavigate && navTarget ? 'cursor-pointer' : ''
                         )}
                         onClick={onNavigate && navTarget ? () => onNavigate(navTarget) : undefined}
@@ -2090,7 +2090,7 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
                             <CornerDownRight className="h-4 w-4 shrink-0" />
                             <span className="font-medium">{title || 'Steered conversation'}</span>
                         </div>
-                        <div className="max-w-full rounded-2xl bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground">
+                        <div className="max-w-full rounded-2xl bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground dark:bg-accent dark:text-accent-foreground">
                             <ImageThumbnails urls={message.attachments} className="mb-1.5" />
                             <div className="whitespace-pre-wrap break-words">{eventBody || message.content}</div>
                         </div>
@@ -2132,7 +2132,9 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
                 <div
                     className={cn(
                         'min-w-0 max-w-full overflow-hidden rounded-2xl px-4 py-3 text-sm leading-6 break-words [overflow-wrap:anywhere]',
-                        isUser ? 'bg-primary text-primary-foreground' : 'bg-muted/70 text-foreground'
+                        isUser
+                            ? 'bg-primary text-primary-foreground dark:bg-accent dark:text-accent-foreground'
+                            : 'bg-muted/70 text-foreground'
                     )}
                 >
                     <ImageThumbnails urls={message.attachments} className={cn(message.content.trim() && 'mb-1.5')} />
@@ -2692,6 +2694,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const setOptimisticSteerMessages = useEditorCodexStore((state) => state.setOptimisticSteerMessages)
     const sendMessage = useEditorCodexStore((state) => state.sendMessage)
     const compact = useEditorCodexStore((state) => state.compact)
+    const stop = useEditorCodexStore((state) => state.stop)
     const pendingApprovalsBySession = useEditorCodexStore((state) => state.pendingApprovalsBySession)
     const resolveApproval = useEditorCodexStore((state) => state.resolveApproval)
     const [runError, setRunError] = useState<string | null>(null)
@@ -3693,7 +3696,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         if (!targetSessionId) return
 
         try {
-            await codexSessionApi.stop(targetSessionId)
+            await stop(novelId, targetSessionId)
         } catch (error) {
             setRunError(error instanceof Error ? error.message : String(error))
             throw error

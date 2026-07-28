@@ -179,7 +179,7 @@ export const chapterApi = {
         fetchApi<Chapter>(`/chapters/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
     delete: (id: string) =>
-        fetchApi<{ message: string }>(`/chapters/${id}`, { method: 'DELETE' }),
+        fetchApi<{ message: string; deletedCodexSessionIds: string[] }>(`/chapters/${id}`, { method: 'DELETE' }),
 
     reorder: (novelId: string, updates: { id: string; order: number; actNumber?: number }[]) =>
         fetchApi<Chapter[]>(`/novels/${novelId}/chapters/reorder`, {
@@ -218,7 +218,7 @@ export const sceneApi = {
         fetchApi<Scene>(`/scenes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
     delete: (id: string) =>
-        fetchApi<{ message: string }>(`/scenes/${id}`, { method: 'DELETE' }),
+        fetchApi<{ message: string; deletedCodexSessionIds: string[] }>(`/scenes/${id}`, { method: 'DELETE' }),
 }
 
 // Act API
@@ -977,24 +977,6 @@ export const aiApi = {
             body: JSON.stringify(data),
         }),
 
-    runModel: (
-        data: {
-            connectionId: string
-            modelId: string
-            system?: string
-            temperature?: number
-            maxTokens?: number
-            messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
-            prompt?: string
-        },
-        options?: { signal?: AbortSignal }
-    ) =>
-        fetchApi<{ text: string; reasoningText?: string }>('/ai/run', {
-            method: 'POST',
-            body: JSON.stringify(data),
-            signal: options?.signal,
-        }),
-
     listGroups: () => fetchApi<{ groups: ModelGroup[] }>('/ai/groups'),
 
     createGroup: (data: { name: string }) =>
@@ -1430,25 +1412,8 @@ export const codexSessionApi = {
         }),
 
     stop: (id: string) =>
-        fetchApi<{ ok: true }>(`/codex/sessions/${encodeURIComponent(id)}/stop`, {
+        fetchApi<{ ok: true; session: CodexSession }>(`/codex/sessions/${encodeURIComponent(id)}/stop`, {
             method: 'POST',
-        }),
-
-    sendMessage: (
-        id: string,
-        content: string,
-        options?: { signal?: AbortSignal; skillIds?: string[]; promptArtifact?: CodexPromptArtifact; attachments?: string[]; artifactFiles?: string[] }
-    ) =>
-        fetchApi<{ session: CodexSession }>(`/codex/sessions/${encodeURIComponent(id)}/messages`, {
-            method: 'POST',
-            body: JSON.stringify({
-                content,
-                skillIds: options?.skillIds,
-                promptArtifact: options?.promptArtifact,
-                attachments: options?.attachments,
-                artifactFiles: options?.artifactFiles,
-            }),
-            signal: options?.signal,
         }),
 
     streamMessage: async (
@@ -1475,7 +1440,6 @@ export const codexSessionApi = {
             },
             body: JSON.stringify({
                 content,
-                stream: true,
                 skillIds: options.skillIds,
                 promptArtifact: options.promptArtifact,
                 attachments: options.attachments,
@@ -1564,7 +1528,10 @@ export const continuationDraftApi = {
         }),
 
     delete: (panelId: string) =>
-        fetchApi<{ ok: true }>(`/continuation-drafts/${encodeURIComponent(panelId)}`, { method: 'DELETE' }),
+        fetchApi<{ ok: true; deletedCodexSessionId: string | null }>(
+            `/continuation-drafts/${encodeURIComponent(panelId)}`,
+            { method: 'DELETE' }
+        ),
 }
 
 export const codexApi = {

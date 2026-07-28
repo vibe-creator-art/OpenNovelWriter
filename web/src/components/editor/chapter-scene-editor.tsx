@@ -182,6 +182,12 @@ export function ChapterSceneEditor({
         scenesRef.current = scenes
     }, [scenes])
 
+    const updateScenes = useCallback((updater: (current: Scene[]) => Scene[]) => {
+        const next = updater(scenesRef.current)
+        scenesRef.current = next
+        onScenesChange(next)
+    }, [onScenesChange])
+
     const componentPromptsRef = useRef<Prompt[] | null>(null)
     const componentPromptsPromiseRef = useRef<Promise<Prompt[]> | null>(null)
 
@@ -338,13 +344,13 @@ export function ChapterSceneEditor({
     const saveSceneContent = useCallback(async (sceneId: string, content: string) => {
         try {
             const updated = await sceneApi.update(sceneId, { content })
-            onScenesChange(scenes.map(s =>
+            updateScenes((current) => current.map(s =>
                 s.id === sceneId ? { ...s, content, wordCount: updated.wordCount } : s
             ))
         } catch (error) {
             console.error('Failed to save scene:', error)
         }
-    }, [scenes, onScenesChange])
+    }, [updateScenes])
 
     // Save scene summary
     const saveSceneSummary = useCallback(async (sceneId: string, summary: string) => {
@@ -360,24 +366,24 @@ export function ChapterSceneEditor({
     const saveSceneLabels = useCallback(async (sceneId: string, labelIds: string[]) => {
         try {
             const updated = await sceneApi.update(sceneId, { labelIds })
-            onScenesChange(scenes.map(s =>
+            updateScenes((current) => current.map(s =>
                 s.id === sceneId ? { ...s, labelIds: updated.labelIds } : s
             ))
         } catch (error) {
             console.error('Failed to save labels:', error)
         }
-    }, [scenes, onScenesChange])
+    }, [updateScenes])
 
     const saveSceneTerms = useCallback(async (sceneId: string, termIds: string[]) => {
         try {
             const updated = await sceneApi.update(sceneId, { termIds })
-            onScenesChange(scenes.map(s =>
+            updateScenes((current) => current.map(s =>
                 s.id === sceneId ? { ...s, termIds: updated.termIds } : s
             ))
         } catch (error) {
             console.error('Failed to save terms:', error)
         }
-    }, [scenes, onScenesChange])
+    }, [updateScenes])
 
     const copySceneToClipboard = useCallback(async (value: string) => {
         const text = value.trimEnd()
@@ -393,16 +399,17 @@ export function ChapterSceneEditor({
         const nextSummary = text.trim()
         if (!nextSummary) return
 
-        const latestScenes = scenesRef.current
-        if (!latestScenes.some((scene) => scene.id === sceneId)) return
+        if (!scenesRef.current.some((scene) => scene.id === sceneId)) return
 
-        onScenesChange(latestScenes.map((scene) => (scene.id === sceneId ? { ...scene, summary: nextSummary } : scene)))
+        updateScenes((current) =>
+            current.map((scene) => (scene.id === sceneId ? { ...scene, summary: nextSummary } : scene))
+        )
         if (editingSummaryId === sceneId) {
             setSummaryText(nextSummary)
         }
         await sceneApi.update(sceneId, { summary: nextSummary })
         if (novelId) dispatchNovelOutlineDataChanged({ novelId })
-    }, [editingSummaryId, novelId, onScenesChange])
+    }, [editingSummaryId, novelId, updateScenes])
 
     const handleSceneOperationSkillRun = useCallback(
         (sceneId: string, sceneIndex: number, skill: Skill) => {
@@ -510,7 +517,7 @@ export function ChapterSceneEditor({
 
     // Delete scene
     const handleDeleteScene = useCallback(async (sceneId: string) => {
-        if (scenes.length <= 1) return // Don't delete last scene
+        if (scenesRef.current.length <= 1) return // Don't delete last scene
         // Cancel any pending debounced content save so it doesn't fire after
         // the scene is gone and hit the API with a stale "Scene not found".
         if (saveTimersRef.current[sceneId]) {
@@ -518,8 +525,11 @@ export function ChapterSceneEditor({
             delete saveTimersRef.current[sceneId]
         }
         try {
-            await sceneApi.delete(sceneId)
-            onScenesChange(scenes.filter(s => s.id !== sceneId))
+            const result = await sceneApi.delete(sceneId)
+            result.deletedCodexSessionIds.forEach((sessionId) => {
+                useEditorCodexStore.getState().removeDeletedSession(novelId, sessionId)
+            })
+            updateScenes((current) => current.filter((scene) => scene.id !== sceneId))
             setLocalEdits(prev => {
                 if (!(sceneId in prev)) return prev
                 const next = { ...prev }
@@ -529,7 +539,7 @@ export function ChapterSceneEditor({
         } catch (error) {
             console.error('Failed to delete scene:', error)
         }
-    }, [scenes, onScenesChange])
+    }, [novelId, updateScenes])
 
     // Handle content change with debounced auto-save
     const handleContentChange = useCallback((sceneId: string, content: string) => {
@@ -562,13 +572,13 @@ export function ChapterSceneEditor({
         try {
             const newScene = await sceneApi.create(chapterId)
             setLocalEdits(prev => ({ ...prev, [newScene.id]: '' }))
-            onScenesChange([...scenes, newScene])
+            updateScenes((current) => [...current, newScene])
         } catch (error) {
             console.error('Failed to create scene:', error)
         } finally {
             setIsCreatingScene(false)
         }
-    }, [chapterId, scenes, onScenesChange, isCreatingScene])
+    }, [chapterId, isCreatingScene, updateScenes])
 
     // Get content for a scene (local edit or original)
     const getSceneContent = (scene: Scene) => {
@@ -746,7 +756,7 @@ export function ChapterSceneEditor({
                                 onBlur={() => {
                                     if (editingSummaryId === scene.id) {
                                         const nextSummary = summaryText
-                                        onScenesChange(scenes.map(s =>
+                                        updateScenes((current) => current.map(s =>
                                             s.id === scene.id ? { ...s, summary: nextSummary } : s
                                         ))
                                         setEditingSummaryId(null)
@@ -757,7 +767,7 @@ export function ChapterSceneEditor({
                                     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                                         e.preventDefault()
                                         const nextSummary = summaryText
-                                        onScenesChange(scenes.map(s =>
+                                        updateScenes((current) => current.map(s =>
                                             s.id === scene.id ? { ...s, summary: nextSummary } : s
                                         ))
                                         setEditingSummaryId(null)

@@ -1,10 +1,6 @@
 import type { ModelAssignment, ModelGroup } from '@/lib/ai-store'
-import { aiApi, ApiError } from '@/lib/api'
-import {
-    computeFailureUpdates,
-    getResetAssignmentHealth,
-    normalizeFailurePolicy,
-} from '@/lib/ai-group-config'
+import { ApiError } from '@/lib/api'
+import { getResetAssignmentHealth } from '@/lib/ai-group-config'
 import { useAiRuntimeStore } from '@/lib/ai-runtime-store'
 import { useAiRunUiStore } from '@/lib/ai-run-ui-store'
 import { useAuthStore } from '@/lib/store'
@@ -17,7 +13,6 @@ export type RunChatMessage = {
 }
 
 type RunModelInput = {
-    stream?: boolean
     system?: string
     temperature?: number
     maxTokens?: number
@@ -195,10 +190,6 @@ function setRoundRobinLastUsed(groupId: string, assignmentId: string) {
     safeSetLocalStorage(`${RR_LAST_USED_PREFIX}${groupId}`, assignmentId)
 }
 
-function showFallbackToast(message: string) {
-    useAiRunUiStore.getState().showToast(message, { durationMs: 10_000 })
-}
-
 function hideFallbackToast() {
     useAiRunUiStore.getState().hideToast()
 }
@@ -207,21 +198,11 @@ function showFatalDialog(params: { title: string; description: string }) {
     useAiRunUiStore.getState().showFatal(params.title, params.description)
 }
 
-function formatAssignmentLabel(params: {
-    assignment: ModelAssignment
-    resolveConnectionName?: (connectionId: string) => string | null | undefined
-}) {
-    const name = params.resolveConnectionName?.(params.assignment.connectionId) ?? ''
-    const prefix = name.trim() ? `${name.trim()} · ` : ''
-    return `${prefix}${params.assignment.modelId}`
-}
-
 export async function runModelGroupWithFallback(options: {
     group: ModelGroup
     input: RunModelInput
     preferredAssignmentId?: string | null
     signal?: AbortSignal
-    resolveConnectionName?: (connectionId: string) => string | null | undefined
     ui?: { enabled?: boolean }
     onTextDelta?: (delta: string) => Promise<void> | void
     onReasoningDelta?: (delta: string) => Promise<void> | void
@@ -254,123 +235,47 @@ export async function runModelGroupWithFallback(options: {
     }
 
     const attemptOrder = [...available.slice(startIndex), ...available.slice(0, startIndex)]
-    const failurePolicy = normalizeFailurePolicy(options.group.failurePolicy)
-    let lastError: unknown = null
-
-    if (options.input.stream === true) {
-        try {
-            const result = await runModelGroupStream(
-                {
-                    groupId: options.group.id,
-                    preferredAssignmentId: attemptOrder[0]?.id ?? null,
-                    system: options.input.system,
-                    temperature: options.input.temperature,
-                    maxTokens: options.input.maxTokens,
-                    messages: options.input.messages,
-                    prompt: options.input.prompt,
-                },
-                {
-                    signal: options.signal,
-                    onTextDelta: options.onTextDelta,
-                    onReasoningDelta: options.onReasoningDelta,
-                }
-            )
-            const usedAssignment = result.usedAssignment ?? attemptOrder[0]
-            if (strategy === 'round-robin' && usedAssignment?.id) {
-                setRoundRobinLastUsed(options.group.id, usedAssignment.id)
+    try {
+        const result = await runModelGroupStream(
+            {
+                groupId: options.group.id,
+                preferredAssignmentId: attemptOrder[0]?.id ?? null,
+                system: options.input.system,
+                temperature: options.input.temperature,
+                maxTokens: options.input.maxTokens,
+                messages: options.input.messages,
+                prompt: options.input.prompt,
+            },
+            {
+                signal: options.signal,
+                onTextDelta: options.onTextDelta,
+                onReasoningDelta: options.onReasoningDelta,
             }
-            if (usedAssignment && (usedAssignment.failureCount !== 0 || usedAssignment.ignoredUntil)) {
-                const updates = getResetAssignmentHealth()
-                useAiRuntimeStore.getState().applyAssignmentOverride(usedAssignment.id, updates)
-            }
+        )
+        const usedAssignment = result.usedAssignment ?? attemptOrder[0]
+        if (strategy === 'round-robin' && usedAssignment?.id) {
+            setRoundRobinLastUsed(options.group.id, usedAssignment.id)
+        }
+        if (usedAssignment && (usedAssignment.failureCount !== 0 || usedAssignment.ignoredUntil)) {
+            const updates = getResetAssignmentHealth()
+            useAiRuntimeStore.getState().applyAssignmentOverride(usedAssignment.id, updates)
+        }
+        if (uiEnabled) hideFallbackToast()
+        return { text: result.text, reasoningText: result.reasoningText, usage: result.usage, usedAssignment }
+    } catch (error) {
+        if (isAbortError(error)) {
             if (uiEnabled) hideFallbackToast()
-            return { text: result.text, reasoningText: result.reasoningText, usage: result.usage, usedAssignment }
-        } catch (error) {
-            if (isAbortError(error)) {
-                if (uiEnabled) hideFallbackToast()
-                throw error
-            }
-            if (uiEnabled) {
-                hideFallbackToast()
-                showFatalDialog({
-                    title: '模型调用失败',
-                    description:
-                        `模型组「${options.group.name}」调用失败。请使用其他模型组，或在设置中检查 provider。` +
-                        (error instanceof Error ? `\n\n错误：${error.message}` : ''),
-                })
-            }
             throw error
         }
-    }
-
-    for (const [index, assignment] of attemptOrder.entries()) {
-        if (options.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-
-        if (uiEnabled && index > 0) {
-            const label = formatAssignmentLabel({ assignment, resolveConnectionName: options.resolveConnectionName })
-            showFallbackToast(`上一个 provider 调用失败，正在尝试下一个：${label}（${index + 1}/${attemptOrder.length}）`)
+        if (uiEnabled) {
+            hideFallbackToast()
+            showFatalDialog({
+                title: '模型调用失败',
+                description:
+                    `模型组「${options.group.name}」调用失败。请使用其他模型组，或在设置中检查 provider。` +
+                    (error instanceof Error ? `\n\n错误：${error.message}` : ''),
+            })
         }
-
-        try {
-            const { stream: _stream, ...input } = options.input
-            const request = {
-                connectionId: assignment.connectionId,
-                modelId: assignment.modelId,
-                ...input,
-            }
-            const result = await aiApi.runModel(request, { signal: options.signal })
-
-            if (strategy === 'round-robin') {
-                setRoundRobinLastUsed(options.group.id, assignment.id)
-            }
-
-            if (assignment.failureCount !== 0 || assignment.ignoredUntil) {
-                const updates = getResetAssignmentHealth()
-                useAiRuntimeStore.getState().applyAssignmentOverride(assignment.id, updates)
-                void aiApi.patchAssignment(assignment.id, updates).catch(() => null)
-            }
-
-            if (uiEnabled) hideFallbackToast()
-            return { text: result.text, reasoningText: result.reasoningText, usedAssignment: assignment }
-        } catch (error) {
-            if (isAbortError(error)) {
-                if (uiEnabled) hideFallbackToast()
-                throw error
-            }
-
-            lastError = error
-            const updates = computeFailureUpdates({ assignment, failurePolicy, nowMs: Date.now() })
-            useAiRuntimeStore.getState().applyAssignmentOverride(assignment.id, updates)
-            void aiApi.patchAssignment(assignment.id, updates).catch(() => null)
-
-            const isLast = index === attemptOrder.length - 1
-            if (isLast) {
-                if (uiEnabled) {
-                    hideFallbackToast()
-                    const detail =
-                        error instanceof ApiError
-                            ? `（HTTP ${error.status}）`
-                            : error instanceof Error
-                              ? `（${error.message}）`
-                              : ''
-                    showFatalDialog({
-                        title: '模型调用失败',
-                        description:
-                            `模型组「${options.group.name}」的所有 provider 全部不可用。请使用其他模型组，或在设置中手动启用已禁用的 provider。` +
-                            (detail ? `\n\n最后一次错误：${detail}` : ''),
-                    })
-                }
-                throw error
-            }
-        }
+        throw error
     }
-
-    if (uiEnabled) {
-        hideFallbackToast()
-        showFatalDialog({
-            title: '模型调用失败',
-            description: `模型组「${options.group.name}」的所有 provider 全部不可用。请使用其他模型组，或在设置中手动启用已禁用的 provider。`,
-        })
-    }
-    throw lastError instanceof Error ? lastError : new Error('All providers failed.')
 }

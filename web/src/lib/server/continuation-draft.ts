@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db'
-import { deleteCodexSessionWorkspace } from '@/lib/server/codex-session-workspace'
+import { deleteCodexSession } from '@/lib/server/codex-session-deletion'
 
 export type ContinuationDraftDto = {
     panelId: string
@@ -51,28 +51,6 @@ export async function getOwnedContinuationDraft(ownerId: string, panelId: string
     return draft
 }
 
-/**
- * Delete a Codex session and its workspace without touching any linked continuation panel.
- * Pending manuscript edits from the session are finalized (accepted) first, matching the
- * session DELETE route. This is the leaf operation — callers decide whether a panel/draft is
- * removed alongside it, so there is no mutual recursion between session and draft deletion.
- */
-export async function rawDeleteCodexSession(ownerId: string, sessionId: string) {
-    const existing = await prisma.codexSession.findFirst({
-        where: { id: sessionId, ownerId },
-        select: { id: true, ownerId: true },
-    })
-    if (!existing) return false
-
-    await prisma.sceneEdit.updateMany({
-        where: { sessionId, status: 'pending' },
-        data: { status: 'accepted' },
-    })
-    await prisma.codexSession.delete({ where: { id: sessionId } })
-    await deleteCodexSessionWorkspace(existing.ownerId, existing.id)
-    return true
-}
-
 /** Delete a draft row only. Leaf operation; does not touch any linked session. */
 export async function rawDeleteContinuationDraft(panelId: string) {
     await prisma.sceneContinuationDraft.deleteMany({ where: { panelId } })
@@ -85,16 +63,21 @@ export async function rawDeleteContinuationDraft(panelId: string) {
  * surrounding HTML is being deleted anyway.
  */
 export async function cascadeDeleteContinuationDraftsForScenes(ownerId: string, sceneIds: string[]) {
-    if (sceneIds.length === 0) return
+    if (sceneIds.length === 0) return []
     const drafts = await prisma.sceneContinuationDraft.findMany({
         where: { sceneId: { in: sceneIds } },
         select: { panelId: true, codexSessionId: true },
     })
-    if (drafts.length === 0) return
+    if (drafts.length === 0) return []
+    const deletedSessionIds: string[] = []
     for (const draft of drafts) {
-        if (draft.codexSessionId) await rawDeleteCodexSession(ownerId, draft.codexSessionId)
+        if (!draft.codexSessionId) continue
+        if (await deleteCodexSession(ownerId, draft.codexSessionId)) {
+            deletedSessionIds.push(draft.codexSessionId)
+        }
     }
     await prisma.sceneContinuationDraft.deleteMany({ where: { sceneId: { in: sceneIds } } })
+    return deletedSessionIds
 }
 
 /**

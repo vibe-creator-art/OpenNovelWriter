@@ -1,4 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
+import { useEditorCodexStore } from '@/components/editor/editor-codex-store'
 import { actApi, chapterApi, outlineApi, Chapter, ChapterWithScenes } from '@/lib/api'
 
 type ActsFromDb = { number: number; title: string | null }
@@ -200,7 +201,10 @@ export const createActChapterActions = (deps: ActChapterActionsDeps) => {
 
     const handleDeleteChapter = async (chapter: Chapter) => {
         try {
-            await chapterApi.delete(chapter.id)
+            const result = await chapterApi.delete(chapter.id)
+            result.deletedCodexSessionIds.forEach((sessionId) => {
+                useEditorCodexStore.getState().removeDeletedSession(chapter.novelId, sessionId)
+            })
 
             // Find the global index of the deleted chapter
             const deletedGlobalIndex = sortedChapters.findIndex(c => c.id === chapter.id)

@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
-import { runNovelCodexCompaction } from '@/lib/server/codex-app-server'
+import {
+    finishActiveCodexRun,
+    isCodexRunInterruptedError,
+    reserveActiveCodexRun,
+    runNovelCodexCompaction,
+} from '@/lib/server/codex-app-server'
 import {
     type CodexContextWindow,
     parseCodexSessionMessages,
@@ -51,25 +56,38 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     if (!existing.codexThreadId) {
         return NextResponse.json({ detail: 'This session has no Codex thread to compact yet.' }, { status: 400 })
     }
-    if (existing.status === 'running') {
+    const now = new Date()
+    const currentMessages = parseCodexSessionMessages(existing.messagesJson)
+    const activeRun = reserveActiveCodexRun(id)
+    if (!activeRun) {
         return NextResponse.json({ detail: 'Codex session is already running.' }, { status: 409 })
     }
 
-    const now = new Date()
-    const currentMessages = parseCodexSessionMessages(existing.messagesJson)
-
-    await prisma.codexSession.update({
-        where: { id },
-        data: {
-            draftContent: '',
-            status: 'running',
-            lastError: null,
-            unreadCompletionAt: null,
-            updatedAt: now,
-        },
-    })
+    let claimResult: { count: number }
+    try {
+        claimResult = await prisma.codexSession.updateMany({
+            where: existing.status === 'running'
+                ? { id, ownerId: user.userId, status: 'running', updatedAt: existing.updatedAt }
+                : { id, ownerId: user.userId, status: existing.status },
+            data: {
+                draftContent: '',
+                status: 'running',
+                lastError: null,
+                unreadCompletionAt: null,
+                updatedAt: now,
+            },
+        })
+    } catch (error) {
+        finishActiveCodexRun(activeRun)
+        throw error
+    }
+    if (claimResult.count !== 1) {
+        finishActiveCodexRun(activeRun)
+        return NextResponse.json({ detail: 'Codex session is already running.' }, { status: 409 })
+    }
 
     const runInput = {
+        activeRun,
         sessionId: existing.id,
         ownerId: user.userId,
         novelId: existing.novelId,
@@ -80,10 +98,25 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         serviceTier: existing.serviceTier,
     }
 
+    const streamState = { closed: false }
     const bodyStream = new ReadableStream<Uint8Array>({
         async start(controller) {
             const send = (event: string, data: unknown) => {
-                controller.enqueue(encodeSse(event, data))
+                if (streamState.closed) return
+                try {
+                    controller.enqueue(encodeSse(event, data))
+                } catch {
+                    streamState.closed = true
+                }
+            }
+            const close = () => {
+                if (streamState.closed) return
+                streamState.closed = true
+                try {
+                    controller.close()
+                } catch {
+                    return
+                }
             }
             const streamedMessages = [...currentMessages]
             let contextWindow: CodexContextWindow | null = null
@@ -142,6 +175,19 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
                 send('done', { session: serializeCodexSession(session) })
             } catch (error) {
+                if (isCodexRunInterruptedError(error)) {
+                    const session = await prisma.codexSession.update({
+                        where: { id },
+                        data: {
+                            messagesJson: JSON.stringify(streamedMessages),
+                            status: 'idle',
+                            lastError: null,
+                            updatedAt: new Date(),
+                        },
+                    })
+                    send('done', { session: serializeCodexSession(session) })
+                    return
+                }
                 const message = error instanceof Error ? error.message : 'Codex compaction failed.'
                 const session = await prisma.codexSession.update({
                     where: { id },
@@ -155,8 +201,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
                 send('error', { session: serializeCodexSession(session), detail: message })
             } finally {
-                controller.close()
+                finishActiveCodexRun(activeRun)
+                close()
             }
+        },
+        cancel() {
+            streamState.closed = true
         },
     })
 

@@ -2,6 +2,11 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { ImageModel, LanguageModel } from 'ai'
 import { isDedicatedImageGenerationModel, isImageGenerationModel } from '@/lib/cherrystudio-model-config'
+import {
+    parseOpenAiModelList,
+    requireProviderModels,
+    type ProviderModel,
+} from '@/lib/server/provider-model-list'
 
 /**
  * Connection formats:
@@ -17,10 +22,7 @@ export function parseProviderType(value: unknown): ProviderType | null {
     return value === 'openai-chat' || value === 'openai-image' || value === 'gemini' ? value : null
 }
 
-export type AiModel = {
-    id: string
-    name: string
-}
+export type AiModel = ProviderModel
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
@@ -50,9 +52,7 @@ async function fetchOpenAiModels(baseUrl: string, apiKey: string): Promise<AiMod
         throw new Error(data?.error?.message || 'Failed to fetch models.')
     }
 
-    return Array.isArray(data?.data)
-        ? data.data.map((model: { id: string }) => ({ id: model.id, name: model.id }))
-        : []
+    return parseOpenAiModelList(data?.data)
 }
 
 async function fetchGeminiModels(baseUrl: string, apiKey: string): Promise<AiModel[]> {
@@ -98,7 +98,7 @@ export async function fetchModelsForProvider(options: {
             : providerType === 'openai-chat'
               ? models.filter((model) => !isDedicatedImageGenerationModel({ modelId: model.id, baseUrl }))
               : models
-    return filtered.length > 0 ? filtered : models
+    return requireProviderModels(filtered.length > 0 ? filtered : models)
 }
 
 export function createLanguageModel(options: {

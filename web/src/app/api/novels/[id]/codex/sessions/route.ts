@@ -16,6 +16,7 @@ import {
     serializeCodexSession,
 } from '@/lib/server/codex-session'
 import { canUseCodexFastMode, DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import { getActiveCodexRun } from '@/lib/server/codex-app-server'
 import { seedSkillSessionArtifact } from '@/lib/server/codex-skill-session'
 import { pruneCodexSessionsForCategory } from '@/lib/server/codex-session-pruning'
 
@@ -44,10 +45,35 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
         })
         if (!novel) return NextResponse.json({ detail: 'Novel not found' }, { status: 404 })
 
-        const sessions = await prisma.codexSession.findMany({
+        let sessions = await prisma.codexSession.findMany({
             where: { novelId, ownerId: user.userId },
             orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
         })
+
+        const staleSessionIds = sessions
+            .filter((session) => session.status === 'running' && !getActiveCodexRun(session.id))
+            .map((session) => session.id)
+        if (staleSessionIds.length > 0) {
+            await prisma.codexSession.updateMany({
+                where: {
+                    id: { in: staleSessionIds },
+                    novelId,
+                    ownerId: user.userId,
+                    status: 'running',
+                },
+                data: {
+                    status: 'idle',
+                    lastError: null,
+                    unreadCompletionAt: null,
+                },
+            })
+            const staleSessionIdSet = new Set(staleSessionIds)
+            sessions = sessions.map((session) =>
+                staleSessionIdSet.has(session.id)
+                    ? { ...session, status: 'idle', lastError: null, unreadCompletionAt: null }
+                    : session
+            )
+        }
 
         return NextResponse.json({ sessions: sessions.map(serializeCodexSession) })
     } catch (error) {

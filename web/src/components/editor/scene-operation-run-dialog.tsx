@@ -261,7 +261,6 @@ export function SceneOperationRunDialog({
                 const result = await runModelGroupWithFallback({
                     group: selectedGroup,
                     input: {
-                        stream: true,
                         temperature: selectedGroup.settings.temperature ?? undefined,
                         maxTokens: selectedGroup.settings.maxTokens ?? undefined,
                         messages: renderedMessages,

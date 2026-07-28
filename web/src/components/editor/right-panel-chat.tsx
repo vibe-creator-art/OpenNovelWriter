@@ -922,7 +922,6 @@ export function RightPanelChat({ novelId, tweakOpen, onTweakOpenChange }: RightP
                 const result = await runModelGroupWithFallback({
                     group: selectedGroup,
                     input: {
-                        stream: true,
                         temperature: selectedGroup.settings.temperature ?? undefined,
                         maxTokens: selectedGroup.settings.maxTokens ?? undefined,
                         messages: requestMessages,
@@ -1075,7 +1074,6 @@ export function RightPanelChat({ novelId, tweakOpen, onTweakOpenChange }: RightP
             const result = await runModelGroupWithFallback({
                 group: selectedGroup,
                 input: {
-                    stream: true,
                     temperature: selectedGroup.settings.temperature ?? undefined,
                     maxTokens: selectedGroup.settings.maxTokens ?? undefined,
                     messages: requestMessages,
@@ -1537,7 +1535,9 @@ export function RightPanelChat({ novelId, tweakOpen, onTweakOpenChange }: RightP
                                             <div
                                                 className={cn(
                                                     'rounded-2xl px-3 py-2 text-sm leading-6 shadow-sm',
-                                                    isUser ? 'bg-foreground text-background' : 'border bg-card text-foreground',
+                                                    isUser
+                                                        ? 'bg-foreground text-background dark:bg-accent dark:text-accent-foreground'
+                                                        : 'border bg-card text-foreground',
                                                     selected && !isUser && 'border-emerald-500/40',
                                                     selected && isUser && 'ring-2 ring-emerald-500/40'
                                                 )}

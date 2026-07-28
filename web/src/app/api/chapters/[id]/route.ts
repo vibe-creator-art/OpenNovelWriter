@@ -129,7 +129,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         // Tear down inline continuation panels (drafts + paired Codex sessions) before the
         // chapter's scenes cascade-delete, so no orphaned sessions are left behind.
         const chapterScenes = await prisma.scene.findMany({ where: { chapterId: id }, select: { id: true, wordCount: true } })
-        await cascadeDeleteContinuationDraftsForScenes(user.userId, chapterScenes.map((scene) => scene.id))
+        const deletedCodexSessionIds = await cascadeDeleteContinuationDraftsForScenes(
+            user.userId,
+            chapterScenes.map((scene) => scene.id)
+        )
 
         const deletedWordCount = chapterScenes.reduce((sum, scene) => sum + scene.wordCount, 0)
         await prisma.$transaction(async (tx) => {
@@ -142,7 +145,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
             syncNovelWorkspaceDetailedOutlines(user.userId, existing.novelId),
         ])
 
-        return NextResponse.json({ message: 'Chapter deleted successfully' })
+        return NextResponse.json({ message: 'Chapter deleted successfully', deletedCodexSessionIds })
     } catch (error) {
         console.error('Delete chapter error:', error)
         return NextResponse.json({ detail: 'Internal server error' }, { status: 500 })

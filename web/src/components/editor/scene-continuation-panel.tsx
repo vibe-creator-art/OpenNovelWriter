@@ -841,7 +841,6 @@ export function SceneContinuationPanel({
             const result = await runModelGroupWithFallback({
                 group: selectedGroup,
                 input: {
-                    stream: true,
                     temperature: selectedGroup.settings.temperature ?? undefined,
                     maxTokens: selectedGroup.settings.maxTokens ?? undefined,
                     messages: renderedMessages,
@@ -884,18 +883,26 @@ export function SceneContinuationPanel({
         lastSyncedOutputTextRef.current = ''
     }, [])
 
-    // Discard the panel: abort any run, tear down the shared draft and (skill mode) the paired
-    // Codex session, then remove the node. The server delete is idempotent so node removal isn't
-    // blocked on it. Used by the delete button and "write and close".
+    // Discard the panel only after its shared draft and paired Codex session are safely removed.
     const closeAndCleanup = useCallback(() => {
         generateAbortRef.current?.abort()
-        if (panelId) {
-            void continuationDraftApi.delete(panelId).catch((error) =>
-                console.error('Failed to delete continuation draft:', error)
-            )
+        if (!panelId) {
+            onClose()
+            return
         }
-        onClose()
-    }, [onClose, panelId])
+        void continuationDraftApi
+            .delete(panelId)
+            .then((result) => {
+                if (result.deletedCodexSessionId) {
+                    useEditorCodexStore.getState().removeDeletedSession(novelId, result.deletedCodexSessionId)
+                }
+                onClose()
+            })
+            .catch((error) => {
+                console.error('Failed to delete continuation draft:', error)
+                setRunError(error instanceof Error ? error.message : String(error))
+            })
+    }, [novelId, onClose, panelId])
 
     const handleWrite = useCallback(() => {
         if (!contentDraft.trim()) return

@@ -4,10 +4,10 @@ import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
     getOwnedContinuationDraft,
-    rawDeleteCodexSession,
     rawDeleteContinuationDraft,
     serializeContinuationDraft,
 } from '@/lib/server/continuation-draft'
+import { deleteCodexSession } from '@/lib/server/codex-session-deletion'
 
 interface RouteContext {
     params: Promise<{ panelId: string }>
@@ -88,13 +88,12 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
         const { panelId } = await params
         const draft = await getOwnedContinuationDraft(user.userId, panelId)
 
-        // The client already removed the panel node (its autosave persists the marker removal),
-        // so this only tears down the shared draft and the paired Codex session entry point.
+        // Tear down the paired Codex session before removing the shared draft.
         if (draft?.codexSessionId) {
-            await rawDeleteCodexSession(user.userId, draft.codexSessionId)
+            await deleteCodexSession(user.userId, draft.codexSessionId)
         }
         await rawDeleteContinuationDraft(panelId)
-        return NextResponse.json({ ok: true })
+        return NextResponse.json({ ok: true, deletedCodexSessionId: draft?.codexSessionId ?? null })
     } catch (error) {
         console.error('Delete continuation draft error:', error)
         return NextResponse.json({ detail: 'Internal server error' }, { status: 500 })

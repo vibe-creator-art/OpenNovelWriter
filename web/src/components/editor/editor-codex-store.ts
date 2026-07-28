@@ -115,6 +115,8 @@ type CodexStoreState = {
     updatePlanMode: (novelId: string | null | undefined, sessionId: string, planMode: boolean) => Promise<void>
     renameSession: (novelId: string | null | undefined, sessionId: string, title: string) => Promise<void>
     deleteSession: (novelId: string | null | undefined, sessionId: string) => Promise<void>
+    removeDeletedSession: (novelId: string | null | undefined, sessionId: string) => void
+    stop: (novelId: string | null | undefined, sessionId: string) => Promise<void>
     sendMessage: (novelId: string | null | undefined, sessionId: string, content: string, options?: { skillIds?: string[]; promptArtifact?: CodexPromptArtifact; attachments?: string[]; artifactFiles?: string[] }) => Promise<void>
     compact: (novelId: string | null | undefined, sessionId: string) => Promise<void>
     resolveApproval: (
@@ -129,6 +131,9 @@ const draftSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const pendingDraftPatches = new Map<string, DraftSessionPatch>()
 const sessionLoadPromises = new Map<string, Promise<void>>()
 const sessionCreatePromises = new Map<string, Promise<string | null>>()
+const deletedSessionIds = new Set<string>()
+const deletingSessionIds = new Set<string>()
+const activeRunControllers = new Map<string, AbortController>()
 
 function getNovelKey(novelId?: string | null) {
     const normalized = novelId?.trim()
@@ -145,6 +150,56 @@ function getEmptySession(): CodexNovelSessionState {
     }
 }
 
+function removeSessionFromState(state: CodexStoreState, novelKey: string, sessionId: string) {
+    const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+    const sessions = current.sessions.filter((session) => session.id !== sessionId)
+    const pendingApprovalsBySession = { ...state.pendingApprovalsBySession }
+    const imageAttachmentsBySession = { ...state.imageAttachmentsBySession }
+    const jsonArtifactUploadingBySession = { ...state.jsonArtifactUploadingBySession }
+    const queuedMessagesBySession = { ...state.queuedMessagesBySession }
+    const queueingEnabledBySession = { ...state.queueingEnabledBySession }
+    const optimisticSteerMessagesBySession = { ...state.optimisticSteerMessagesBySession }
+    delete pendingApprovalsBySession[sessionId]
+    delete imageAttachmentsBySession[sessionId]
+    delete jsonArtifactUploadingBySession[sessionId]
+    delete queuedMessagesBySession[sessionId]
+    delete queueingEnabledBySession[sessionId]
+    delete optimisticSteerMessagesBySession[sessionId]
+    return {
+        pendingApprovalsBySession,
+        imageAttachmentsBySession,
+        jsonArtifactUploadingBySession,
+        queuedMessagesBySession,
+        queueingEnabledBySession,
+        optimisticSteerMessagesBySession,
+        sessionsByNovel: {
+            ...state.sessionsByNovel,
+            [novelKey]: {
+                ...current,
+                sessions,
+                selectedSessionId:
+                    current.selectedSessionId === sessionId ? sessions[0]?.id ?? null : current.selectedSessionId,
+            },
+        },
+    }
+}
+
+function beginClientRun(sessionId: string) {
+    if (deletingSessionIds.has(sessionId) || deletedSessionIds.has(sessionId)) {
+        throw new Error('Codex session is being deleted.')
+    }
+    if (activeRunControllers.has(sessionId)) return null
+    const controller = new AbortController()
+    activeRunControllers.set(sessionId, controller)
+    return controller
+}
+
+function finishClientRun(sessionId: string, controller: AbortController) {
+    if (activeRunControllers.get(sessionId) === controller) {
+        activeRunControllers.delete(sessionId)
+    }
+}
+
 function createId(prefix: string) {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return `${prefix}_${crypto.randomUUID()}`
@@ -157,6 +212,7 @@ function applySession(
     session: CodexSession,
     options?: { select?: boolean; front?: boolean }
 ) {
+    if (deletedSessionIds.has(session.id)) return state
     const existing = state.sessions.filter((item) => item.id !== session.id)
     const sessions = options?.front === false
         ? state.sessions.map((item) => (item.id === session.id ? session : item))
@@ -333,6 +389,8 @@ function applyCodexStreamEvent(
     sessionId: string,
     event: CodexSessionStreamEvent
 ): string | null {
+    if (deletedSessionIds.has(sessionId)) return null
+
     if (event.type === 'done') {
         const completedAt = event.session.unreadCompletionAt
         const selected = get().sessionsByNovel[novelKey]?.selectedSessionId === sessionId
@@ -453,9 +511,10 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 set((state) => {
                     const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
                     const currentById = new Map(current.sessions.map((session) => [session.id, session]))
-                    const serverIds = new Set(result.sessions.map((session) => session.id))
+                    const serverSessions = result.sessions.filter((session) => !deletedSessionIds.has(session.id))
+                    const serverIds = new Set(serverSessions.map((session) => session.id))
                     const sessions = sortSessions([
-                        ...result.sessions.map((session) => currentById.get(session.id) ?? session),
+                        ...serverSessions.map((session) => currentById.get(session.id) ?? session),
                         ...current.sessions.filter(
                             (session) => !serverIds.has(session.id) && !sessionIdsAtStart.has(session.id)
                         ),
@@ -876,139 +935,208 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         })
     },
     deleteSession: async (novelId, sessionId) => {
+        if (deletingSessionIds.has(sessionId) || deletedSessionIds.has(sessionId)) return
         const novelKey = getNovelKey(novelId)
-        set((state) => {
-            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            const sessions = current.sessions.filter((session) => session.id !== sessionId)
-            const imageAttachmentsBySession = { ...state.imageAttachmentsBySession }
-            const jsonArtifactUploadingBySession = { ...state.jsonArtifactUploadingBySession }
-            const queuedMessagesBySession = { ...state.queuedMessagesBySession }
-            const queueingEnabledBySession = { ...state.queueingEnabledBySession }
-            const optimisticSteerMessagesBySession = { ...state.optimisticSteerMessagesBySession }
-            delete imageAttachmentsBySession[sessionId]
-            delete jsonArtifactUploadingBySession[sessionId]
-            delete queuedMessagesBySession[sessionId]
-            delete queueingEnabledBySession[sessionId]
-            delete optimisticSteerMessagesBySession[sessionId]
-            return {
-                imageAttachmentsBySession,
-                jsonArtifactUploadingBySession,
-                queuedMessagesBySession,
-                queueingEnabledBySession,
-                optimisticSteerMessagesBySession,
-                sessionsByNovel: {
-                    ...state.sessionsByNovel,
-                    [novelKey]: {
-                        ...current,
-                        sessions,
-                        selectedSessionId:
-                            current.selectedSessionId === sessionId ? sessions[0]?.id ?? null : current.selectedSessionId,
-                    },
-                },
+        deletingSessionIds.add(sessionId)
+        const pendingDraftPatch = clearDraftSave(sessionId)
+
+        try {
+            if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) {
+                const result = await codexSessionApi.delete(sessionId)
+                // A scene-continuation session is paired with an inline panel; the server removed it
+                // from the stored scene HTML, so drop the live node too if that scene is open.
+                if (result.removedPanelId) emitContinuationPanelRemoved(result.removedPanelId)
             }
-        })
-        clearDraftSave(sessionId)
-        if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) {
-            const result = await codexSessionApi.delete(sessionId)
-            // A scene-continuation session is paired with an inline panel; the server removed it
-            // from the stored scene HTML, so drop the live node too if that scene is open.
-            if (result.removedPanelId) emitContinuationPanelRemoved(result.removedPanelId)
+            deletedSessionIds.add(sessionId)
+            set((state) => removeSessionFromState(state, novelKey, sessionId))
+        } catch (error) {
+            let serverSession: CodexSession | null = null
+            let sessionListLoaded = false
+            if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) {
+                try {
+                    const result = await codexSessionApi.list(novelKey)
+                    sessionListLoaded = true
+                    serverSession = result.sessions.find((session) => session.id === sessionId) ?? null
+                } catch {
+                    sessionListLoaded = false
+                }
+            }
+
+            if (sessionListLoaded && !serverSession) {
+                deletedSessionIds.add(sessionId)
+                set((state) => removeSessionFromState(state, novelKey, sessionId))
+                emitSceneEditsChanged(novelKey)
+                return
+            }
+
+            if (pendingDraftPatch) scheduleDraftSave(sessionId, pendingDraftPatch)
+            if (serverSession) {
+                set((state) => {
+                    const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+                    return {
+                        sessionsByNovel: {
+                            ...state.sessionsByNovel,
+                            [novelKey]: applySession(
+                                current,
+                                mergeSessionPreservingComposer(current, serverSession),
+                                { front: false }
+                            ),
+                        },
+                    }
+                })
+            }
+            throw error
+        } finally {
+            deletingSessionIds.delete(sessionId)
         }
+
         // The server finalized this session's pending manuscript edits; refresh the review UI.
         emitSceneEditsChanged(novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID ? undefined : novelKey)
     },
-    sendMessage: async (novelId, sessionId, content, options) => {
+    removeDeletedSession: (novelId, sessionId) => {
         const novelKey = getNovelKey(novelId)
+        deletingSessionIds.delete(sessionId)
+        deletedSessionIds.add(sessionId)
         clearDraftSave(sessionId)
+        set((state) => removeSessionFromState(state, novelKey, sessionId))
+        emitSceneEditsChanged(novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID ? undefined : novelKey)
+    },
+    stop: async (novelId, sessionId) => {
+        const novelKey = getNovelKey(novelId)
+        activeRunControllers.get(sessionId)?.abort()
+        const result = await codexSessionApi.stop(sessionId)
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            const now = new Date().toISOString()
             return {
-                imageAttachmentsBySession: {
-                    ...state.imageAttachmentsBySession,
-                    [sessionId]: [],
-                },
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
-                    [novelKey]: {
-                        ...current,
-                        sessions: current.sessions.map((session) =>
-                            session.id === sessionId
-                                ? {
-                                    ...session,
-                                    status: 'running',
-                                    unreadCompletionAt: null,
-                                    draftContent: '',
-                                    draftAttachments: [],
-                                    draftArtifacts: [],
-                                    messages: [
-                                        ...session.messages,
-                                        {
-                                            id: createId('codex_user'),
-                                            role: 'user',
-                                            content,
-                                            attachments: options?.attachments,
-                                            jsonArtifacts: options?.artifactFiles,
-                                            createdAt: now,
-                                        },
-                                    ],
-                                }
-                                : session
-                        ),
-                    },
+                    [novelKey]: applySession(
+                        current,
+                        mergeSessionPreservingComposer(current, result.session),
+                        { front: false }
+                    ),
                 },
             }
         })
+    },
+    sendMessage: async (novelId, sessionId, content, options) => {
+        const novelKey = getNovelKey(novelId)
+        const controller = beginClientRun(sessionId)
+        if (!controller) return
+        try {
+            clearDraftSave(sessionId)
+            set((state) => {
+                const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+                const now = new Date().toISOString()
+                return {
+                    imageAttachmentsBySession: {
+                        ...state.imageAttachmentsBySession,
+                        [sessionId]: [],
+                    },
+                    sessionsByNovel: {
+                        ...state.sessionsByNovel,
+                        [novelKey]: {
+                            ...current,
+                            sessions: current.sessions.map((session) =>
+                                session.id === sessionId
+                                    ? {
+                                        ...session,
+                                        status: 'running',
+                                        unreadCompletionAt: null,
+                                        draftContent: '',
+                                        draftAttachments: [],
+                                        draftArtifacts: [],
+                                        messages: [
+                                            ...session.messages,
+                                            {
+                                                id: createId('codex_user'),
+                                                role: 'user',
+                                                content,
+                                                attachments: options?.attachments,
+                                                jsonArtifacts: options?.artifactFiles,
+                                                createdAt: now,
+                                            },
+                                        ],
+                                    }
+                                    : session
+                            ),
+                        },
+                    },
+                }
+            })
 
-        let streamError: string | null = null
-        await codexSessionApi.streamMessage(sessionId, content, {
-            skillIds: options?.skillIds,
-            promptArtifact: options?.promptArtifact,
-            attachments: options?.attachments,
-            artifactFiles: options?.artifactFiles,
-            onEvent: (event) => {
-                const detail = applyCodexStreamEvent(set, get, novelKey, sessionId, event)
-                if (detail) streamError = detail
-            },
-        })
-        if (streamError) throw new Error(streamError)
+            let streamError: string | null = null
+            await codexSessionApi.streamMessage(sessionId, content, {
+                signal: controller.signal,
+                skillIds: options?.skillIds,
+                promptArtifact: options?.promptArtifact,
+                attachments: options?.attachments,
+                artifactFiles: options?.artifactFiles,
+                onEvent: (event) => {
+                    if (event.type === 'done' || event.type === 'error') {
+                        finishClientRun(sessionId, controller)
+                    }
+                    const detail = applyCodexStreamEvent(set, get, novelKey, sessionId, event)
+                    if (detail) streamError = detail
+                },
+            })
+            if (streamError) throw new Error(streamError)
+        } catch (error) {
+            if (controller.signal.aborted) return
+            throw error
+        } finally {
+            finishClientRun(sessionId, controller)
+        }
     },
     compact: async (novelId, sessionId) => {
         const novelKey = getNovelKey(novelId)
-        const pendingPatch = clearDraftSave(sessionId)
-        if (pendingPatch?.draftAttachments || pendingPatch?.draftArtifacts) {
-            await codexSessionApi.update(sessionId, {
-                ...(pendingPatch.draftAttachments ? { draftAttachments: pendingPatch.draftAttachments } : {}),
-                ...(pendingPatch.draftArtifacts ? { draftArtifacts: pendingPatch.draftArtifacts } : {}),
-            })
-        }
-        // Optimistically flip to running so the composer shows the working (stop) state and clears
-        // the `/compact` draft immediately, before the first stream event lands.
-        set((state) => {
-            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            return {
-                sessionsByNovel: {
-                    ...state.sessionsByNovel,
-                    [novelKey]: {
-                        ...current,
-                        sessions: current.sessions.map((session) =>
-                            session.id === sessionId
-                                ? { ...session, status: 'running', unreadCompletionAt: null, draftContent: '' }
-                                : session
-                        ),
-                    },
-                },
+        const controller = beginClientRun(sessionId)
+        if (!controller) return
+        try {
+            const pendingPatch = clearDraftSave(sessionId)
+            if (pendingPatch?.draftAttachments || pendingPatch?.draftArtifacts) {
+                await codexSessionApi.update(sessionId, {
+                    ...(pendingPatch.draftAttachments ? { draftAttachments: pendingPatch.draftAttachments } : {}),
+                    ...(pendingPatch.draftArtifacts ? { draftArtifacts: pendingPatch.draftArtifacts } : {}),
+                })
             }
-        })
+            // Optimistically flip to running so the composer shows the working (stop) state and clears
+            // the `/compact` draft immediately, before the first stream event lands.
+            set((state) => {
+                const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+                return {
+                    sessionsByNovel: {
+                        ...state.sessionsByNovel,
+                        [novelKey]: {
+                            ...current,
+                            sessions: current.sessions.map((session) =>
+                                session.id === sessionId
+                                    ? { ...session, status: 'running', unreadCompletionAt: null, draftContent: '' }
+                                    : session
+                            ),
+                        },
+                    },
+                }
+            })
 
-        let streamError: string | null = null
-        await codexSessionApi.streamCompaction(sessionId, {
-            onEvent: (event) => {
-                const detail = applyCodexStreamEvent(set, get, novelKey, sessionId, event)
-                if (detail) streamError = detail
-            },
-        })
-        if (streamError) throw new Error(streamError)
+            let streamError: string | null = null
+            await codexSessionApi.streamCompaction(sessionId, {
+                signal: controller.signal,
+                onEvent: (event) => {
+                    if (event.type === 'done' || event.type === 'error') {
+                        finishClientRun(sessionId, controller)
+                    }
+                    const detail = applyCodexStreamEvent(set, get, novelKey, sessionId, event)
+                    if (detail) streamError = detail
+                },
+            })
+            if (streamError) throw new Error(streamError)
+        } catch (error) {
+            if (controller.signal.aborted) return
+            throw error
+        } finally {
+            finishClientRun(sessionId, controller)
+        }
     },
     resolveApproval: async (sessionId, approvalId, decision, message) => {
         await codexSessionApi.resolveApproval(sessionId, approvalId, { decision, message })

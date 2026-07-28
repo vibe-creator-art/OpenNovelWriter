@@ -81,20 +81,26 @@ type LoginSessionRecord = {
 
 const SESSION_TTL_MS = 10 * 60 * 1000
 const CODEX_PLAN_MODE_REASONING_EFFORT = 'medium'
+const CODEX_INTERRUPT_GRACE_MS = 250
 const loginSessions = new Map<string, LoginSessionRecord>()
 const CODEX_ACTIVE_RUN_STATE_KEY = Symbol.for('openNovelWriter.codexActiveRunState')
 const prisma = getPrismaClient({ ensureModel: 'codexConnection' })
 
-type ActiveCodexRunHandle = {
+export type CodexRunReservation = {
     sessionId: string
-    client: CodexAppServerClient
-    threadId: string
-    turnId: string
+    client: CodexAppServerClient | null
+    threadId: string | null
+    turnId: string | null
     emitEvent: (event: CodexRunEvent) => void
+    stopped: boolean
+    interruptCleanup: Promise<void> | null
+    completion: Promise<void>
+    resolveCompletion: () => void
+    rejectRun: ((error: CodexRunInterruptedError) => void) | null
 }
 
 type CodexActiveRunState = {
-    activeRuns: Map<string, ActiveCodexRunHandle>
+    activeRuns: Map<string, CodexRunReservation>
 }
 
 type CodexActiveRunGlobal = typeof globalThis & {
@@ -102,7 +108,7 @@ type CodexActiveRunGlobal = typeof globalThis & {
 }
 
 const codexActiveRunState = ((globalThis as CodexActiveRunGlobal)[CODEX_ACTIVE_RUN_STATE_KEY] ??= {
-    activeRuns: new Map<string, ActiveCodexRunHandle>(),
+    activeRuns: new Map<string, CodexRunReservation>(),
 })
 
 const { activeRuns } = codexActiveRunState
@@ -111,15 +117,83 @@ export function getActiveCodexRun(sessionId: string) {
     return activeRuns.get(sessionId) ?? null
 }
 
-function registerActiveCodexRun(handle: ActiveCodexRunHandle) {
-    activeRuns.set(handle.sessionId, handle)
+class CodexRunInterruptedError extends Error {
+    constructor() {
+        super('Codex turn was interrupted.')
+        this.name = 'CodexRunInterruptedError'
+    }
 }
 
-function clearActiveCodexRun(sessionId: string, handle?: ActiveCodexRunHandle) {
-    const current = activeRuns.get(sessionId)
-    if (!current) return
-    if (handle && current !== handle) return
-    activeRuns.delete(sessionId)
+export function isCodexRunInterruptedError(error: unknown): error is CodexRunInterruptedError {
+    return error instanceof CodexRunInterruptedError
+}
+
+function createActiveCodexRunHandle(
+    sessionId: string,
+    emitEvent: (event: CodexRunEvent) => void
+): CodexRunReservation {
+    let resolveCompletion = () => {}
+    const completion = new Promise<void>((resolve) => {
+        resolveCompletion = resolve
+    })
+    return {
+        sessionId,
+        client: null,
+        threadId: null,
+        turnId: null,
+        emitEvent,
+        stopped: false,
+        interruptCleanup: null,
+        completion,
+        resolveCompletion,
+        rejectRun: null,
+    }
+}
+
+export function reserveActiveCodexRun(sessionId: string) {
+    if (activeRuns.has(sessionId)) return null
+    const handle = createActiveCodexRunHandle(sessionId, () => {})
+    activeRuns.set(handle.sessionId, handle)
+    return handle
+}
+
+export function finishActiveCodexRun(handle: CodexRunReservation) {
+    if (activeRuns.get(handle.sessionId) === handle) {
+        activeRuns.delete(handle.sessionId)
+    }
+    handle.resolveCompletion()
+}
+
+function waitForInterruptCleanup(client: CodexAppServerClient, threadId: string, turnId: string) {
+    return new Promise<void>((resolve) => {
+        let settled = false
+        const finish = () => {
+            if (settled) return
+            settled = true
+            clearTimeout(timeout)
+            resolve()
+        }
+        const timeout = setTimeout(finish, CODEX_INTERRUPT_GRACE_MS)
+        timeout.unref?.()
+        void client.request('turn/interrupt', { threadId, turnId }).then(finish, finish)
+    })
+}
+
+function stopActiveCodexRun(handle: CodexRunReservation) {
+    if (handle.stopped) return
+    handle.stopped = true
+
+    const client = handle.client
+    if (client && handle.threadId && handle.turnId) {
+        handle.interruptCleanup = waitForInterruptCleanup(client, handle.threadId, handle.turnId)
+    } else {
+        client?.close()
+    }
+    handle.rejectRun?.(new CodexRunInterruptedError())
+}
+
+function throwIfCodexRunStopped(handle: CodexRunReservation) {
+    if (handle.stopped) throw new CodexRunInterruptedError()
 }
 
 export async function steerActiveCodexRun(input: {
@@ -128,7 +202,7 @@ export async function steerActiveCodexRun(input: {
     attachments?: string[]
 }) {
     const activeRun = getActiveCodexRun(input.sessionId)
-    if (!activeRun) {
+    if (!activeRun || activeRun.stopped || !activeRun.client || !activeRun.threadId || !activeRun.turnId) {
         throw new Error('No active Codex turn is available.')
     }
 
@@ -160,17 +234,12 @@ export async function steerActiveCodexRun(input: {
     return { ok: true as const, event }
 }
 
-export async function interruptActiveCodexRun(sessionId: string) {
+export async function interruptAndWaitForActiveCodexRun(sessionId: string) {
     const activeRun = getActiveCodexRun(sessionId)
-    if (!activeRun) {
-        throw new Error('No active Codex turn is available.')
-    }
-
-    await activeRun.client.request('turn/interrupt', {
-        threadId: activeRun.threadId,
-        turnId: activeRun.turnId,
-    })
-    return { ok: true as const }
+    if (!activeRun) return false
+    stopActiveCodexRun(activeRun)
+    await activeRun.completion
+    return true
 }
 
 class CodexAppServerClient {
@@ -188,6 +257,7 @@ class CodexAppServerClient {
         this.process = process
         this.process.stdout.setEncoding('utf8')
         this.process.stdout.on('data', (chunk: string) => {
+            if (this.closed) return
             this.buffer += chunk
             this.flushBuffer()
         })
@@ -224,7 +294,10 @@ class CodexAppServerClient {
         })
     }
 
-    static async create(codexHome: string) {
+    static async create(
+        codexHome: string,
+        onCreated?: (client: CodexAppServerClient) => void
+    ) {
         const child = spawn('codex', ['app-server'], {
             env: {
                 ...globalThis.process.env,
@@ -239,14 +312,20 @@ class CodexAppServerClient {
         })
 
         const client = new CodexAppServerClient(child)
-        await client.request('initialize', {
-            clientInfo: {
-                name: 'OpenNovelWriter',
-                version: '0.1.0',
-            },
-            capabilities: { experimentalApi: true },
-        })
-        return client
+        onCreated?.(client)
+        try {
+            await client.request('initialize', {
+                clientInfo: {
+                    name: 'OpenNovelWriter',
+                    version: '0.1.0',
+                },
+                capabilities: { experimentalApi: true },
+            })
+            return client
+        } catch (error) {
+            client.close()
+            throw error
+        }
     }
 
     setNotificationHandler(handler: ((message: JsonRpcMessage) => void) | null) {
@@ -290,6 +369,9 @@ class CodexAppServerClient {
     close() {
         if (this.closed) return
         this.closed = true
+        this.notificationHandler = null
+        this.serverRequestHandler = null
+        this.exitHandler = null
         this.rejectAll(new Error('Codex app-server client closed.'))
         this.process.kill('SIGTERM')
     }
@@ -307,6 +389,7 @@ class CodexAppServerClient {
     }
 
     private handleMessage(message: JsonRpcMessage) {
+        if (this.closed) return
         if (typeof message.id === 'number' && this.pending.has(message.id)) {
             const pending = this.pending.get(message.id)
             this.pending.delete(message.id)
@@ -948,6 +1031,7 @@ async function resolveCodexSkillInputItems(
 }
 
 export async function runNovelCodexTurn(input: {
+    activeRun: CodexRunReservation
     sessionId: string
     ownerId: string
     novelId: string
@@ -963,6 +1047,20 @@ export async function runNovelCodexTurn(input: {
     skillRefs?: Array<{ id: string; name: string }> | null
     stream?: CodexRunStreamHandlers
 }) {
+    const activeRunHandle = input.activeRun
+    if (
+        activeRunHandle.sessionId !== input.sessionId ||
+        activeRuns.get(input.sessionId) !== activeRunHandle
+    ) {
+        throw new Error('Codex run reservation is no longer active.')
+    }
+    activeRunHandle.emitEvent = (event) => {
+        input.stream?.onEvent?.(event)
+    }
+    throwIfCodexRunStopped(activeRunHandle)
+    let client: CodexAppServerClient | null = null
+
+    try {
     const [sessionWorkspacePath, connection] = await Promise.all([
         ensureCodexSessionWorkspace({
             ownerId: input.ownerId,
@@ -978,6 +1076,7 @@ export async function runNovelCodexTurn(input: {
                 orderBy: { createdAt: 'asc' },
             }),
     ])
+    throwIfCodexRunStopped(activeRunHandle)
 
     if (!connection) {
         throw new Error('No Codex connection is available.')
@@ -998,8 +1097,15 @@ export async function runNovelCodexTurn(input: {
         toolsApprovalMode: reviewLevel === 'user_review' ? 'prompt' : 'approve',
         reviewLevel,
     })
-    const client = await CodexAppServerClient.create(codexHome)
+    throwIfCodexRunStopped(activeRunHandle)
+    client = await CodexAppServerClient.create(codexHome, (createdClient) => {
+        client = createdClient
+        activeRunHandle.client = createdClient
+    })
+    const runClient = client
+    throwIfCodexRunStopped(activeRunHandle)
     await mountCodexCoreSkills(client)
+    throwIfCodexRunStopped(activeRunHandle)
     const modelId = typeof input.modelId === 'string' && input.modelId.trim()
         ? input.modelId.trim()
         : connection.defaultModelId?.trim() || DEFAULT_CODEX_MODEL
@@ -1018,7 +1124,6 @@ export async function runNovelCodexTurn(input: {
     })
     let assistantText = ''
     let contextWindow: CodexContextWindow | null = null
-    let activeRunHandle: ActiveCodexRunHandle | null = null
     const eventOrder: string[] = []
     const eventsById = new Map<string, CodexRunEvent>()
     const commandTitlesById = new Map<string, string>()
@@ -1026,6 +1131,7 @@ export async function runNovelCodexTurn(input: {
     const eventCreatedAtById = new Map<string, string>()
 
     const emitEvent = (event: CodexRunEvent) => {
+        if (activeRunHandle.stopped) return
         if (!eventsById.has(event.id)) {
             eventOrder.push(event.id)
         }
@@ -1077,7 +1183,6 @@ export async function runNovelCodexTurn(input: {
         )
     }
 
-    try {
         const threadResponse = input.codexThreadId
             ? await client.request<{ thread: { id: string } }>('thread/resume', {
                 threadId: input.codexThreadId,
@@ -1100,7 +1205,10 @@ export async function runNovelCodexTurn(input: {
             })
 
         const threadId = threadResponse.thread.id
+        activeRunHandle.threadId = threadId
+        throwIfCodexRunStopped(activeRunHandle)
         const skillInputItems = await resolveCodexSkillInputItems(client, codexHome, input.skillRefs)
+        throwIfCodexRunStopped(activeRunHandle)
         const turnResponse = await client.request<{ turn: { id: string } }>('turn/start', {
             threadId,
             cwd: sessionWorkspacePath,
@@ -1117,23 +1225,11 @@ export async function runNovelCodexTurn(input: {
             ],
         })
         let turnId = turnResponse.turn.id
-        activeRunHandle = {
-            sessionId: input.sessionId,
-            client,
-            threadId,
-            get turnId() {
-                return turnId
-            },
-            set turnId(value: string) {
-                turnId = value
-            },
-            emitEvent: (event) => {
-                input.stream?.onEvent?.(event)
-            },
-        }
-        registerActiveCodexRun(activeRunHandle)
+        activeRunHandle.turnId = turnId
+        throwIfCodexRunStopped(activeRunHandle)
 
         client.setServerRequestHandler(async (message) => {
+            throwIfCodexRunStopped(activeRunHandle)
             const method = typeof message.method === 'string' ? message.method : ''
             const params = message.params && typeof message.params === 'object'
                 ? message.params as Record<string, unknown>
@@ -1176,6 +1272,7 @@ export async function runNovelCodexTurn(input: {
 
             input.stream?.onApprovalRequest?.(approvalRequest)
             const decision = await waitForCodexApprovalDecision(approvalRequest)
+            throwIfCodexRunStopped(activeRunHandle)
             if (decision.decision === 'acceptForSession') {
                 rememberCodexApprovalForSession(approvalRequest)
             }
@@ -1188,17 +1285,14 @@ export async function runNovelCodexTurn(input: {
                     createdAt: new Date().toISOString(),
                 })
                 setTimeout(() => {
-                    void client.request('turn/steer', {
+                    void runClient.request('turn/steer', {
                         threadId,
                         expectedTurnId: turnId,
                         input: [{ type: 'text', text: decision.message!.trim(), text_elements: [] }],
                     }).then((response) => {
                         if (response && typeof response === 'object' && typeof (response as { turnId?: unknown }).turnId === 'string') {
                             turnId = (response as { turnId: string }).turnId
-                            const currentActiveRunHandle = activeRunHandle
-                            if (currentActiveRunHandle) {
-                                currentActiveRunHandle.turnId = turnId
-                            }
+                            activeRunHandle.turnId = turnId
                         }
                     }).catch((error) => {
                         console.error('Failed to steer Codex turn after approval response:', error)
@@ -1213,8 +1307,16 @@ export async function runNovelCodexTurn(input: {
             })
         })
 
-        await new Promise<void>((resolve, reject) => {
-            client.setNotificationHandler((message) => {
+        let interrupted = false
+        try {
+            await new Promise<void>((resolve, reject) => {
+            activeRunHandle.rejectRun = reject
+            if (activeRunHandle.stopped) {
+                reject(new CodexRunInterruptedError())
+                return
+            }
+            runClient.setNotificationHandler((message) => {
+                if (activeRunHandle.stopped) return
                 const params = message.params as Record<string, unknown> | undefined
                 if (!params) return
                 if (params.threadId && params.threadId !== threadId) return
@@ -1332,24 +1434,30 @@ export async function runNovelCodexTurn(input: {
                     } else if (status === 'completed') {
                         resolve()
                     } else if (status === 'interrupted') {
-                        reject(new Error('Codex turn was interrupted.'))
+                        reject(new CodexRunInterruptedError())
                     } else {
                         reject(new Error(`Codex turn completed with an unexpected status: ${String(status)}.`))
                     }
                 }
             })
 
-            client.setExitHandler((error) => {
-                if (activeRunHandle) clearActiveCodexRun(input.sessionId, activeRunHandle)
+            runClient.setExitHandler((error) => {
                 reject(error)
             })
-        })
+            })
+        } catch (error) {
+            if (error instanceof CodexRunInterruptedError) interrupted = true
+            else throw error
+        } finally {
+            activeRunHandle.rejectRun = null
+        }
+        if (activeRunHandle.stopped) interrupted = true
 
-        if (pendingImageImports.length > 0) {
+        if (!interrupted && pendingImageImports.length > 0) {
             await Promise.allSettled(pendingImageImports)
         }
 
-        if (!contextWindow) {
+        if (!interrupted && !contextWindow) {
             contextWindow = await readLatestContextWindowFromSessionLog(codexHome, threadId)
             if (contextWindow) input.stream?.onContextWindow?.(contextWindow)
         }
@@ -1360,10 +1468,17 @@ export async function runNovelCodexTurn(input: {
             events: eventOrder.map((eventId) => eventsById.get(eventId)).filter((event): event is CodexRunEvent => event !== undefined),
             contextWindow,
             connectionId: connection.id,
+            status: interrupted ? 'interrupted' as const : 'completed' as const,
         }
+    } catch (error) {
+        if (activeRunHandle.stopped) throw new CodexRunInterruptedError()
+        throw error
     } finally {
-        if (activeRunHandle) clearActiveCodexRun(input.sessionId, activeRunHandle)
-        client.close()
+        activeRunHandle.rejectRun = null
+        if (activeRunHandle.interruptCleanup) {
+            await activeRunHandle.interruptCleanup
+        }
+        client?.close()
     }
 }
 
@@ -1375,6 +1490,7 @@ export async function runNovelCodexTurn(input: {
  * official app — always land on the "done" state even when interrupted mid-compaction.
  */
 export async function runNovelCodexCompaction(input: {
+    activeRun: CodexRunReservation
     sessionId: string
     ownerId: string
     novelId: string
@@ -1389,6 +1505,20 @@ export async function runNovelCodexCompaction(input: {
         throw new Error('This session has no Codex thread to compact yet.')
     }
 
+    const activeRunHandle = input.activeRun
+    if (
+        activeRunHandle.sessionId !== input.sessionId ||
+        activeRuns.get(input.sessionId) !== activeRunHandle
+    ) {
+        throw new Error('Codex run reservation is no longer active.')
+    }
+    activeRunHandle.emitEvent = (event) => {
+        input.stream?.onEvent?.(event)
+    }
+    throwIfCodexRunStopped(activeRunHandle)
+    let client: CodexAppServerClient | null = null
+
+    try {
     const [sessionWorkspacePath, connection] = await Promise.all([
         ensureCodexSessionWorkspace({
             ownerId: input.ownerId,
@@ -1404,6 +1534,7 @@ export async function runNovelCodexCompaction(input: {
                 orderBy: { createdAt: 'asc' },
             }),
     ])
+    throwIfCodexRunStopped(activeRunHandle)
 
     if (!connection) {
         throw new Error('No Codex connection is available.')
@@ -1414,7 +1545,12 @@ export async function runNovelCodexCompaction(input: {
         : await ensureCodexConnectionHome(input.ownerId, connection.id)
     const reviewLevel = normalizeCodexReviewLevel(input.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL
     const reviewOptions = getCodexRuntimeReviewOptions(reviewLevel)
-    const client = await CodexAppServerClient.create(codexHome)
+    client = await CodexAppServerClient.create(codexHome, (createdClient) => {
+        client = createdClient
+        activeRunHandle.client = createdClient
+    })
+    const runClient = client
+    throwIfCodexRunStopped(activeRunHandle)
     const modelId = typeof input.modelId === 'string' && input.modelId.trim()
         ? input.modelId.trim()
         : DEFAULT_CODEX_MODEL
@@ -1426,9 +1562,7 @@ export async function runNovelCodexCompaction(input: {
             : null
 
     let contextWindow: CodexContextWindow | null = null
-    let activeRunHandle: ActiveCodexRunHandle | null = null
 
-    try {
         const threadResponse = await client.request<{ thread: { id: string } }>('thread/resume', {
             threadId: input.codexThreadId,
             model: modelId,
@@ -1440,23 +1574,10 @@ export async function runNovelCodexCompaction(input: {
             excludeTurns: true,
         })
         const threadId = threadResponse.thread.id
+        activeRunHandle.threadId = threadId
+        throwIfCodexRunStopped(activeRunHandle)
 
         let turnId: string | null = null
-        activeRunHandle = {
-            sessionId: input.sessionId,
-            client,
-            threadId,
-            get turnId() {
-                return turnId ?? ''
-            },
-            set turnId(value: string) {
-                turnId = value
-            },
-            emitEvent: (event) => {
-                input.stream?.onEvent?.(event)
-            },
-        }
-        registerActiveCodexRun(activeRunHandle)
 
         let compactionItemId: string | null = null
         let compactionDone = false
@@ -1474,8 +1595,16 @@ export async function runNovelCodexCompaction(input: {
 
         // thread/compact/start returns {} immediately; the work streams as turn/* + item/* below.
         await client.request('thread/compact/start', { threadId })
+        throwIfCodexRunStopped(activeRunHandle)
 
-        await new Promise<void>((resolve, reject) => {
+        let interrupted = false
+        try {
+            await new Promise<void>((resolve, reject) => {
+            activeRunHandle.rejectRun = reject
+            if (activeRunHandle.stopped) {
+                reject(new CodexRunInterruptedError())
+                return
+            }
             let settled = false
             const finish = () => {
                 if (settled) return
@@ -1487,13 +1616,15 @@ export async function runNovelCodexCompaction(input: {
                 resolve()
             }
 
-            client.setNotificationHandler((message) => {
+            runClient.setNotificationHandler((message) => {
+                if (activeRunHandle.stopped) return
                 const params = message.params as Record<string, unknown> | undefined
                 if (!params) return
                 if (params.threadId && params.threadId !== threadId) return
 
                 if (typeof params.turnId === 'string' && !turnId) {
                     turnId = params.turnId
+                    activeRunHandle.turnId = turnId
                 }
 
                 const nextContextWindow = getContextWindowFromTokenCount(params)
@@ -1505,7 +1636,10 @@ export async function runNovelCodexCompaction(input: {
 
                 if (message.method === 'turn/started') {
                     const turn = params.turn as Record<string, unknown> | undefined
-                    if (typeof turn?.id === 'string') turnId = turn.id
+                    if (typeof turn?.id === 'string') {
+                        turnId = turn.id
+                        activeRunHandle.turnId = turnId
+                    }
                     return
                 }
 
@@ -1529,17 +1663,29 @@ export async function runNovelCodexCompaction(input: {
                 if (message.method === 'turn/completed') {
                     const turn = params.turn as Record<string, unknown> | undefined
                     if (turnId && turn?.id !== turnId) return
-                    finish()
+                    if (turn?.status === 'interrupted') reject(new CodexRunInterruptedError())
+                    else finish()
                 }
             })
 
-            client.setExitHandler((error) => {
-                if (activeRunHandle) clearActiveCodexRun(input.sessionId, activeRunHandle)
+            runClient.setExitHandler((error) => {
                 reject(error)
             })
-        })
+            })
+        } catch (error) {
+            if (error instanceof CodexRunInterruptedError) interrupted = true
+            else throw error
+        } finally {
+            activeRunHandle.rejectRun = null
+        }
+        if (activeRunHandle.stopped) interrupted = true
 
-        if (!contextWindow) {
+        if (interrupted) {
+            if (compactionItemId && !compactionDone) emitCompaction(compactionItemId, 'done')
+            else if (!compactionItemId) emitCompaction(`codex_compaction_${threadId}`, 'done')
+        }
+
+        if (!interrupted && !contextWindow) {
             contextWindow = await readLatestContextWindowFromSessionLog(codexHome, threadId)
             if (contextWindow) input.stream?.onContextWindow?.(contextWindow)
         }
@@ -1548,10 +1694,17 @@ export async function runNovelCodexCompaction(input: {
             threadId,
             contextWindow,
             connectionId: connection.id,
+            status: interrupted ? 'interrupted' as const : 'completed' as const,
         }
+    } catch (error) {
+        if (activeRunHandle.stopped) throw new CodexRunInterruptedError()
+        throw error
     } finally {
-        if (activeRunHandle) clearActiveCodexRun(input.sessionId, activeRunHandle)
-        client.close()
+        activeRunHandle.rejectRun = null
+        if (activeRunHandle.interruptCleanup) {
+            await activeRunHandle.interruptCleanup
+        }
+        client?.close()
     }
 }
 

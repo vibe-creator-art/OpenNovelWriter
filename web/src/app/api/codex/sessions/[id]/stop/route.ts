@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
-import { interruptActiveCodexRun } from '@/lib/server/codex-app-server'
+import { interruptAndWaitForActiveCodexRun } from '@/lib/server/codex-app-server'
+import { serializeCodexSession } from '@/lib/server/codex-session'
 
 interface RouteContext {
     params: Promise<unknown>
@@ -24,15 +25,23 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const id = await getRouteId(params)
         const existing = await prisma.codexSession.findFirst({
             where: { id, ownerId: user.userId },
-            select: { id: true, status: true },
         })
         if (!existing) return NextResponse.json({ detail: 'Codex session not found' }, { status: 404 })
-        if (existing.status !== 'running') {
-            return NextResponse.json({ ok: true })
+        const interrupted = await interruptAndWaitForActiveCodexRun(id)
+        if (!interrupted && existing.status !== 'running') {
+            return NextResponse.json({ ok: true, session: serializeCodexSession(existing) })
         }
 
-        await interruptActiveCodexRun(id)
-        return NextResponse.json({ ok: true })
+        const session = await prisma.codexSession.update({
+            where: { id },
+            data: {
+                status: 'idle',
+                lastError: null,
+                unreadCompletionAt: null,
+                updatedAt: new Date(),
+            },
+        })
+        return NextResponse.json({ ok: true, session: serializeCodexSession(session) })
     } catch (error) {
         console.error('Stop Codex turn error:', error)
         return NextResponse.json({ detail: error instanceof Error ? error.message : 'Internal server error' }, { status: 409 })

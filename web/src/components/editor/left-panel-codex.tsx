@@ -258,7 +258,9 @@ export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCod
                             className="bg-destructive text-white hover:bg-destructive/90"
                             onClick={() => {
                                 if (!deleteSessionId) return
-                                void deleteSession(novelId, deleteSessionId)
+                                void deleteSession(novelId, deleteSessionId).catch((error) => {
+                                    console.error('Failed to delete Codex session:', error)
+                                })
                                 setDeleteSessionId(null)
                             }}
                         >

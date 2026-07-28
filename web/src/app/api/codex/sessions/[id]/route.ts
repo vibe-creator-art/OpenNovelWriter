@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
-import { scheduleImageGcSweep } from '@/lib/server/image-gc'
 import { getPrismaClient } from '@/lib/db'
 import { canUseCodexFastMode } from '@/lib/codex-config'
 import {
@@ -13,7 +12,7 @@ import {
     parseCodexDraftAttachments,
     serializeCodexSession,
 } from '@/lib/server/codex-session'
-import { deleteCodexSessionWorkspace } from '@/lib/server/codex-session-workspace'
+import { deleteCodexSession } from '@/lib/server/codex-session-deletion'
 import {
     rawDeleteContinuationDraft,
     stripContinuationPanelMarker,
@@ -148,7 +147,7 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
         const id = await getRouteId(params)
         const existing = await prisma.codexSession.findFirst({
             where: { id, ownerId: user.userId },
-            select: { id: true, ownerId: true },
+            select: { id: true },
         })
         if (!existing) return NextResponse.json({ detail: 'Codex session not found' }, { status: 404 })
 
@@ -160,22 +159,12 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
             where: { codexSessionId: id },
             select: { panelId: true, sceneId: true },
         })
+        await deleteCodexSession(user.userId, id)
         if (linkedDraft) {
             await stripContinuationPanelMarker(linkedDraft.sceneId, linkedDraft.panelId)
             await rawDeleteContinuationDraft(linkedDraft.panelId)
         }
 
-        // Deleting the session removes its chat-side review entry, so finalize (accept)
-        // any of its still-pending manuscript edits — their content is already applied and
-        // the author can no longer reach them from this session.
-        await prisma.sceneEdit.updateMany({
-            where: { sessionId: id, status: 'pending' },
-            data: { status: 'accepted' },
-        })
-
-        await prisma.codexSession.delete({ where: { id } })
-        await deleteCodexSessionWorkspace(existing.ownerId, existing.id)
-        scheduleImageGcSweep()
         return NextResponse.json({ ok: true, removedPanelId: linkedDraft?.panelId ?? null })
     } catch (error) {
         console.error('Delete Codex session error:', error)
