@@ -28,12 +28,13 @@ run_in_web() {
 }
 
 require_node() {
-    command -v node >/dev/null 2>&1 || fail 'Node.js 20 or newer is required. Install Node.js, then run this launcher again.'
+    command -v node >/dev/null 2>&1 || fail 'Node.js 20.19.0 or newer is required. Install Node.js, then run this launcher again.'
 
-    local major
-    major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
-    [[ "$major" =~ ^[0-9]+$ ]] || fail 'Could not determine the installed Node.js version.'
-    (( major >= 20 )) || fail "Node.js 20 or newer is required; found Node.js $(node --version)."
+    local version major minor patch
+    version="$(node -p 'process.versions.node' 2>/dev/null || true)"
+    IFS='.' read -r major minor patch <<< "$version"
+    [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ && "$patch" =~ ^[0-9]+$ ]] || fail 'Could not determine the installed Node.js version.'
+    (( major > 20 || (major == 20 && minor >= 19) )) || fail "Node.js 20.19.0 or newer is required; found Node.js $(node --version)."
 
     info "Using Node.js $(node --version)"
 }

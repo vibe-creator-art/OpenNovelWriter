@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 // CommonJS twin of llm-conversation.ts for the Codex MCP subprocess.
 // Keep the parsing rules in sync with ../llm-conversation.ts.
 

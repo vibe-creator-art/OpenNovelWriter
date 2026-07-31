@@ -195,7 +195,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
             if (nextPrimaryContent !== existingPrimaryContent) {
                 const now = Date.now()
-                const history = safeParseRevisionHistoryJson(existing.historyJson ?? null, { idPrefix: 'prompt' })
+                const history = safeParseRevisionHistoryJson(existing.historyJson ?? null)
                 const { history: nextHistory, recorded } = recordRevisionHistory(history, nextPrimaryContent, {
                     now,
                     idPrefix: 'prompt',

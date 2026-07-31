@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client'
+import type { PrismaClient } from '@/generated/prisma/client'
 import {
     PROMPT_PRESET_SCHEMA,
     PROMPT_PRESET_VERSION,

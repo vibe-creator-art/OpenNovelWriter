@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from '@prisma/client'
+import type { Prisma, PrismaClient } from '@/generated/prisma/client'
 
 import { prisma } from '@/lib/db'
 import { normalizePromptInputs, type PromptInputDefinition } from '@/lib/prompt-inputs'
@@ -560,7 +560,7 @@ export async function processPromptChangeSet(params: {
                     messagesJson: existing.messagesJson,
                 })
                 if (getPromptPrimaryMessageContent(oldMessages) !== getPromptPrimaryMessageContent(operation.prompt.messages)) {
-                    const history = safeParseRevisionHistoryJson(existing.historyJson, { idPrefix: 'prompt' })
+                    const history = safeParseRevisionHistoryJson(existing.historyJson)
                     const next = recordRevisionHistory(history, getPromptPrimaryMessageContent(operation.prompt.messages), {
                         idPrefix: 'prompt',
                         normalize: (value) => value.trim(),

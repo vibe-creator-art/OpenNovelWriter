@@ -18,18 +18,32 @@ if not defined PORT set "PORT=3000"
 where node >nul 2>nul
 if errorlevel 1 (
     echo.
-    echo Error: Node.js 20 or newer is required. Install Node.js, then run this launcher again.
+    echo Error: Node.js 20.19.0 or newer is required. Install Node.js, then run this launcher again.
     goto :fail
 )
-for /f "tokens=1 delims=." %%A in ('node -p "process.versions.node" 2^>nul') do set "NODE_MAJOR=%%A"
+for /f "tokens=1,2 delims=." %%A in ('node -p "process.versions.node" 2^>nul') do (
+    set "NODE_MAJOR=%%A"
+    set "NODE_MINOR=%%B"
+)
 if not defined NODE_MAJOR (
+    echo.
+    echo Error: Could not determine the installed Node.js version.
+    goto :fail
+)
+if not defined NODE_MINOR (
     echo.
     echo Error: Could not determine the installed Node.js version.
     goto :fail
 )
 if !NODE_MAJOR! LSS 20 (
     echo.
-    echo Error: Node.js 20 or newer is required.
+    echo Error: Node.js 20.19.0 or newer is required.
+    node --version
+    goto :fail
+)
+if !NODE_MAJOR! EQU 20 if !NODE_MINOR! LSS 19 (
+    echo.
+    echo Error: Node.js 20.19.0 or newer is required.
     node --version
     goto :fail
 )

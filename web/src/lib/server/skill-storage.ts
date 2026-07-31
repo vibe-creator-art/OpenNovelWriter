@@ -806,37 +806,6 @@ function splitFrontmatter(markdown: string) {
     }
 }
 
-export function migrateLegacySkillDocument(content: string) {
-    const normalized = normalizeDocumentContent(content)
-    const { frontmatter } = splitFrontmatter(normalized)
-    if (!frontmatter) throw new Error('Skills must start with YAML frontmatter in SKILL.md.')
-    const fields = parseFrontmatterFields(frontmatter)
-    const category = normalizeSkillCategory(fields.category?.trim())
-    if (!category) throw new Error('Legacy skill frontmatter must include a valid `category`.')
-    const prompt = fields.prompt?.trim() || null
-
-    const migrated = sanitizeOfficialSkillDocument(normalized)
-    parseSkillDocument(migrated)
-    return {
-        content: normalizeDocumentContent(migrated),
-        metadata: {
-            schema: ONW_SKILL_SCHEMA,
-            version: ONW_SKILL_VERSION,
-            category,
-            prompt,
-        } satisfies SkillOnwMetadata,
-    }
-}
-
-export function sanitizeOfficialSkillDocument(content: string) {
-    let migrated = normalizeDocumentContent(content)
-    for (const key of ['category', 'prompt', 'presetId']) {
-        migrated = setSkillFrontmatterField(migrated, key, null)
-    }
-    parseSkillDocument(migrated)
-    return normalizeDocumentContent(migrated)
-}
-
 function parseFrontmatterFields(frontmatter: string) {
     const result: Record<string, string> = {}
     const lines = frontmatter.split('\n')

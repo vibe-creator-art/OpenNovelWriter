@@ -1,5 +1,5 @@
 import { createRequire } from 'module'
-import type { PrismaClient, Scene } from '@prisma/client'
+import type { PrismaClient, Scene } from '@/generated/prisma/client'
 
 const require = createRequire(import.meta.url)
 

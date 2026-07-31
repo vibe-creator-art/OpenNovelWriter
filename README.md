@@ -30,7 +30,7 @@ OpenNovelWriter 是一个基于 Next.js、Prisma 和 SQLite 的小说写作实�
 
 ## 环境要求
 
-- Node.js 20 或更新版本
+- Node.js 20.19.0 或更新版本
 - npm
 - Git
 - [OpenAI Codex CLI](https://github.com/openai/codex)（Codex 会话功能依赖本机的 `codex` 命令，需安装）
@@ -54,7 +54,7 @@ EPERM: operation not permitted, symlink
 
 ## 一键启动（推荐）
 
-首次安装 Node.js 20 或更新版本后，可以直接使用根目录 launcher；它会检查运行环境、首次安装依赖和数据库、检查 Git 更新，并在检测到更新时显示最新提交名、询问是否更新。launcher 也会检测本机 Codex CLI 的版本，若 npm registry 上有新版，会尝试更新到 `@openai/codex@latest`。已有可用构建时会直接启动，代码更新或没有构建时才会重新构建。
+首次安装 Node.js 20.19.0 或更新版本后，可以直接使用根目录 launcher；它会检查运行环境、首次安装依赖和数据库、检查 Git 更新，并在检测到更新时显示最新提交名、询问是否更新。launcher 也会检测本机 Codex CLI 的版本，若 npm registry 上有新版，会尝试更新到 `@openai/codex@latest`。已有可用构建时会直接启动，代码更新或没有构建时才会重新构建。
 
 - **Windows**：双击 `launcher.bat`。
 - **macOS / Linux**：在项目根目录运行：
@@ -168,7 +168,7 @@ This project uses model-type detection code from [Cherry Studio](https://github.
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 20.19.0 or newer
 - npm
 - Git
 - [OpenAI Codex CLI](https://github.com/openai/codex) (Codex session features invoke the local `codex` command)
@@ -192,7 +192,7 @@ Grant the permission to create symlinks in either of the following ways, then re
 
 ## One-Click Launcher (Recommended)
 
-After installing Node.js 20 or newer, use the launcher in the repository root. It checks the runtime, installs dependencies and prepares the database on first run, checks for Git updates, and shows the newest commit message before asking whether to update. The launcher also checks the installed Codex CLI version and, when npm reports a newer stable release, attempts to update it to `@openai/codex@latest`. It starts an existing current build directly and rebuilds only when the code changed or no build exists.
+After installing Node.js 20.19.0 or newer, use the launcher in the repository root. It checks the runtime, installs dependencies and prepares the database on first run, checks for Git updates, and shows the newest commit message before asking whether to update. The launcher also checks the installed Codex CLI version and, when npm reports a newer stable release, attempts to update it to `@openai/codex@latest`. It starts an existing current build directly and rebuilds only when the code changed or no build exists.
 
 - **Windows**: double-click `launcher.bat`.
 - **macOS / Linux**: from the repository root, run:

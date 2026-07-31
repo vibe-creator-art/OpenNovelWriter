@@ -1969,10 +1969,11 @@ function QueuedMessageRow({
 
 // Copying a user message should yield what the author sees — `/name` for skill commands, `@name`
 // for mention pills, and the plain label for nav links — not the internal `[label](kind:id)` tokens.
-function stripUserMessageTokens(content: string) {
+export function stripUserMessageTokens(content: string) {
     return content.replace(USER_MENTION_RE, (_match, label: string, kind: string) => {
         if (kind === 'skill') return `/${label}`
-        return kind === 'model' || kind === 'term' || kind === 'snippet' ? `@${label}` : label
+        if (kind === 'scene' || kind === 'continuation') return label
+        return `@${label}`
     })
 }
 
@@ -4567,18 +4568,31 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         </DropdownMenu>
                         {showQuotaSummary && (
                             <div className="min-w-0 flex-1 px-1">
-                                <div
-                                    className="flex items-center justify-center"
-                                    title={quotaSummaryText}
-                                    aria-label={t('codex.remainingQuota')}
-                                >
-                                    <div className="max-w-full truncate rounded-full bg-muted px-3 py-1 text-[11px] leading-none text-muted-foreground">
-                                        {quotaSummaryText}
+                                <div className="flex items-center justify-center">
+                                    <div
+                                        className="group relative min-w-0 max-w-full focus-visible:outline-none"
+                                        tabIndex={0}
+                                        aria-label={`${t('codex.remainingQuota')}: ${quotaSummaryText}`}
+                                    >
+                                        <div className="max-w-full truncate rounded-full bg-muted px-3 py-1 text-[11px] leading-none text-muted-foreground">
+                                            {quotaSummaryText}
+                                        </div>
+                                        <div
+                                            role="tooltip"
+                                            className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden w-max max-w-64 -translate-x-1/2 rounded-lg border bg-popover px-3 py-2 text-center text-popover-foreground shadow-lg group-hover:block group-focus-visible:block"
+                                        >
+                                            <div className="text-xs font-medium">{t('codex.remainingQuota')}</div>
+                                            {quotaSummary.map((line) => (
+                                                <div key={line} className="mt-1 whitespace-nowrap text-xs text-muted-foreground">
+                                                    {line}
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         )}
-                        <div className="ml-auto flex min-w-0 max-w-[55%] items-center gap-1 overflow-hidden">
+                        <div className="ml-auto flex min-w-0 max-w-[55%] items-center gap-1">
                             <ContextWindowIndicator contextWindow={latestContextWindow} />
                             <div className="min-w-0 flex-1 overflow-hidden">
                                 <CodexModelPicker

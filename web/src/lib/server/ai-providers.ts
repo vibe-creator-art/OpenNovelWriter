@@ -148,7 +148,8 @@ const imageGenerationFetch: typeof fetch = async (input, init) => {
         .catch(() => '')
     if (!errorText.includes('response_format')) return response
 
-    const { response_format: _dropped, ...body } = JSON.parse(init.body) as Record<string, unknown>
+    const body = JSON.parse(init.body) as Record<string, unknown>
+    delete body.response_format
     return fetch(input, { ...init, body: JSON.stringify(body) })
 }
 

@@ -36,8 +36,8 @@ for argument in "$@"; do
     esac
 done
 
-if [[ ! -d "$WEB_DIR/node_modules/@prisma/client" ]]; then
-    echo "Missing web dependencies. Run npm install in $WEB_DIR first." >&2
+if [[ ! -f "$WEB_DIR/generated/prisma/client.js" ]]; then
+    echo "Missing generated Prisma Client. Run npm run prisma:generate in $WEB_DIR first." >&2
     exit 1
 fi
 
@@ -49,12 +49,15 @@ const path = require('path')
 const readline = require('readline/promises')
 
 require('dotenv').config({ path: path.join(process.cwd(), '.env'), quiet: true })
-const { PrismaClient } = require('@prisma/client')
+const { PrismaClient } = require('./generated/prisma/client.js')
+const { createPrismaSqliteAdapter, resolvePrismaSqliteUrl } = require('./src/lib/server/prisma-sqlite.cjs')
 
 const args = new Set(process.argv.slice(2))
 const dryRun = args.has('--dry-run')
 const assumeYes = args.has('--yes')
-const prisma = new PrismaClient()
+const prisma = new PrismaClient({
+    adapter: createPrismaSqliteAdapter(process.env.DATABASE_URL, process.cwd()),
+})
 
 function getDataDir() {
     const override = process.env.OPENNOVELWRITER_DATA_DIR?.trim()
@@ -69,17 +72,9 @@ function getDataDir() {
 }
 
 function getDatabasePath() {
-    const databaseUrl = process.env.DATABASE_URL?.trim()
-    if (!databaseUrl?.startsWith('file:')) {
-        throw new Error('DATABASE_URL must be a SQLite file: URL.')
-    }
-
+    const databaseUrl = resolvePrismaSqliteUrl(process.env.DATABASE_URL, process.cwd())
     const value = decodeURIComponent(databaseUrl.slice('file:'.length).split('?')[0])
-    if (!value) throw new Error('DATABASE_URL does not contain a database path.')
-
-    return path.isAbsolute(value)
-        ? value
-        : path.resolve(process.cwd(), 'prisma', value)
+    return path.resolve(value)
 }
 
 function timestamp() {

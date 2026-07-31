@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client'
+import type { Prisma } from '@/generated/prisma/client'
 import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 
 export type CodexSessionCategory = 'general' | 'scene_operation' | 'scene_continuation'

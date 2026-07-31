@@ -177,7 +177,7 @@ export function toPromptDto(record: PromptRecord) {
     })
 
     const inputs = normalizeStoredInputs(record.id, record.inputsJson)
-    const history = safeParseRevisionHistoryJson(record.historyJson, { idPrefix: 'prompt' })
+    const history = safeParseRevisionHistoryJson(record.historyJson)
     const modelGroupIds = safeParseStringArrayJson(record.modelGroupIdsJson ?? null)
     const modelSetIds = safeParseStringArrayJson(record.modelSetIdsJson ?? null)
     const isComponent = dtoCategory === 'component'

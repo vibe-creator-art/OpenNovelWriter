@@ -1,10 +1,15 @@
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 
+const [, , command, ...args] = process.argv
+if (!command) {
+  throw new Error('A Next.js command is required.')
+}
+
 const require = createRequire(import.meta.url)
 const nextBin = require.resolve('next/dist/bin/next')
 
-const child = spawn(process.execPath, [nextBin, 'build'], {
+const child = spawn(process.execPath, [nextBin, command, ...args], {
   stdio: ['inherit', 'pipe', 'pipe'],
   env: {
     ...process.env,

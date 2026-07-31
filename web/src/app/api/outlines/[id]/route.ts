@@ -57,7 +57,7 @@ function toOutlineResponse(outline: {
         chapterId: outline.chapterId,
         content: outline.content,
         wordCount: outline.wordCount,
-        history: safeParseRevisionHistoryJson(outline.historyJson, { idPrefix: 'outline' }),
+        history: safeParseRevisionHistoryJson(outline.historyJson),
         novelId: outline.novelId,
         createdAt: outline.createdAt,
         updatedAt: outline.updatedAt,
@@ -120,7 +120,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             data.wordCount = calculateWordCountFromHtml(nextContent)
 
             const now = Date.now()
-            const history = safeParseRevisionHistoryJson(existing.historyJson, { idPrefix: 'outline' })
+            const history = safeParseRevisionHistoryJson(existing.historyJson)
             const { history: nextHistory, recorded } = recordRevisionHistory(history, nextContent, {
                 now,
                 idPrefix: 'outline',

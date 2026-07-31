@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, GripVertical, History as HistoryIcon, MoreVertical, Plus, Sparkles, X, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, History as HistoryIcon, MoreVertical, Plus, Sparkles, X, type LucideIcon } from 'lucide-react'
 import { DndContext, closestCenter, type DragEndEvent, useSensors } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 
@@ -41,6 +41,8 @@ type CategoryItem = {
     label: string
     Icon: LucideIcon
 }
+
+const EMPTY_MODEL_IDS: string[] = []
 
 export function PromptEditorPanel({
     t,
@@ -277,8 +279,8 @@ export function PromptEditorPanel({
         },
         { key: '{% include "组件名" %}', description: t('editor.templateReference.includeComponent') },
     ]
-    const attachedModelGroupIds = draft?.modelGroupIds ?? []
-    const attachedModelSetIds = draft?.modelSetIds ?? []
+    const attachedModelGroupIds = draft?.modelGroupIds ?? EMPTY_MODEL_IDS
+    const attachedModelSetIds = draft?.modelSetIds ?? EMPTY_MODEL_IDS
     const availableModelGroups = useMemo(
         () => modelGroups.filter((group) => !attachedModelGroupIds.includes(group.id)),
         [attachedModelGroupIds, modelGroups]

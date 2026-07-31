@@ -6,7 +6,6 @@ export type RevisionHistoryItem = {
 
 export type RevisionHistoryCoerceOptions = {
     maxItems?: number
-    idPrefix?: string
 }
 
 export type RecordRevisionHistoryOptions = {
@@ -32,24 +31,16 @@ export function coerceRevisionHistoryItems(rawItems: unknown, options?: Revision
     if (!Array.isArray(rawItems)) return []
 
     const maxItems = options?.maxItems ?? DEFAULT_MAX_REVISION_HISTORY_ITEMS
-    const idPrefix = options?.idPrefix ?? 'rev'
 
     const items: RevisionHistoryItem[] = []
 
     for (const raw of rawItems) {
         if (!raw || typeof raw !== 'object') continue
         const record = raw as Record<string, unknown>
-        const id = typeof record.id === 'string' && record.id.trim() ? record.id : createRevisionHistoryId(idPrefix)
-        const ts = typeof record.ts === 'number' && Number.isFinite(record.ts) ? record.ts : Date.now()
-        const value =
-            typeof record.value === 'string'
-                ? record.value
-                : typeof record.content === 'string'
-                    ? record.content
-                    : typeof record.description === 'string'
-                        ? record.description
-                        : ''
-        items.push({ id, ts, value })
+        if (typeof record.id !== 'string' || !record.id.trim()) continue
+        if (typeof record.ts !== 'number' || !Number.isFinite(record.ts)) continue
+        if (typeof record.value !== 'string') continue
+        items.push({ id: record.id, ts: record.ts, value: record.value })
     }
 
     items.sort((a, b) => b.ts - a.ts)

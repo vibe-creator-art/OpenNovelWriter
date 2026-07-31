@@ -118,16 +118,15 @@ export function safeParseTerms(raw: unknown): StoredTerms | null {
             parsed.enabledPresetCategoryIds = parsed.enabledPresetCategoryIds.filter((id) => PRESET_TERM_CATEGORY_ID_SET.has(id))
         }
 
-        // Migrate older persisted shapes to the current schema.
         for (const entry of parsed.entries as unknown as Record<string, unknown>[]) {
             if (!entry || typeof entry !== 'object') continue
             const maybeHistory = entry.history
             if (Array.isArray(maybeHistory)) {
-                entry.history = coerceRevisionHistoryItems(maybeHistory, { idPrefix: 'term' })
+                entry.history = coerceRevisionHistoryItems(maybeHistory)
             }
             const maybeNotesHistory = entry.researchNotesHistory
             if (Array.isArray(maybeNotesHistory)) {
-                entry.researchNotesHistory = coerceRevisionHistoryItems(maybeNotesHistory, { idPrefix: 'term' })
+                entry.researchNotesHistory = coerceRevisionHistoryItems(maybeNotesHistory)
             }
             const maybeExternal = entry.externalReferences
             if (Array.isArray(maybeExternal)) {
@@ -191,15 +190,11 @@ export function normalizeCategoryName(name: string) {
 function coerceExternalReferences(rawItems: unknown[]): TermEntryExternalReference[] {
     const items: TermEntryExternalReference[] = []
     for (const raw of rawItems) {
-        if (typeof raw === 'string') {
-            items.push({ id: createId(), url: raw })
-            continue
-        }
         if (!raw || typeof raw !== 'object') continue
         const record = raw as Record<string, unknown>
+        const id = typeof record.id === 'string' && record.id.trim() ? record.id : null
         const url = typeof record.url === 'string' ? record.url : ''
-        if (!url) continue
-        const id = typeof record.id === 'string' && record.id.trim() ? record.id : createId()
+        if (!id || !url) continue
         items.push({ id, url })
     }
     return items
@@ -212,10 +207,10 @@ function coerceGalleryItems(raw: unknown): TermEntryGalleryItem[] | null {
     for (const candidate of raw) {
         if (!candidate || typeof candidate !== 'object') continue
         const record = candidate as Record<string, unknown>
+        const id = typeof record.id === 'string' && record.id.trim() ? record.id : null
         const url = typeof record.url === 'string' ? record.url.trim() : ''
-        if (!url || seenUrls.has(url)) continue
+        if (!id || !url || seenUrls.has(url)) continue
         seenUrls.add(url)
-        const id = typeof record.id === 'string' && record.id.trim() ? record.id : createId()
         items.push({ id, url })
     }
     return items.length ? items : null
@@ -229,13 +224,12 @@ function coerceRelations(raw: unknown): TermEntryRelation[] | null {
     for (const candidate of raw) {
         if (!candidate || typeof candidate !== 'object') continue
         const record = candidate as Record<string, unknown>
-        const id = typeof record.id === 'string' && record.id.trim() ? record.id : createId()
+        const id = typeof record.id === 'string' && record.id.trim() ? record.id : null
         const otherId = typeof record.otherId === 'string' ? record.otherId : ''
-        if (!otherId) continue
+        if (!id || !otherId) continue
         const directionRaw = typeof record.direction === 'string' ? record.direction : ''
-        const direction: TermEntryRelationDirection = RELATION_DIRECTION_SET.has(directionRaw)
-            ? (directionRaw as TermEntryRelationDirection)
-            : 'outgoing'
+        if (!RELATION_DIRECTION_SET.has(directionRaw)) continue
+        const direction = directionRaw as TermEntryRelationDirection
         const label = typeof record.label === 'string' ? record.label.trim() : ''
         const relation: TermEntryRelation = { id, otherId, direction }
         if (label) relation.label = label
@@ -248,10 +242,6 @@ function coerceTags(raw: unknown): string[] | null {
     if (Array.isArray(raw)) {
         const strings = raw.filter((value): value is string => typeof value === 'string')
         const normalized = normalizeTagList(strings)
-        return normalized.length ? normalized : null
-    }
-    if (typeof raw === 'string') {
-        const normalized = parseTagsInput(raw)
         return normalized.length ? normalized : null
     }
     return null

@@ -55,7 +55,7 @@ function toSnippetResponse(snippet: {
         content: snippet.content,
         pinned: snippet.pinned,
         wordCount: snippet.wordCount,
-        history: safeParseRevisionHistoryJson(snippet.historyJson, { idPrefix: 'snippet' }),
+        history: safeParseRevisionHistoryJson(snippet.historyJson),
         novelId: snippet.novelId,
         createdAt: snippet.createdAt,
         updatedAt: snippet.updatedAt,
@@ -120,7 +120,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             data.wordCount = calculateWordCountFromHtml(nextContent)
 
             const now = Date.now()
-            const history = safeParseRevisionHistoryJson(existing.historyJson, { idPrefix: 'snippet' })
+            const history = safeParseRevisionHistoryJson(existing.historyJson)
             const { history: nextHistory, recorded } = recordRevisionHistory(history, nextContent, {
                 now,
                 idPrefix: 'snippet',

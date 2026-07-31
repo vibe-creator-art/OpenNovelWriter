@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
-
 function htmlToPlainText(html) {
     return String(html ?? '')
         .replace(/<br\s*\/?>/gi, '\n')

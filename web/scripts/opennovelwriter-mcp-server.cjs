@@ -8,7 +8,8 @@ const path = require('path')
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true })
 
-const { PrismaClient } = require('@prisma/client')
+const { PrismaClient } = require('../generated/prisma/client.js')
+const { createPrismaSqliteAdapter } = require('../src/lib/server/prisma-sqlite.cjs')
 const {
     buildNovelWorkspaceOutlineMarkdown,
     buildNovelWorkspaceChapterMarkdown,
@@ -29,7 +30,9 @@ const { applyHunk, diffRegions } = require('../src/lib/server/manuscript-edit.cj
 const { updateSceneContentWithStats } = require('../src/lib/server/manuscript-word-count.cjs')
 const { parseLlmConversation, buildLlmRequestPayload, getAssistantBlock } = require('../src/lib/server/llm-conversation.cjs')
 
-const prisma = new PrismaClient()
+const prisma = new PrismaClient({
+    adapter: createPrismaSqliteAdapter(process.env.DATABASE_URL, path.join(__dirname, '..')),
+})
 const ownerId = process.env.OPENNOVELWRITER_OWNER_ID
 const internalBaseUrl = (process.env.OPENNOVELWRITER_BASE_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '')
 const internalToken = process.env.OPENNOVELWRITER_INTERNAL_TOKEN || ''
