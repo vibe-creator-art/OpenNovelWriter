@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import {
+    applyCodexUpstreamModelCapabilities,
     normalizeCodexProviderModels,
     parseCodexUpstreamFormat,
     type CodexConnectionProviderType,
@@ -18,6 +19,7 @@ import {
 } from '@/lib/server/codex-connection-storage'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
+import { rebindDraftCodexSessionsToConnection } from '@/lib/server/codex-session-rebind'
 import { syncCodexConnectionSkills } from '@/lib/server/codex-skill-sync'
 import { serializeCodexConnection } from '@/lib/server/codex-connection-serialize'
 
@@ -89,6 +91,11 @@ export async function POST(request: NextRequest) {
         if (providerType === 'custom') {
             await syncCodexConnectionRuntimeFiles(connection)
             await syncConnectionAssets(connection)
+            if (connection.isActive) {
+                await rebindDraftCodexSessionsToConnection(connection).catch((error) => {
+                    console.error('Failed to rebind draft Codex sessions:', error)
+                })
+            }
             const files = await readCodexConnectionFiles(user.userId, connection.id)
             return NextResponse.json({ connection: serializeCodexConnection(connection), authJson: files.authJson, configToml: files.configToml, rateLimits: null })
         }
@@ -101,7 +108,12 @@ export async function POST(request: NextRequest) {
             configToml: typeof body?.configToml === 'string' ? body.configToml : getDefaultCodexConfig(providerType),
         })
         const synced = await syncCodexConnectionAuthState({ connectionId: connection.id, ownerId: user.userId, codexHome: files.home })
-        if (synced.isActive) await syncConnectionAssets(synced)
+        if (synced.isActive) {
+            await syncConnectionAssets(synced)
+            await rebindDraftCodexSessionsToConnection(synced).catch((error) => {
+                console.error('Failed to rebind draft Codex sessions:', error)
+            })
+        }
         const currentFiles = await readCodexConnectionFiles(user.userId, connection.id)
         return NextResponse.json({ connection: serializeCodexConnection(synced), authJson: currentFiles.authJson, configToml: currentFiles.configToml, rateLimits: null })
     } catch (error) {
@@ -117,6 +129,9 @@ function parseCustomCreate(body: Record<string, unknown>) {
     const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim().replace(/\/+$/, '') : ''
     const upstreamFormat = parseCodexUpstreamFormat(body.upstreamFormat)
     const models = normalizeCodexProviderModels(body.models)
+        .map((model) => upstreamFormat
+            ? applyCodexUpstreamModelCapabilities(model, upstreamFormat, baseUrl)
+            : model)
     const defaultModelId = typeof body.defaultModelId === 'string' ? body.defaultModelId.trim() : ''
     if (!apiKey) throw new Error('Missing Codex upstream API key.')
     if (!baseUrl) throw new Error('Missing Codex upstream base URL.')

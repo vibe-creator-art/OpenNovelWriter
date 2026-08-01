@@ -26,6 +26,8 @@ import {
     type CodexUpstreamFormat,
 } from '@/lib/api'
 import {
+    applyCodexUpstreamModelCapabilities,
+    applyDeepSeekV4ModelDefaults,
     applyNativeCodexModelCapabilities,
     createDefaultCodexProviderModel,
     getDefaultCodexAuthJson,
@@ -122,6 +124,8 @@ export function CodexConnectionsTab() {
         () => connections.find((connection) => connection.id === selectedId) || null,
         [connections, selectedId]
     )
+
+    const canSave = form.providerType !== 'custom' || form.models.length > 0
 
     const loadConnections = useCallback(async () => {
         setLoading(true)
@@ -350,6 +354,7 @@ export function CodexConnectionsTab() {
             const result = await codexApi.fetchCustomModels({
                 apiKey: form.apiKey || undefined,
                 baseUrl: form.baseUrl,
+                upstreamFormat: form.upstreamFormat,
                 connectionId: form.id || undefined,
             })
             setDiscoveredModels(result.models)
@@ -365,7 +370,14 @@ export function CodexConnectionsTab() {
     function addDiscoveredModel() {
         const discovered = discoveredModels.find((model) => model.id === discoveredModelId)
         if (!discovered || form.models.some((model) => model.id === discovered.id)) return
-        const model = createDefaultCodexProviderModel(discovered.id)
+        // createDefault already applies known vendor defaults (e.g. DeepSeek V4).
+        // Re-apply host-gated capabilities so official DeepSeek Responses connections
+        // show 1M context / low-high-max immediately, without waiting for save.
+        const model = applyCodexUpstreamModelCapabilities(
+            createDefaultCodexProviderModel(discovered.id),
+            form.upstreamFormat,
+            form.baseUrl,
+        )
         model.displayName = discovered.name || discovered.id
         setForm((current) => ({
             ...current,
@@ -377,7 +389,20 @@ export function CodexConnectionsTab() {
     function updateModel(index: number, update: Partial<CodexProviderModel>) {
         setForm((current) => {
             const previous = current.models[index]
-            const models = current.models.map((model, modelIndex) => modelIndex === index ? { ...model, ...update } : model)
+            const models = current.models.map((model, modelIndex) => {
+                if (modelIndex !== index) return model
+                let next = { ...model, ...update }
+                // When the upstream model id changes to a known DeepSeek V4 id,
+                // seed the official defaults immediately in the form.
+                if (update.id !== undefined && update.id !== model.id) {
+                    next = applyCodexUpstreamModelCapabilities(
+                        applyDeepSeekV4ModelDefaults(next),
+                        current.upstreamFormat,
+                        current.baseUrl,
+                    )
+                }
+                return next
+            })
             return {
                 ...current,
                 models,
@@ -437,14 +462,38 @@ export function CodexConnectionsTab() {
                             {form.providerType === 'custom' ? (
                                 <>
                                     <div className="grid gap-4 md:grid-cols-2">
-                                        <div className="space-y-2"><Label>{t('upstreamFormat')}</Label><Select value={form.upstreamFormat} onValueChange={(value: CodexUpstreamFormat) => setForm({ ...form, upstreamFormat: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="responses">Responses API</SelectItem><SelectItem value="chat-completions">Chat Completions API</SelectItem></SelectContent></Select></div>
+                                        <div className="space-y-2"><Label>{t('upstreamFormat')}</Label><Select value={form.upstreamFormat} onValueChange={(value: CodexUpstreamFormat) => setForm({ ...form, upstreamFormat: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="responses">{t('upstreamFormats.responses')}</SelectItem><SelectItem value="chat-completions">{t('upstreamFormats.chatCompletions')}</SelectItem><SelectItem value="anthropic-messages">{t('upstreamFormats.anthropicMessages')}</SelectItem></SelectContent></Select></div>
                                         <div className="space-y-2"><Label>{t('customBaseUrl')}</Label><Input value={form.baseUrl} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} /></div>
                                     </div>
                                     <div className="space-y-2"><Label>{t('customApiKey')}</Label><div className="flex gap-2"><Input type={showApiKey ? 'text' : 'password'} value={form.apiKey} placeholder={form.hasApiKey ? t('apiKeySavedPlaceholder') : t('customApiKeyPlaceholder')} onChange={(event) => setForm({ ...form, apiKey: event.target.value })} /><Button type="button" variant="outline" size="icon" onClick={() => setShowApiKey((value) => !value)}>{showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</Button><Button type="button" variant="outline" onClick={() => void fetchModels()} disabled={fetchingModels}>{fetchingModels ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}{t('fetchModels')}</Button></div></div>
                                     {discoveredModels.length > 0 && <div className="flex gap-2"><Select value={discoveredModelId} onValueChange={setDiscoveredModelId}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{discoveredModels.map((model) => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select><Button type="button" variant="outline" onClick={addDiscoveredModel}><Plus className="h-4 w-4" />{t('addModel')}</Button></div>}
                                     <div className="space-y-3">
-                                        <div className="flex items-center justify-between"><Label>{t('modelList')}</Label><Button type="button" size="sm" variant="outline" onClick={() => setForm((current) => ({ ...current, models: [...current.models, createDefaultCodexProviderModel(`model-${current.models.length + 1}`)] }))}><Plus className="h-4 w-4" />{t('addModel')}</Button></div>
-                                        {form.models.map((model, index) => <ModelEditor key={`${index}-${model.id}`} model={model} isDefault={form.defaultModelId === model.id} onDefault={() => setForm({ ...form, defaultModelId: model.id })} onChange={(update) => updateModel(index, update)} onRemove={() => removeModel(index)} t={t} />)}
+                                        <div className="flex items-center justify-between"><Label>{t('modelList')}</Label><Button type="button" size="sm" variant="outline" onClick={() => setForm((current) => {
+                                            const model = createDefaultCodexProviderModel(`model-${current.models.length + 1}`)
+                                            return {
+                                                ...current,
+                                                models: [...current.models, model],
+                                                defaultModelId: current.defaultModelId || model.id,
+                                            }
+                                        })}><Plus className="h-4 w-4" />{t('addModel')}</Button></div>
+                                        {form.models.length === 0 && (
+                                            <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                                                {t('emptyModelList')}
+                                            </div>
+                                        )}
+                                        {form.models.map((model, index) => (
+                                            // Key by index only: keying on model.id remounts the row on every
+                                            // keystroke while editing the upstream model id, stealing focus.
+                                            <ModelEditor
+                                                key={index}
+                                                model={model}
+                                                isDefault={form.defaultModelId === model.id}
+                                                onDefault={() => setForm({ ...form, defaultModelId: model.id })}
+                                                onChange={(update) => updateModel(index, update)}
+                                                onRemove={() => removeModel(index)}
+                                                t={t}
+                                            />
+                                        ))}
                                     </div>
                                 </>
                             ) : (
@@ -460,7 +509,7 @@ export function CodexConnectionsTab() {
                             )}
 
                             {error && <div className="text-sm text-destructive">{error}</div>}
-                            <div className="flex justify-end gap-3"><Button variant="destructive" onClick={() => void remove()} disabled={deleting || saving || authorizing}><Trash2 className="h-4 w-4" />{t('deleteConnection')}</Button><Button onClick={() => void save()} disabled={saving || authorizing}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{t(form.id ? 'save' : 'create')}</Button></div>
+                            <div className="flex justify-end gap-3"><Button variant="destructive" onClick={() => void remove()} disabled={deleting || saving || authorizing}><Trash2 className="h-4 w-4" />{t('deleteConnection')}</Button><Button onClick={() => void save()} disabled={!canSave || saving || authorizing}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{t(form.id ? 'save' : 'create')}</Button></div>
                             {selectedSummary && <div className="text-xs text-muted-foreground">{t('lastUpdated', { value: new Date(selectedSummary.updatedAt).toLocaleString() })}</div>}
                         </div>
                     )}

@@ -4,9 +4,12 @@ import { expandNativeCodexModels, parseCodexProviderModelsJson, parseCodexUpstre
 import { getPrismaClient } from '@/lib/db'
 import { decryptApiKey } from '@/lib/server/ai-credentials'
 import { isValidCodexProxyToken } from '@/lib/server/codex-internal-auth'
-import { codexChatHistory } from '@/lib/server/codex-proxy/history'
-import { createChatToResponsesStream } from '@/lib/server/codex-proxy/stream'
+import { createAnthropicToResponsesStream, readAnthropicSseAsResponses, responsesSseFromAnthropicMessage } from '@/lib/server/codex-proxy/anthropic-stream'
+import { anthropicResponseToResponses, responsesToAnthropicRequest } from '@/lib/server/codex-proxy/anthropic-transform'
+import { codexBridgeHistory } from '@/lib/server/codex-proxy/history'
+import { sanitizeThirdPartyResponsesRequest } from '@/lib/server/codex-proxy/responses-sanitize'
 import { createResponsesNamespaceStream } from '@/lib/server/codex-proxy/responses-stream'
+import { createChatToResponsesStream } from '@/lib/server/codex-proxy/stream'
 import {
     CodexToolContext,
     isObject,
@@ -51,10 +54,12 @@ export async function handleCodexUpstreamRequest(input: {
     let body: JsonObject
     let toolContext: CodexToolContext
     try {
-        const parsed = await input.request.json() as unknown
+        const parsed = JSON.parse(await input.request.text()) as unknown
         if (!isObject(parsed)) throw new Error('Expected a JSON object.')
+        // Build the tool map from the original Codex request (with namespaces)
+        // before we flatten for third-party gateways.
         toolContext = CodexToolContext.fromRequest(parsed)
-        body = normalizeCodexResponsesTools(parsed)
+        body = parsed
     } catch (error) {
         return NextResponse.json({
             error: { message: error instanceof Error ? error.message : 'Invalid JSON request.' },
@@ -72,9 +77,22 @@ export async function handleCodexUpstreamRequest(input: {
     try {
         const apiKey = decryptApiKey(encryptedApiKey)
         if (upstreamFormat === 'responses') {
-            return proxyResponsesRequest({ request: input.request, baseUrl, apiKey, endpoint, body, context: toolContext })
+            // Flatten MCP namespaces and scrub Codex-private shapes that third
+            // parties often reject (tool_search, null schemas, …).
+            const prepared = sanitizeThirdPartyResponsesRequest(normalizeCodexResponsesTools(body))
+            return proxyResponsesRequest({
+                request: input.request,
+                baseUrl,
+                apiKey,
+                endpoint,
+                body: prepared,
+                context: toolContext,
+            })
         }
-        return proxyChatRequest({ request: input.request, baseUrl, apiKey, body, model, context: toolContext })
+        if (upstreamFormat === 'chat-completions') {
+            return proxyChatRequest({ request: input.request, baseUrl, apiKey, body, model, context: toolContext })
+        }
+        return proxyAnthropicRequest({ request: input.request, baseUrl, apiKey, body, context: toolContext })
     } catch (error) {
         console.error('Codex upstream proxy error:', error)
         return NextResponse.json({
@@ -102,16 +120,19 @@ async function proxyResponsesRequest(input: {
         cache: 'no-store',
     })
     if (!upstream.ok || !upstream.body) return forwardUpstreamResponse(upstream)
+
+    // Restore flattened MCP / plugin tool names so the Codex client can match
+    // function_call items against its namespaced registry.
     if (upstream.headers.get('content-type')?.includes('text/event-stream')) {
-        return new Response(createResponsesNamespaceStream({ upstream: upstream.body, context: input.context }), {
+        return new Response(createResponsesNamespaceStream({
+            upstream: upstream.body,
+            context: input.context,
+        }), {
             status: upstream.status,
-            headers: {
-                'content-type': 'text/event-stream; charset=utf-8',
-                'cache-control': 'no-cache, no-transform',
-                'x-accel-buffering': 'no',
-            },
+            headers: sseHeaders(),
         })
     }
+
     const parsed = await upstream.json() as unknown
     return NextResponse.json(rewriteNamespacedResponse(parsed, input.context), { status: upstream.status })
 }
@@ -124,7 +145,7 @@ async function proxyChatRequest(input: {
     model: ReturnType<typeof parseCodexProviderModelsJson>[number]
     context: CodexToolContext
 }) {
-    const enriched = codexChatHistory.enrich(input.body)
+    const enriched = codexBridgeHistory.enrich(input.body)
     const chatBody = responsesToChatRequest(enriched, input.model, input.context)
     const upstream = await fetch(buildUrl(input.baseUrl, 'chat/completions', input.request.nextUrl.search), {
         method: 'POST',
@@ -141,7 +162,7 @@ async function proxyChatRequest(input: {
         const stream = createChatToResponsesStream({
             upstream: upstream.body,
             context: input.context,
-            onComplete: (response) => codexChatHistory.record(response),
+            onComplete: (response) => codexBridgeHistory.record(response),
         })
         return new Response(stream, {
             status: upstream.status,
@@ -157,7 +178,59 @@ async function proxyChatRequest(input: {
     const parsed = await upstream.json() as unknown
     if (!isObject(parsed)) throw new Error('Chat upstream returned invalid JSON.')
     const response = chatCompletionToResponse(parsed, input.context)
-    codexChatHistory.record(response)
+    codexBridgeHistory.record(response)
+    return NextResponse.json(response, { status: upstream.status })
+}
+
+async function proxyAnthropicRequest(input: {
+    request: NextRequest
+    baseUrl: string
+    apiKey: string
+    body: JsonObject
+    context: CodexToolContext
+}) {
+    const enriched = codexBridgeHistory.enrich(input.body)
+    const anthropicBody = responsesToAnthropicRequest(enriched, input.context)
+    const upstream = await fetch(buildAnthropicUrl(input.baseUrl, input.request.nextUrl.search), {
+        method: 'POST',
+        headers: anthropicHeaders(input.request, input.apiKey),
+        body: JSON.stringify(anthropicBody),
+        signal: input.request.signal,
+        cache: 'no-store',
+    })
+
+    if (!upstream.ok) return forwardUpstreamResponse(upstream)
+    if (!upstream.body) throw new Error('Anthropic upstream returned an empty response body.')
+
+    const contentType = upstream.headers.get('content-type') || ''
+    const upstreamIsStream = contentType.includes('text/event-stream')
+        || (anthropicBody.stream === true && !contentType.includes('application/json'))
+    if (upstreamIsStream && anthropicBody.stream === true) {
+        return new Response(createAnthropicToResponsesStream({
+            upstream: upstream.body,
+            context: input.context,
+            onComplete: (response) => codexBridgeHistory.record(response),
+        }), {
+            status: upstream.status,
+            headers: sseHeaders(),
+        })
+    }
+    if (upstreamIsStream) {
+        const response = await readAnthropicSseAsResponses({ upstream: upstream.body, context: input.context })
+        codexBridgeHistory.record(response)
+        return NextResponse.json(response, { status: upstream.status })
+    }
+
+    const parsed = await upstream.json() as unknown
+    if (!isObject(parsed)) throw new Error('Anthropic upstream returned invalid JSON.')
+    const response = anthropicResponseToResponses(parsed, input.context)
+    codexBridgeHistory.record(response)
+    if (anthropicBody.stream === true) {
+        return new Response(responsesSseFromAnthropicMessage(parsed, input.context).join(''), {
+            status: upstream.status,
+            headers: sseHeaders(),
+        })
+    }
     return NextResponse.json(response, { status: upstream.status })
 }
 
@@ -178,6 +251,12 @@ function buildUrl(baseUrl: string, endpoint: string, search: string) {
     return `${baseUrl}/${normalizedEndpoint}${search}`
 }
 
+function buildAnthropicUrl(baseUrl: string, search: string) {
+    if (/\/v1\/messages$/i.test(baseUrl)) return `${baseUrl}${search}`
+    if (/\/v1$/i.test(baseUrl)) return `${baseUrl}/messages${search}`
+    return `${baseUrl}/v1/messages${search}`
+}
+
 function upstreamHeaders(request: NextRequest, apiKey: string) {
     const headers = new Headers({
         authorization: `Bearer ${apiKey}`,
@@ -187,6 +266,27 @@ function upstreamHeaders(request: NextRequest, apiKey: string) {
     const userAgent = request.headers.get('user-agent')
     if (userAgent) headers.set('user-agent', userAgent)
     return headers
+}
+
+function anthropicHeaders(request: NextRequest, apiKey: string) {
+    const headers = new Headers({
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        accept: 'application/json',
+    })
+    const userAgent = request.headers.get('user-agent')
+    if (userAgent) headers.set('user-agent', userAgent)
+    return headers
+}
+
+function sseHeaders() {
+    return {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+    }
 }
 
 async function forwardUpstreamResponse(upstream: Response) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { normalizeCodexProviderModels, parseCodexUpstreamFormat, type CodexConnectionProviderType } from '@/lib/codex-config'
+import { applyCodexUpstreamModelCapabilities, normalizeCodexProviderModels, parseCodexUpstreamFormat, type CodexConnectionProviderType } from '@/lib/codex-config'
 import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
 import { encryptApiKey } from '@/lib/server/ai-credentials'
@@ -9,6 +9,7 @@ import { readCodexRateLimits, syncCodexConnectionAuthState } from '@/lib/server/
 import { deleteCodexConnectionHome, readCodexConnectionFiles, writeCodexConnectionFiles } from '@/lib/server/codex-connection-storage'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
+import { rebindDraftCodexSessionsToConnection } from '@/lib/server/codex-session-rebind'
 import { syncCodexConnectionSkills } from '@/lib/server/codex-skill-sync'
 import { serializeCodexConnection } from '@/lib/server/codex-connection-serialize'
 
@@ -83,7 +84,16 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ id:
             })
             updated = await syncCodexConnectionAuthState({ connectionId: id, ownerId: user.userId, codexHome: files.home })
         }
-        if (updated.isActive) await syncConnectionAssets(updated)
+        if (updated.isActive) {
+            await syncConnectionAssets(updated)
+            // Unsent draft sessions still pin the previous connection; move them
+            // so the composer model picker matches the newly enabled provider.
+            if (isActive) {
+                await rebindDraftCodexSessionsToConnection(updated).catch((error) => {
+                    console.error('Failed to rebind draft Codex sessions:', error)
+                })
+            }
+        }
         const files = await readCodexConnectionFiles(user.userId, id)
         return NextResponse.json({
             connection: serializeCodexConnection(updated), authJson: files.authJson, configToml: files.configToml,
@@ -113,6 +123,9 @@ function parseCustomUpdate(body: Record<string, unknown>, existingEncryptedApiKe
     const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim().replace(/\/+$/, '') : ''
     const upstreamFormat = parseCodexUpstreamFormat(body.upstreamFormat)
     const models = normalizeCodexProviderModels(body.models)
+        .map((model) => upstreamFormat
+            ? applyCodexUpstreamModelCapabilities(model, upstreamFormat, baseUrl)
+            : model)
     const defaultModelId = typeof body.defaultModelId === 'string' ? body.defaultModelId.trim() : ''
     if (!baseUrl) throw new Error('Missing Codex upstream base URL.')
     if (!upstreamFormat) throw new Error('Unsupported Codex upstream format.')

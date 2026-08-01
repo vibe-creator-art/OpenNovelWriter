@@ -134,18 +134,29 @@ function buildChatMessages(body: JsonObject, context: CodexToolContext) {
 
     const flushCalls = () => {
         if (pendingCalls.length === 0) return
-        messages.push({ role: 'assistant', content: null, reasoning_content: 'tool call', tool_calls: pendingCalls.splice(0) })
+        // Strict Chinese gateways (Volcengine / ZenMux-routed GLM, etc.) reject
+        // a missing/null `content` on assistant tool-call turns. Use "" not null.
+        messages.push({
+            role: 'assistant',
+            content: '',
+            reasoning_content: 'tool call',
+            tool_calls: pendingCalls.splice(0),
+        })
     }
 
     for (const item of input) {
         if (typeof item === 'string') {
             flushCalls()
-            messages.push({ role: 'user', content: item })
+            if (item.trim()) messages.push({ role: 'user', content: item })
             continue
         }
         if (!isObject(item)) continue
         const type = typeof item.type === 'string' ? item.type : 'message'
         if (type === 'additional_tools') continue
+        // Incomplete historical calls must not become empty assistant turns.
+        if (item.status === 'incomplete' && (type === 'function_call' || type === 'custom_tool_call' || type === 'tool_search_call')) {
+            continue
+        }
         if (type === 'function_call') {
             const name = typeof item.name === 'string' ? item.name : ''
             const namespace = typeof item.namespace === 'string' ? item.namespace : undefined
@@ -194,10 +205,21 @@ function buildChatMessages(body: JsonObject, context: CodexToolContext) {
 
         flushCalls()
         const role = item.role === 'assistant' ? 'assistant' : item.role === 'system' || item.role === 'developer' ? 'system' : 'user'
-        messages.push({ role, content: responseContentToChat(item.content ?? item) })
+        const content = responseContentToChat(item.content ?? item)
+        // Drop empty user/system turns — gateways surface these as
+        // "missing messages.content" rather than a clear empty-message error.
+        if (isEmptyChatContent(content) && role !== 'assistant') continue
+        messages.push({ role, content: isEmptyChatContent(content) ? '' : content })
     }
     flushCalls()
     return messages
+}
+
+function isEmptyChatContent(value: unknown) {
+    if (value == null) return true
+    if (typeof value === 'string') return value.trim().length === 0
+    if (Array.isArray(value)) return value.length === 0
+    return false
 }
 
 function responseContentToChat(value: unknown): unknown {

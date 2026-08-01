@@ -259,8 +259,14 @@
             "customModel": "Model",
             "customModelPlaceholder": "Select a model",
             "upstreamFormat": "Upstream API format",
+            "upstreamFormats": {
+                "responses": "Responses (native)",
+                "chatCompletions": "Chat Completions (converted)",
+                "anthropicMessages": "Anthropic Messages (converted)"
+            },
             "apiKeySavedPlaceholder": "Saved; leave blank to keep it",
             "modelList": "Available models",
+            "emptyModelList": "No models yet. Fetch from the provider or add one manually.",
             "addModel": "Add model",
             "removeModel": "Remove",
             "modelId": "Upstream model ID",

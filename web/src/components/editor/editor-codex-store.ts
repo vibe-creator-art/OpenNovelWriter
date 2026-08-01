@@ -66,7 +66,9 @@ type CodexStoreState = {
     queuedMessagesBySession: Record<string, QueuedCodexMessage[]>
     queueingEnabledBySession: Record<string, boolean>
     optimisticSteerMessagesBySession: Record<string, CodexSession['messages']>
-    loadSessions: (novelId?: string | null) => Promise<void>
+    loadSessions: (novelId?: string | null, options?: { force?: boolean }) => Promise<void>
+    /** Drop cached sessions so the next loadSessions hits the server again. */
+    invalidateSessions: (novelId?: string | null) => void
     createSession: (novelId?: string | null) => Promise<string | null>
     createSceneOperationSkillSession: (
         novelId: string | null | undefined,
@@ -279,14 +281,28 @@ function restoreDraftImageAttachments(session: CodexSession): PendingImageAttach
 
 function mergeSessionPreservingComposer(current: CodexNovelSessionState, session: CodexSession) {
     const local = current.sessions.find((item) => item.id === session.id)
-    return local
-        ? {
-            ...session,
-            draftContent: local.draftContent,
-            draftAttachments: local.draftAttachments,
-            draftArtifacts: local.draftArtifacts,
-        }
-        : session
+    return mergeServerSession(local, session)
+}
+
+/**
+ * Server is authoritative for connection/model/messages. Keep only the live
+ * composer draft (and an in-flight run) from local state so rebinds after a
+ * connection switch are visible without losing unsaved draft text.
+ */
+function mergeServerSession(local: CodexSession | undefined, server: CodexSession): CodexSession {
+    if (!local) return server
+    const merged: CodexSession = {
+        ...server,
+        draftContent: local.draftContent,
+        draftAttachments: local.draftAttachments,
+        draftArtifacts: local.draftArtifacts,
+    }
+    if (local.status === 'running') {
+        merged.status = local.status
+        merged.messages = local.messages
+        merged.lastError = local.lastError
+    }
+    return merged
 }
 
 function categoryRank(category: CodexSessionCategory) {
@@ -485,10 +501,27 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     queuedMessagesBySession: {},
     queueingEnabledBySession: {},
     optimisticSteerMessagesBySession: {},
-    loadSessions: async (novelId) => {
+    invalidateSessions: (novelId) => {
+        const novelKey = getNovelKey(novelId)
+        if (novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID) {
+            set({ sessionsByNovel: {} })
+            return
+        }
+        set((state) => {
+            const current = state.sessionsByNovel[novelKey]
+            if (!current) return state
+            return {
+                sessionsByNovel: {
+                    ...state.sessionsByNovel,
+                    [novelKey]: { ...current, loaded: false },
+                },
+            }
+        })
+    },
+    loadSessions: async (novelId, options) => {
         const novelKey = getNovelKey(novelId)
         if (novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID) return
-        if (get().sessionsByNovel[novelKey]?.loaded) return
+        if (!options?.force && get().sessionsByNovel[novelKey]?.loaded) return
         const pendingLoad = sessionLoadPromises.get(novelKey)
         if (pendingLoad) return pendingLoad
 
@@ -513,8 +546,11 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                     const currentById = new Map(current.sessions.map((session) => [session.id, session]))
                     const serverSessions = result.sessions.filter((session) => !deletedSessionIds.has(session.id))
                     const serverIds = new Set(serverSessions.map((session) => session.id))
+                    // Prefer server for connection/model/messages. Local only wins for the live
+                    // composer draft and in-flight running turns — otherwise a connection switch
+                    // rebind never reaches the UI because stale local sessions stick forever.
                     const sessions = sortSessions([
-                        ...serverSessions.map((session) => currentById.get(session.id) ?? session),
+                        ...serverSessions.map((session) => mergeServerSession(currentById.get(session.id), session)),
                         ...current.sessions.filter(
                             (session) => !serverIds.has(session.id) && !sessionIdsAtStart.has(session.id)
                         ),

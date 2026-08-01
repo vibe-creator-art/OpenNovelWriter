@@ -1,3 +1,4 @@
+import { sseData, takeSseBlocks } from '@/lib/server/codex-proxy/sse'
 import { CodexToolContext, rewriteNamespacedResponse } from '@/lib/server/codex-proxy/tool-context'
 
 export function createResponsesNamespaceStream(input: {
@@ -33,22 +34,17 @@ export function createResponsesNamespaceStream(input: {
 }
 
 function rewriteBlock(block: string, context: CodexToolContext) {
-    const lines = block.split(/\r?\n/)
-    const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n')
+    const data = sseData(block)
     if (!data || data === '[DONE]') return `${block.trimEnd()}\n\n`
     try {
         const parsed = JSON.parse(data) as unknown
-        const prefix = lines.filter((line) => !line.startsWith('data:') && line.trim()).join('\n')
+        const prefix = block
+            .split(/\r?\n/)
+            .filter((line) => !line.startsWith('data:') && line.trim())
+            .join('\n')
         const rewritten = `data: ${JSON.stringify(rewriteNamespacedResponse(parsed, context))}`
         return `${prefix ? `${prefix}\n` : ''}${rewritten}\n\n`
     } catch {
         return `${block.trimEnd()}\n\n`
     }
-}
-
-function takeSseBlocks(value: string) {
-    const normalized = value.replace(/\r\n/g, '\n')
-    const parts = normalized.split('\n\n')
-    const remainder = parts.pop() ?? ''
-    return { blocks: parts.filter((part) => part.trim()), remainder }
 }

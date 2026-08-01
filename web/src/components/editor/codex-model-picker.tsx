@@ -44,12 +44,17 @@ const BUILTIN_MODELS: CodexModelCatalogEntry[] = CODEX_NATIVE_PROVIDER_MODELS.ma
     serviceTiers: [],
 }))
 
-function formatModelLabel(modelId: string) {
+function formatModelLabel(modelId: string, displayName?: string) {
+    const named = displayName?.trim()
+    if (named && named.toLowerCase() !== modelId.trim().toLowerCase()) return named
+
     const normalized = modelId.trim().toLowerCase()
     const match = normalized.match(/^gpt-(\d+\.\d+)-(sol|terra|luna)$/u)
     if (match) return `${match[1]} ${match[2][0].toUpperCase()}${match[2].slice(1)}`
     if (normalized === 'gpt-5.4-mini') return '5.4 Mini'
     if (normalized.startsWith('gpt-')) return normalized.slice(4).replaceAll('-', ' ')
+    // Prefer configured display name even when it matches the id (e.g. custom providers).
+    if (named) return named
     return modelId.trim()
 }
 
@@ -178,7 +183,9 @@ export function CodexModelPicker({
                     {showServiceTier && serviceTier === 'fast' && (
                         <Zap className="h-4 w-4 shrink-0 fill-current text-foreground" />
                     )}
-                    <span className="min-w-0 flex-1 truncate text-foreground">{formatModelLabel(modelId)}</span>
+                    <span className="min-w-0 flex-1 truncate text-foreground">
+                        {formatModelLabel(modelId, selectedModel?.displayName)}
+                    </span>
                     <span className={cn('shrink-0', reasoningEffort === 'ultra' && 'codex-ultra-text')}>
                         {t(`codex.reasoningEfforts.${reasoningEffort}`)}
                     </span>
@@ -190,13 +197,15 @@ export function CodexModelPicker({
                     <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
                             <span>{t('codex.model')}</span>
-                            <span className="ml-auto text-muted-foreground">{formatModelLabel(modelId)}</span>
+                            <span className="ml-auto text-muted-foreground">
+                                {formatModelLabel(modelId, selectedModel?.displayName)}
+                            </span>
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="w-52">
                             <div className="px-2 py-1.5 text-sm text-muted-foreground">{t('codex.model')}</div>
                             {modelOptions.map((model) => (
                                 <DropdownMenuItem key={model.id} onSelect={() => selectModel(model)}>
-                                    <span>{formatModelLabel(model.id)}</span>
+                                    <span>{formatModelLabel(model.id, model.displayName)}</span>
                                     {modelId.toLowerCase() === model.id.toLowerCase() && <Check className="ml-auto" />}
                                 </DropdownMenuItem>
                             ))}

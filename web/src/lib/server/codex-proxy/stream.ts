@@ -13,6 +13,7 @@ import {
     extractReasoning,
     stripLeadingThink,
 } from '@/lib/server/codex-proxy/transform'
+import { isDoneSseBlock, sse, sseData, takeSseBlocks } from '@/lib/server/codex-proxy/sse'
 
 type JsonObject = Record<string, unknown>
 
@@ -132,11 +133,7 @@ class ChatStreamState {
     constructor(private readonly context: CodexToolContext) {}
 
     consume(block: string) {
-        const data = block
-            .split(/\r?\n/)
-            .filter((line) => line.startsWith('data:'))
-            .map((line) => line.slice(5).trimStart())
-            .join('\n')
+        const data = sseData(block)
         if (!data || data === '[DONE]') return []
         let chunk: JsonObject
         try {
@@ -384,26 +381,6 @@ class ChatStreamState {
     }
 }
 
-function takeSseBlocks(value: string) {
-    const normalized = value.replace(/\r\n/g, '\n')
-    const parts = normalized.split('\n\n')
-    const remainder = parts.pop() ?? ''
-    return { blocks: parts.filter((part) => part.trim()), remainder }
-}
-
-function isDoneSseBlock(block: string) {
-    return block
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).trimStart())
-        .join('\n')
-        .trim() === '[DONE]'
-}
-
 function responseIdFromChat(value: string) {
     return value.startsWith('resp_') ? value : `resp_${value.replace(/^chatcmpl[_-]?/, '')}`
-}
-
-function sse(event: string, data: JsonObject) {
-    return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }

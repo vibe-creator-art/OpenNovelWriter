@@ -7,9 +7,10 @@ const MAX_RESPONSES = 512
 type CachedResponse = {
     calls: Map<string, JsonObject>
     order: string[]
+    reasoning: JsonObject[]
 }
 
-class CodexChatHistoryStore {
+class CodexBridgeHistoryStore {
     private readonly responses = new Map<string, CachedResponse>()
 
     record(response: JsonObject) {
@@ -19,8 +20,14 @@ class CodexChatHistoryStore {
 
         const calls = new Map<string, JsonObject>()
         const order: string[] = []
+        const reasoning: JsonObject[] = []
         for (const item of output) {
-            if (!isObject(item) || !isCallItem(item)) continue
+            if (!isObject(item)) continue
+            if (item.type === 'reasoning' && typeof item.encrypted_content === 'string') {
+                reasoning.push(structuredClone(item))
+                continue
+            }
+            if (!isCallItem(item)) continue
             const callId = typeof item.call_id === 'string' ? item.call_id : ''
             if (!callId) continue
             calls.set(callId, structuredClone(item))
@@ -29,7 +36,7 @@ class CodexChatHistoryStore {
         if (calls.size === 0) return
 
         this.responses.delete(responseId)
-        this.responses.set(responseId, { calls, order })
+        this.responses.set(responseId, { calls, order, reasoning })
         while (this.responses.size > MAX_RESPONSES) {
             const oldest = this.responses.keys().next().value as string | undefined
             if (!oldest) break
@@ -57,6 +64,11 @@ class CodexChatHistoryStore {
             if (!cached) continue
             restoreGroup.push(structuredClone(cached))
             restoreIds.add(callId)
+        }
+        const hasReasoning = input.some((item) => isObject(item) && item.type === 'reasoning')
+        const answersPreviousCall = [...outputCallIds].some((callId) => previous?.calls.has(callId))
+        if (!hasReasoning && answersPreviousCall && previous) {
+            restoreGroup.unshift(...previous.reasoning.map((item) => structuredClone(item)))
         }
         for (const callId of outputCallIds) {
             if (existingCallIds.has(callId) || restoreIds.has(callId)) continue
@@ -98,7 +110,7 @@ class CodexChatHistoryStore {
     }
 }
 
-export const codexChatHistory = new CodexChatHistoryStore()
+export const codexBridgeHistory = new CodexBridgeHistoryStore()
 
 function isCallItem(item: JsonObject) {
     return item.type === 'function_call' || item.type === 'custom_tool_call' || item.type === 'tool_search_call'

@@ -54,7 +54,7 @@ export function getCodexInternalBaseUrl(): string {
     if (override && override.trim()) return override.trim().replace(/\/+$/, '')
 
     const port = process.env.PORT?.trim()
-    return `http://127.0.0.1:${port && /^\d+$/.test(port) ? port : '3000'}`
+    return `http://localhost:${port && /^\d+$/.test(port) ? port : '3000'}`
 }
 
 /**

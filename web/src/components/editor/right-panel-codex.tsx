@@ -2676,6 +2676,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const t = useTranslations('editor')
     const sessionState = useEditorCodexStore((state) => state.sessionsByNovel[novelId?.trim() || '__default__'])
     const loadSessions = useEditorCodexStore((state) => state.loadSessions)
+    const invalidateSessions = useEditorCodexStore((state) => state.invalidateSessions)
     const createSession = useEditorCodexStore((state) => state.createSession)
     const selectSession = useEditorCodexStore((state) => state.selectSession)
     const updateDraft = useEditorCodexStore((state) => state.updateDraft)
@@ -2872,9 +2873,26 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         })
     }
 
+    // Always refetch when entering a novel: zustand keeps sessions across
+    // bookshelf ↔ editor navigation, so a connection-switch rebind would
+    // otherwise never appear (local cache preferred the old model forever).
     useEffect(() => {
-        void loadSessions(novelId)
+        void loadSessions(novelId, { force: true })
     }, [loadSessions, novelId])
+
+    // Same when the active connection changes while this panel stays mounted.
+    const activeConnectionId = useMemo(
+        () => connections.find((connection) => connection.isActive)?.id ?? null,
+        [connections]
+    )
+    const previousActiveConnectionIdRef = useRef<string | null>(null)
+    useEffect(() => {
+        const previous = previousActiveConnectionIdRef.current
+        previousActiveConnectionIdRef.current = activeConnectionId
+        if (!previous || !activeConnectionId || previous === activeConnectionId) return
+        invalidateSessions(novelId)
+        void loadSessions(novelId, { force: true })
+    }, [activeConnectionId, invalidateSessions, loadSessions, novelId])
 
     useEffect(() => {
         if (mention === null) return
@@ -3215,12 +3233,18 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     }
 
     useEffect(() => {
+        let cancelled = false
         void codexApi.listConnections()
-            .then(setConnections)
+            .then((items) => {
+                if (!cancelled) setConnections(items)
+            })
             .catch((error) => {
                 console.error('Failed to load Codex connections for model settings:', error)
             })
-    }, [])
+        return () => {
+            cancelled = true
+        }
+    }, [novelId])
 
     const draft = selectedSession?.draftContent ?? ''
     const reviewLevel = selectedSession?.reviewLevel ?? 'user_review'

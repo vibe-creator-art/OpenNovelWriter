@@ -58,7 +58,7 @@ export class CodexToolContext {
         if (!name) return
         const chatName = namespace ? flattenNamespaceName(namespace, name) : name
         const nested = isObject(tool.function) ? tool.function : null
-        const parameters = nested?.parameters ?? tool.parameters ?? {}
+        const parameters = normalizeChatFunctionParameters(nested?.parameters ?? tool.parameters)
         const description = nested?.description ?? tool.description ?? ''
         const chatTool: JsonObject = {
             type: 'function',
@@ -135,31 +135,82 @@ export class CodexToolContext {
         if (spec.namespace) this.namespacedNames.set(`${spec.namespace}\0${spec.name}`, chatName)
         this.chatTools.push(tool)
     }
+
+    /** True when the request declared any namespaced / MCP plugin tools. */
+    get hasNamespacedTools() {
+        for (const spec of this.specs.values()) {
+            if (spec.namespace) return true
+        }
+        return false
+    }
 }
 
+/**
+ * Make a Codex Responses request safe for third-party native Responses gateways
+ * (DeepSeek, xAI, etc.) that reject ChatGPT-private shapes:
+ * - promote `input[].type === "additional_tools"` into top-level `tools`
+ * - flatten `type: "namespace"` tools into top-level `function` tools
+ * - rewrite namespaced `function_call` history items to flat names
+ *
+ * Pair with {@link rewriteNamespacedResponse} on the way back so the Codex
+ * client can match MCP / plugin tool calls against its namespaced registry.
+ */
 export function normalizeCodexResponsesTools(body: JsonObject) {
-    const input = Array.isArray(body.input) ? body.input : null
-    if (!input) return body
+    const originalTools = Array.isArray(body.tools) ? body.tools : []
+    const originalInput = Array.isArray(body.input) ? body.input : null
 
-    const extractedTools: unknown[] = []
-    const normalizedInput: unknown[] = []
-    for (const item of input) {
-        if (isObject(item) && item.type === 'additional_tools' && Array.isArray(item.tools)) {
-            for (const tool of item.tools) extractedTools.push(...flattenResponseTool(tool))
-        } else {
-            normalizedInput.push(normalizeResponseInputItem(item))
+    let tools = [...originalTools]
+    let input = originalInput ? [...originalInput] : null
+    let changed = false
+
+    if (input) {
+        const extractedTools: unknown[] = []
+        const normalizedInput: unknown[] = []
+        for (const item of input) {
+            if (isObject(item) && item.type === 'additional_tools' && Array.isArray(item.tools)) {
+                for (const tool of item.tools) extractedTools.push(tool)
+                changed = true
+            } else {
+                normalizedInput.push(item)
+            }
+        }
+        if (extractedTools.length > 0) {
+            tools = [...tools, ...extractedTools]
+            input = normalizedInput
         }
     }
-    if (extractedTools.length === 0) return body
 
-    const existingTools = Array.isArray(body.tools) ? body.tools : []
-    const toolChoice = isObject(body.tool_choice) && body.tool_choice.type === 'function'
-        ? normalizeResponseInputItem(body.tool_choice)
-        : body.tool_choice
+    const hasNamespace = tools.some((tool) => isObject(tool) && tool.type === 'namespace')
+    if (hasNamespace) {
+        tools = tools.flatMap((tool) => flattenResponseTool(tool))
+        changed = true
+    }
+
+    if (input) {
+        const rewrittenInput = input.map((item) => normalizeResponseInputItem(item))
+        if (rewrittenInput.some((item, index) => item !== input![index])) {
+            input = rewrittenInput
+            changed = true
+        }
+    }
+
+    let toolChoice = body.tool_choice
+    if (isObject(toolChoice) && toolChoice.type === 'namespace') {
+        toolChoice = 'auto'
+        changed = true
+    } else if (isObject(toolChoice) && toolChoice.type === 'function') {
+        const rewritten = normalizeResponseInputItem(toolChoice)
+        if (rewritten !== toolChoice) {
+            toolChoice = rewritten
+            changed = true
+        }
+    }
+
+    if (!changed) return body
     return {
         ...body,
-        input: normalizedInput,
-        tools: [...existingTools, ...extractedTools],
+        ...(input ? { input } : {}),
+        tools,
         ...(toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
     }
 }
@@ -276,6 +327,13 @@ function flattenNamespaceName(namespace: string, name: string) {
     return `${full.slice(0, 50)}__${hash}`
 }
 
+function normalizeChatFunctionParameters(value: unknown): JsonObject {
+    const params = isObject(value) ? { ...value } : {}
+    if (params.type !== 'object') params.type = 'object'
+    if (!isObject(params.properties)) params.properties = {}
+    return params
+}
+
 function flattenResponseTool(value: unknown): unknown[] {
     if (!isObject(value) || value.type !== 'namespace') return [value]
     const namespace = typeof value.name === 'string' ? value.name.trim() : ''
@@ -284,7 +342,11 @@ function flattenResponseTool(value: unknown): unknown[] {
     return children
         .filter(isObject)
         .filter((child) => child.type === 'function' && typeof child.name === 'string')
-        .map((child) => ({ ...child, name: flattenNamespaceName(namespace, String(child.name)) }))
+        .map((child) => ({
+            ...child,
+            name: flattenNamespaceName(namespace, String(child.name)),
+            parameters: normalizeChatFunctionParameters(child.parameters),
+        }))
 }
 
 function normalizeResponseInputItem(value: unknown) {

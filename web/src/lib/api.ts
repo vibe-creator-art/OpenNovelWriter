@@ -854,7 +854,7 @@ export interface AiConnection {
 }
 
 export type CodexConnectionProviderType = 'openai-official' | 'custom'
-export type CodexUpstreamFormat = 'responses' | 'chat-completions'
+export type CodexUpstreamFormat = 'responses' | 'chat-completions' | 'anthropic-messages'
 export interface CodexProviderModel {
     id: string
     displayName: string
@@ -1611,7 +1611,7 @@ export const codexApi = {
             `/codex/connections/${id}/auth/status`
         ),
 
-    fetchCustomModels: (data: { apiKey?: string; baseUrl?: string; connectionId?: string }) =>
+    fetchCustomModels: (data: { apiKey?: string; baseUrl?: string; upstreamFormat?: CodexUpstreamFormat; connectionId?: string }) =>
         fetchApi<{ models: CodexModel[] }>('/codex/models', {
             method: 'POST',
             body: JSON.stringify(data),

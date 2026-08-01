@@ -1,5 +1,7 @@
+import { applyDeepSeekV4ModelDefaults } from '@/lib/codex-deepseek'
+
 export type CodexConnectionProviderType = 'openai-official' | 'custom'
-export type CodexUpstreamFormat = 'responses' | 'chat-completions'
+export type CodexUpstreamFormat = 'responses' | 'chat-completions' | 'anthropic-messages'
 
 type CodexFastModeConnection = {
     providerType: string
@@ -141,7 +143,9 @@ export function getDefaultCodexConfig(_providerType: CodexConnectionProviderType
 export function createDefaultCodexProviderModel(modelId = DEFAULT_CODEX_MODEL): CodexProviderModel {
     const nativeModel = getNativeCodexProviderModel(modelId)
     if (nativeModel) return nativeModel
-    return {
+    // Apply known third-party defaults (e.g. DeepSeek V4) at creation time so
+    // the settings form does not flash generic 300k defaults before save.
+    return applyDeepSeekV4ModelDefaults({
         id: modelId,
         displayName: modelId,
         contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
@@ -149,7 +153,7 @@ export function createDefaultCodexProviderModel(modelId = DEFAULT_CODEX_MODEL): 
         defaultReasoningEffort: 'high',
         supportsParallelToolCalls: true,
         inputModalities: ['text', 'image'],
-    }
+    })
 }
 
 export function isNativeCodexModelId(modelId: string) {
@@ -189,19 +193,30 @@ export function expandNativeCodexModels(models: CodexProviderModel[]) {
 }
 
 export function getDefaultCodexCustomSettings(): CodexCustomProviderSettings {
-    const model = createDefaultCodexProviderModel()
     return {
         apiKey: '',
         baseUrl: DEFAULT_CODEX_CUSTOM_BASE_URL,
         upstreamFormat: 'responses',
-        defaultModelId: model.id,
-        models: [model],
+        // New custom connections start with no models; the user must fetch or
+        // add one before the connection can be saved.
+        defaultModelId: '',
+        models: [],
     }
 }
 
 export function parseCodexUpstreamFormat(value: unknown): CodexUpstreamFormat | null {
-    return value === 'responses' || value === 'chat-completions' ? value : null
+    return value === 'responses' || value === 'chat-completions' || value === 'anthropic-messages'
+        ? value
+        : null
 }
+
+// DeepSeek vendor adapters live in codex-deepseek.ts; re-export so existing
+// call sites keep working while new adapters stay isolated per vendor.
+export {
+    applyCodexUpstreamModelCapabilities,
+    applyDeepSeekV4ModelDefaults,
+    isOfficialDeepSeekResponsesProvider,
+} from '@/lib/codex-deepseek'
 
 export function normalizeCodexProviderModels(value: unknown): CodexProviderModel[] {
     if (!Array.isArray(value)) return []

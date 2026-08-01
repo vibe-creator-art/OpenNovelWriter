@@ -259,8 +259,14 @@
             "customModel": "模型名称",
             "customModelPlaceholder": "选择模型",
             "upstreamFormat": "上游协议格式",
+            "upstreamFormats": {
+                "responses": "Responses（原生）",
+                "chatCompletions": "Chat Completions（协议转换）",
+                "anthropicMessages": "Anthropic Messages（协议转换）"
+            },
             "apiKeySavedPlaceholder": "已保存；留空则保持不变",
             "modelList": "可用模型列表",
+            "emptyModelList": "暂无模型。请先拉取上游模型列表，或手动添加。",
             "addModel": "添加模型",
             "removeModel": "移除",
             "modelId": "上游模型 ID",

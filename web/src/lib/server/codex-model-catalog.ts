@@ -3,6 +3,11 @@ import os from 'os'
 import path from 'path'
 
 import type { CodexProviderModel, CodexUpstreamFormat } from '@/lib/codex-config'
+import {
+    applyCodexUpstreamModelCapabilities,
+    buildOfficialDeepSeekCatalogEntry,
+    shouldUseOfficialDeepSeekCatalog,
+} from '@/lib/codex-deepseek'
 import { writeFileAtomicallyIfChanged } from '@/lib/server/atomic-file-write'
 
 export const CODEX_MODEL_CATALOG_FILE = 'opennovelwriter-model-catalog.json'
@@ -23,12 +28,13 @@ const REASONING_DESCRIPTIONS: Record<string, string> = {
 export async function writeCodexModelCatalog(input: {
     codexHome: string
     upstreamFormat: CodexUpstreamFormat
+    baseUrl?: string | null
     models: CodexProviderModel[]
 }) {
     const template = await loadCodexModelTemplate(input.codexHome)
     const catalog = {
         models: input.models.map((model, index) =>
-            buildCatalogEntry(template, model, index, input.upstreamFormat)
+            buildCatalogEntry(template, model, index, input.upstreamFormat, input.baseUrl)
         ),
     }
     const target = path.join(input.codexHome, CODEX_MODEL_CATALOG_FILE)
@@ -40,8 +46,14 @@ function buildCatalogEntry(
     template: JsonObject,
     model: CodexProviderModel,
     index: number,
-    upstreamFormat: CodexUpstreamFormat
+    upstreamFormat: CodexUpstreamFormat,
+    baseUrl?: string | null
 ) {
+    model = applyCodexUpstreamModelCapabilities(model, upstreamFormat, baseUrl)
+    if (shouldUseOfficialDeepSeekCatalog(upstreamFormat, baseUrl, model.id)) {
+        return buildOfficialDeepSeekCatalogEntry(model, index)
+    }
+
     const entry: JsonObject = structuredClone(template)
     entry.slug = model.id
     entry.display_name = model.displayName
@@ -63,10 +75,11 @@ function buildCatalogEntry(
     entry.default_reasoning_level = model.defaultReasoningEffort
     entry.supports_parallel_tool_calls = model.supportsParallelToolCalls
     entry.input_modalities = model.inputModalities
+    // Eager tool loading: MCP / plugin tools must appear in the session tool list.
     entry.supports_search_tool = false
     delete entry.web_search_tool_type
 
-    if (upstreamFormat === 'responses') {
+    if (upstreamFormat === 'responses' || upstreamFormat === 'anthropic-messages') {
         delete entry.apply_patch_tool_type
         delete entry.model_messages
         delete entry.tool_mode
