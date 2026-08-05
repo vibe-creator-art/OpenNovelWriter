@@ -1,4 +1,9 @@
-import type { CustomTermCategory, TermCategoryId, TermEntry } from '@/components/editor/terms/types'
+import type {
+    CustomTermCategory,
+    TermCategoryId,
+    TermEntry,
+    TermEntryRelationDirection,
+} from '@/components/editor/terms/types'
 
 type SupportedLocale = 'zh' | 'en'
 
@@ -43,6 +48,17 @@ export function splitTermExperiences(raw: string | undefined) {
         .filter(Boolean)
 }
 
+function formatTermRelationDirection(direction: TermEntryRelationDirection, locale: SupportedLocale) {
+    if (locale === 'en') {
+        if (direction === 'incoming') return 'from'
+        if (direction === 'bidirectional') return 'with'
+        return 'to'
+    }
+    if (direction === 'incoming') return '来自'
+    if (direction === 'bidirectional') return '双向'
+    return '指向'
+}
+
 export function getTermCategoryLabel(params: {
     categoryId: TermCategoryId
     locale?: string | null
@@ -62,6 +78,9 @@ export function renderTermTemplateText(entry: TermEntry | null) {
 
 export function renderTermTemplateValue(params: {
     entry: TermEntry | null
+    termsById: ReadonlyMap<string, TermEntry>
+    includeRelations: boolean
+    includeExperiences: boolean
     locale?: string | null
     customCategories?: readonly CustomTermCategory[] | null | undefined
 }) {
@@ -71,7 +90,8 @@ export function renderTermTemplateValue(params: {
     const title = entry.title?.trim() ?? ''
     if (!title) return ''
 
-    const separator = normalizeLocale(params.locale) === 'en' ? ', ' : '，'
+    const locale = normalizeLocale(params.locale)
+    const separator = locale === 'en' ? ', ' : '，'
     const categoryLabel = getTermCategoryLabel({
         categoryId: entry.categoryId,
         locale: params.locale,
@@ -79,11 +99,33 @@ export function renderTermTemplateValue(params: {
     })
     const aliases = splitAliases(entry.aliases)
     const openTag = `<${categoryLabel}${separator}${['name=' + title, ...aliases].join(separator)}>`
-    const experiences = splitTermExperiences(entry.experiences)
-    const experiencesBlock = experiences.length
-        ? [normalizeLocale(params.locale) === 'en' ? 'Experiences:' : '经历：', ...experiences.map((item) => `- ${item}`)].join('\n')
+    const relations = params.includeRelations
+        ? (entry.relations ?? [])
+              .map((relation) => {
+                  const otherTitle = params.termsById.get(relation.otherId)?.title?.trim() ?? ''
+                  if (!otherTitle) return ''
+
+                  const direction = formatTermRelationDirection(relation.direction, locale)
+                  const label = relation.label?.trim() ?? ''
+                  const labelSuffix = label ? (locale === 'en' ? ` (${label})` : `（${label}）`) : ''
+                  return `${direction} ${otherTitle}${labelSuffix}`
+              })
+              .filter(Boolean)
+        : []
+    const relationsBlock = relations.length
+        ? [locale === 'en' ? 'Relations:' : '关系：', ...relations.map((item) => `- ${item}`)].join('\n')
         : ''
-    const body = [entry.subtitle?.trim(), entry.description?.trim(), experiencesBlock, entry.researchNotes?.trim()].filter(Boolean)
+    const experiences = params.includeExperiences ? splitTermExperiences(entry.experiences) : []
+    const experiencesBlock = experiences.length
+        ? [locale === 'en' ? 'Experiences:' : '经历：', ...experiences.map((item) => `- ${item}`)].join('\n')
+        : ''
+    const body = [
+        entry.subtitle?.trim(),
+        entry.description?.trim(),
+        relationsBlock,
+        experiencesBlock,
+        entry.researchNotes?.trim(),
+    ].filter(Boolean)
 
     return [openTag, ...body, `</${categoryLabel}>`].join('\n').trim()
 }

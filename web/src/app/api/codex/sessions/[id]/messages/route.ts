@@ -16,6 +16,11 @@ import { getNovelWorkspaceTermFileMap } from '@/lib/server/novel-workspace'
 import { seedSkillSessionArtifact } from '@/lib/server/codex-skill-session'
 import { getCodexSessionWorkspacePath } from '@/lib/server/codex-session-workspace'
 import {
+    normalizeCodexResponseAnnotations,
+    prependCodexResponseAnnotations,
+    type CodexResponseAnnotation,
+} from '@/lib/codex-response-annotations'
+import {
     type CodexContextWindow,
     createCodexMessageId,
     createCodexSessionTitle,
@@ -49,6 +54,7 @@ type CodexRouteRunEvent = {
     title: string
     content: string
     attachments?: string[]
+    responseAnnotations?: CodexResponseAnnotation[]
     createdAt: string
 }
 
@@ -91,6 +97,7 @@ function upsertEventMessage(messages: CodexSessionMessage[], event: CodexRouteRu
         kind: event.kind,
         content: [event.title, event.content].filter(Boolean).join('\n\n'),
         attachments: event.attachments ?? [],
+        ...(event.responseAnnotations?.length ? { responseAnnotations: event.responseAnnotations } : {}),
         createdAt: event.createdAt,
     }
     const index = messages.findIndex((item) => item.id === event.id)
@@ -132,6 +139,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const content = normalizeCodexString(body?.content).trim()
     if (!content) return NextResponse.json({ detail: 'Message content is required.' }, { status: 400 })
     const attachments = normalizeManagedAttachmentUrls(body?.attachments)
+    const responseAnnotations = normalizeCodexResponseAnnotations(body?.responseAnnotations)
     const artifactFiles = Array.isArray(body?.artifactFiles)
         ? [...new Set((body.artifactFiles as unknown[]).filter((value): value is string =>
             typeof value === 'string' && /^[^/\\]+\.json$/i.test(value)
@@ -368,6 +376,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         if (artifactFiles.length > 0) {
             finalPromptText += `\n\n[OpenNovelWriter] The author attached these JSON files to this turn: ${artifactFiles.map((fileName) => `artifacts/${fileName}`).join(', ')}. Read them as source material for the request.`
         }
+        finalPromptText = prependCodexResponseAnnotations(finalPromptText, responseAnnotations)
 
         const now = new Date()
         const startedAt = now.toISOString()
@@ -378,6 +387,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             content,
             attachments,
             jsonArtifacts: artifactFiles,
+            ...(responseAnnotations.length ? { responseAnnotations } : {}),
             createdAt: startedAt,
         }
         const optimisticMessages = [...currentMessages, userMessage]

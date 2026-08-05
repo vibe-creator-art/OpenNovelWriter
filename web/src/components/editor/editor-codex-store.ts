@@ -20,6 +20,8 @@ import type { PendingImageAttachment } from '@/components/image/use-image-attach
 import { dispatchNovelRefreshRequested } from '@/lib/novel-refresh-events'
 import { emitSceneEditsChanged } from '@/components/editor/scene-edit-events'
 import { emitContinuationPanelRemoved } from '@/lib/continuation-panel-events'
+import { mergeServerSession } from '@/components/editor/codex-session-merge'
+import type { CodexResponseAnnotation } from '@/lib/codex-response-annotations'
 
 export const EDITOR_CODEX_FALLBACK_NOVEL_ID = '__default__'
 
@@ -53,6 +55,7 @@ export type QueuedCodexMessage = {
     id: string
     content: string
     attachments: string[]
+    responseAnnotations: CodexResponseAnnotation[]
     createdAt: string
 }
 
@@ -119,7 +122,18 @@ type CodexStoreState = {
     deleteSession: (novelId: string | null | undefined, sessionId: string) => Promise<void>
     removeDeletedSession: (novelId: string | null | undefined, sessionId: string) => void
     stop: (novelId: string | null | undefined, sessionId: string) => Promise<void>
-    sendMessage: (novelId: string | null | undefined, sessionId: string, content: string, options?: { skillIds?: string[]; promptArtifact?: CodexPromptArtifact; attachments?: string[]; artifactFiles?: string[] }) => Promise<void>
+    sendMessage: (
+        novelId: string | null | undefined,
+        sessionId: string,
+        content: string,
+        options?: {
+            skillIds?: string[]
+            promptArtifact?: CodexPromptArtifact
+            attachments?: string[]
+            artifactFiles?: string[]
+            responseAnnotations?: CodexResponseAnnotation[]
+        }
+    ) => Promise<void>
     compact: (novelId: string | null | undefined, sessionId: string) => Promise<void>
     resolveApproval: (
         sessionId: string,
@@ -279,30 +293,13 @@ function restoreDraftImageAttachments(session: CodexSession): PendingImageAttach
     }))
 }
 
-function mergeSessionPreservingComposer(current: CodexNovelSessionState, session: CodexSession) {
+function mergeSessionPreservingComposer(
+    current: CodexNovelSessionState,
+    session: CodexSession,
+    options?: { preserveRunning?: boolean }
+) {
     const local = current.sessions.find((item) => item.id === session.id)
-    return mergeServerSession(local, session)
-}
-
-/**
- * Server is authoritative for connection/model/messages. Keep only the live
- * composer draft (and an in-flight run) from local state so rebinds after a
- * connection switch are visible without losing unsaved draft text.
- */
-function mergeServerSession(local: CodexSession | undefined, server: CodexSession): CodexSession {
-    if (!local) return server
-    const merged: CodexSession = {
-        ...server,
-        draftContent: local.draftContent,
-        draftAttachments: local.draftAttachments,
-        draftArtifacts: local.draftArtifacts,
-    }
-    if (local.status === 'running') {
-        merged.status = local.status
-        merged.messages = local.messages
-        merged.lastError = local.lastError
-    }
-    return merged
+    return mergeServerSession(local, session, options)
 }
 
 function categoryRank(category: CodexSessionCategory) {
@@ -328,6 +325,7 @@ function eventToMessage(event: CodexRunEvent): CodexSession['messages'][number] 
         kind: event.kind,
         content: [event.title, event.content].filter(Boolean).join('\n\n'),
         attachments: event.attachments,
+        responseAnnotations: event.responseAnnotations,
         createdAt: event.createdAt,
     }
 }
@@ -415,7 +413,7 @@ function applyCodexStreamEvent(
             : event.session
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            const session = mergeSessionPreservingComposer(current, completedSession)
+            const session = mergeSessionPreservingComposer(current, completedSession, { preserveRunning: false })
             return {
                 pendingApprovalsBySession: {
                     ...state.pendingApprovalsBySession,
@@ -434,7 +432,9 @@ function applyCodexStreamEvent(
     if (event.type === 'error') {
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            const session = event.session ? mergeSessionPreservingComposer(current, event.session) : null
+            const session = event.session
+                ? mergeSessionPreservingComposer(current, event.session, { preserveRunning: false })
+                : null
             return {
                 pendingApprovalsBySession: {
                     ...state.pendingApprovalsBySession,
@@ -1048,7 +1048,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                     ...state.sessionsByNovel,
                     [novelKey]: applySession(
                         current,
-                        mergeSessionPreservingComposer(current, result.session),
+                        mergeSessionPreservingComposer(current, result.session, { preserveRunning: false }),
                         { front: false }
                     ),
                 },
@@ -1090,6 +1090,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                                                 content,
                                                 attachments: options?.attachments,
                                                 jsonArtifacts: options?.artifactFiles,
+                                                responseAnnotations: options?.responseAnnotations,
                                                 createdAt: now,
                                             },
                                         ],
@@ -1108,6 +1109,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 promptArtifact: options?.promptArtifact,
                 attachments: options?.attachments,
                 artifactFiles: options?.artifactFiles,
+                responseAnnotations: options?.responseAnnotations,
                 onEvent: (event) => {
                     if (event.type === 'done' || event.type === 'error') {
                         finishClientRun(sessionId, controller)

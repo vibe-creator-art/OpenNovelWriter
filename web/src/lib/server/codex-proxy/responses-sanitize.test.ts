@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { sanitizeThirdPartyResponsesRequest } from './responses-sanitize'
 import { normalizeCodexResponsesTools } from './tool-context'
 
-test('drops Codex-private tool_search and null parameter schemas for third-party Responses', () => {
+test('drops an unbridged private tool_search and normalizes parameter schemas', () => {
     const body = {
         model: 'z-ai/glm-5.2',
         prompt_cache_retention: 'in_memory',
@@ -66,4 +66,35 @@ test('namespace flatten then sanitize keeps MCP tools for ZenMux-style gateways'
     assert.equal(tools[0].type, 'function')
     assert.equal(tools[0].name, 'opennovelwriter__update_chapter_title')
     assert.deepEqual(tools[0].parameters, { type: 'object', properties: {} })
+})
+
+test('tool_search bridge survives third-party Responses sanitization', () => {
+    const body = {
+        model: 'deepseek-v4-flash',
+        tools: [{
+            type: 'tool_search',
+            execution: 'client',
+            description: 'Search available tools.',
+            parameters: {
+                type: 'object',
+                properties: { query: { type: 'string' }, limit: { type: 'integer' } },
+                required: ['query'],
+            },
+        }],
+        input: [{ type: 'message', role: 'user', content: 'rename a chapter' }],
+    }
+
+    const result = sanitizeThirdPartyResponsesRequest(normalizeCodexResponsesTools(body))
+    const tools = result.tools as Array<Record<string, unknown>>
+
+    assert.deepEqual(tools, [{
+        type: 'function',
+        name: 'tool_search',
+        description: 'Search available tools.',
+        parameters: {
+            type: 'object',
+            properties: { query: { type: 'string' }, limit: { type: 'integer' } },
+            required: ['query'],
+        },
+    }])
 })

@@ -8,13 +8,13 @@ import { createAnthropicToResponsesStream, readAnthropicSseAsResponses, response
 import { anthropicResponseToResponses, responsesToAnthropicRequest } from '@/lib/server/codex-proxy/anthropic-transform'
 import { codexBridgeHistory } from '@/lib/server/codex-proxy/history'
 import { sanitizeThirdPartyResponsesRequest } from '@/lib/server/codex-proxy/responses-sanitize'
-import { createResponsesNamespaceStream } from '@/lib/server/codex-proxy/responses-stream'
+import { createResponsesToolStream } from '@/lib/server/codex-proxy/responses-stream'
 import { createChatToResponsesStream } from '@/lib/server/codex-proxy/stream'
 import {
     CodexToolContext,
     isObject,
     normalizeCodexResponsesTools,
-    rewriteNamespacedResponse,
+    rewriteCompatibleResponsesResponse,
 } from '@/lib/server/codex-proxy/tool-context'
 import { chatCompletionToResponse, responsesToChatRequest } from '@/lib/server/codex-proxy/transform'
 
@@ -77,8 +77,8 @@ export async function handleCodexUpstreamRequest(input: {
     try {
         const apiKey = decryptApiKey(encryptedApiKey)
         if (upstreamFormat === 'responses') {
-            // Flatten MCP namespaces and scrub Codex-private shapes that third
-            // parties often reject (tool_search, null schemas, …).
+            // Bridge Codex tool search and namespaces to ordinary Responses
+            // function calling, then scrub unsupported private fields.
             const prepared = sanitizeThirdPartyResponsesRequest(normalizeCodexResponsesTools(body))
             return proxyResponsesRequest({
                 request: input.request,
@@ -121,10 +121,9 @@ async function proxyResponsesRequest(input: {
     })
     if (!upstream.ok || !upstream.body) return forwardUpstreamResponse(upstream)
 
-    // Restore flattened MCP / plugin tool names so the Codex client can match
-    // function_call items against its namespaced registry.
+    // Restore native Codex tool-search and namespace items on the way back.
     if (upstream.headers.get('content-type')?.includes('text/event-stream')) {
-        return new Response(createResponsesNamespaceStream({
+        return new Response(createResponsesToolStream({
             upstream: upstream.body,
             context: input.context,
         }), {
@@ -134,7 +133,7 @@ async function proxyResponsesRequest(input: {
     }
 
     const parsed = await upstream.json() as unknown
-    return NextResponse.json(rewriteNamespacedResponse(parsed, input.context), { status: upstream.status })
+    return NextResponse.json(rewriteCompatibleResponsesResponse(parsed, input.context), { status: upstream.status })
 }
 
 async function proxyChatRequest(input: {

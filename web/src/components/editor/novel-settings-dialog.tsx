@@ -44,6 +44,7 @@ import {
     DEFAULT_CODEX_SESSION_RETENTION_LIMIT,
     MIN_CODEX_SESSION_RETENTION_LIMIT,
 } from '@/lib/codex-session-retention'
+import { dispatchNovelSettingsChanged } from '@/lib/novel-settings-events'
 
 interface NovelSettingsDialogProps {
     open: boolean
@@ -235,6 +236,8 @@ export function NovelSettingsDialog({
     const [coverImage, setCoverImage] = useState('')
     const [language, setLanguage] = useState(defaultNovelLanguage)
     const [outlineCollapsesChapters, setOutlineCollapsesChapters] = useState(true)
+    const [termContextIncludesRelations, setTermContextIncludesRelations] = useState(true)
+    const [termContextIncludesExperiences, setTermContextIncludesExperiences] = useState(true)
     const [codexSessionAutoCleanup, setCodexSessionAutoCleanup] = useState(false)
     const [codexSessionRetentionLimit, setCodexSessionRetentionLimit] = useState(
         DEFAULT_CODEX_SESSION_RETENTION_LIMIT.toString()
@@ -258,6 +261,8 @@ export function NovelSettingsDialog({
             setCoverImage(novel.coverImage || '')
             setLanguage(novel.language || defaultNovelLanguage)
             setOutlineCollapsesChapters(novel.outlineActSummaryCollapsesChapters ?? true)
+            setTermContextIncludesRelations(novel.termContextIncludesRelations)
+            setTermContextIncludesExperiences(novel.termContextIncludesExperiences)
             setCodexSessionAutoCleanup(novel.codexSessionAutoCleanup)
             setCodexSessionRetentionLimit(novel.codexSessionRetentionLimit.toString())
         }
@@ -432,10 +437,13 @@ export function NovelSettingsDialog({
                 coverImage: coverImage || null,
                 language,
                 outlineActSummaryCollapsesChapters: outlineCollapsesChapters,
+                termContextIncludesRelations,
+                termContextIncludesExperiences,
                 codexSessionAutoCleanup,
                 codexSessionRetentionLimit: normalizedRetentionLimit,
             })
             onUpdate(updated)
+            dispatchNovelSettingsChanged({ novelId: updated.id })
             onOpenChange(false) // Close dialog after successful save
         } catch (error) {
             console.error('Failed to save settings:', error)
@@ -734,27 +742,64 @@ export function NovelSettingsDialog({
                     )}
 
                     {activeTab === 'memory' && (
-                        <div className="max-w-2xl">
-                            <div className="mb-4">
-                                <h3 className="text-sm font-semibold">{t('memory.outlineTitle')}</h3>
-                                <p className="text-xs text-muted-foreground mt-1">{t('memory.outlineDescription')}</p>
-                            </div>
-                            <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
-                                <div className="space-y-1">
-                                    <Label className="text-sm font-medium">{t('memory.collapseChaptersLabel')}</Label>
-                                    <p className="text-xs text-muted-foreground">{t('memory.collapseChaptersDescription')}</p>
+                        <div className="max-w-2xl space-y-6">
+                            <div>
+                                <div className="mb-4">
+                                    <h3 className="text-sm font-semibold">{t('memory.outlineTitle')}</h3>
+                                    <p className="text-xs text-muted-foreground mt-1">{t('memory.outlineDescription')}</p>
                                 </div>
-                                <button
-                                    type="button"
-                                    role="switch"
-                                    aria-checked={outlineCollapsesChapters}
-                                    onClick={() => setOutlineCollapsesChapters((v) => !v)}
-                                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${outlineCollapsesChapters ? 'bg-primary' : 'bg-input'}`}
-                                >
-                                    <span
-                                        className={`inline-block h-5 w-5 transform rounded-full bg-background shadow transition-transform ${outlineCollapsesChapters ? 'translate-x-5' : 'translate-x-0.5'}`}
-                                    />
-                                </button>
+                                <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+                                    <div className="space-y-1">
+                                        <Label className="text-sm font-medium">{t('memory.collapseChaptersLabel')}</Label>
+                                        <p className="text-xs text-muted-foreground">{t('memory.collapseChaptersDescription')}</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={outlineCollapsesChapters}
+                                        onClick={() => setOutlineCollapsesChapters((v) => !v)}
+                                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${outlineCollapsesChapters ? 'bg-primary' : 'bg-input'}`}
+                                    >
+                                        <span
+                                            className={`inline-block h-5 w-5 transform rounded-full bg-background shadow transition-transform ${outlineCollapsesChapters ? 'translate-x-5' : 'translate-x-0.5'}`}
+                                        />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div className="mb-4">
+                                    <h3 className="text-sm font-semibold">{t('memory.termsTitle')}</h3>
+                                    <p className="text-xs text-muted-foreground mt-1">{t('memory.termsDescription')}</p>
+                                </div>
+                                <div className="divide-y rounded-lg border">
+                                    <div className="flex items-start justify-between gap-4 p-4">
+                                        <div className="space-y-1">
+                                            <Label htmlFor="term-context-relations" className="text-sm font-medium">
+                                                {t('memory.termsRelationsLabel')}
+                                            </Label>
+                                            <p className="text-xs text-muted-foreground">{t('memory.termsRelationsDescription')}</p>
+                                        </div>
+                                        <Switch
+                                            id="term-context-relations"
+                                            checked={termContextIncludesRelations}
+                                            onCheckedChange={setTermContextIncludesRelations}
+                                        />
+                                    </div>
+                                    <div className="flex items-start justify-between gap-4 p-4">
+                                        <div className="space-y-1">
+                                            <Label htmlFor="term-context-experiences" className="text-sm font-medium">
+                                                {t('memory.termsExperiencesLabel')}
+                                            </Label>
+                                            <p className="text-xs text-muted-foreground">{t('memory.termsExperiencesDescription')}</p>
+                                        </div>
+                                        <Switch
+                                            id="term-context-experiences"
+                                            checked={termContextIncludesExperiences}
+                                            onCheckedChange={setTermContextIncludesExperiences}
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}

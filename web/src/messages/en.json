@@ -192,7 +192,13 @@
             "outlineTitle": "Outline Recall",
             "outlineDescription": "Controls how '{{ novel.outline }}' assembles your outline in prompts.",
             "collapseChaptersLabel": "Prefer volume summaries",
-            "collapseChaptersDescription": "When a volume (act) has a summary, use it to stand in for that volume and skip the chapter/scene summaries underneath; volumes without a summary still list their chapters. When off, the volume summary is followed by every chapter summary in that volume. The current volume is never collapsed, so its progress is always kept."
+            "collapseChaptersDescription": "When a volume (act) has a summary, use it to stand in for that volume and skip the chapter/scene summaries underneath; volumes without a summary still list their chapters. When off, the volume summary is followed by every chapter summary in that volume. The current volume is never collapsed, so its progress is always kept.",
+            "termsTitle": "Term Recall",
+            "termsDescription": "Controls which content is included in complete term blocks in prompts.",
+            "termsRelationsLabel": "Relations",
+            "termsRelationsDescription": "Include current relations in term context.",
+            "termsExperiencesLabel": "Experiences",
+            "termsExperiencesDescription": "Include the experience timeline in term context."
         },
         "codex": {
             "title": "Codex Sessions",
@@ -1010,6 +1016,9 @@
             "startTitle": "Let Codex help write your novel",
             "startDescription": "",
             "composerPlaceholder": "Let Codex help write your novel. @ to mention novel content, / to run a command",
+            "addToChat": "Add to chat",
+            "annotationCount": "{count, plural, one {# annotation} other {# annotations}}",
+            "removeAnnotation": "Remove annotation",
             "compaction": {
                 "running": "Compacting context",
                 "done": "Context compacted"

@@ -8,6 +8,7 @@ import type { StoredTerms, TermEntryGalleryItem } from '@/components/editor/term
 import type { RevisionHistoryItem } from '@/lib/revision-history'
 import type { PromptBundleV1 } from './prompt-bundle'
 import type { SkillPresetAssetV1 } from './skill-preset'
+import type { CodexResponseAnnotation } from './codex-response-annotations'
 
 const API_BASE = '/api'
 
@@ -92,6 +93,8 @@ export interface Novel {
     seriesIndex: number | null
     language: string | null
     outlineActSummaryCollapsesChapters: boolean
+    termContextIncludesRelations: boolean
+    termContextIncludesExperiences: boolean
     codexSessionAutoCleanup: boolean
     codexSessionRetentionLimit: number
     ownerId: string
@@ -1141,6 +1144,7 @@ export type CodexSessionMessage = {
     contextWindow?: CodexContextWindow | null
     attachments?: string[]
     jsonArtifacts?: string[]
+    responseAnnotations?: CodexResponseAnnotation[]
     createdAt: string
 }
 
@@ -1167,6 +1171,7 @@ export type CodexRunEvent = {
     title: string
     content: string
     attachments?: string[]
+    responseAnnotations?: CodexResponseAnnotation[]
     createdAt: string
 }
 
@@ -1405,10 +1410,15 @@ export const codexSessionApi = {
             }
         ),
 
-    steerMessage: (id: string, content: string, attachments?: string[]) =>
+    steerMessage: (
+        id: string,
+        content: string,
+        attachments?: string[],
+        responseAnnotations?: CodexResponseAnnotation[]
+    ) =>
         fetchApi<{ ok: true }>(`/codex/sessions/${encodeURIComponent(id)}/steer`, {
             method: 'POST',
-            body: JSON.stringify({ content, attachments }),
+            body: JSON.stringify({ content, attachments, responseAnnotations }),
         }),
 
     stop: (id: string) =>
@@ -1425,6 +1435,7 @@ export const codexSessionApi = {
             promptArtifact?: CodexPromptArtifact
             attachments?: string[]
             artifactFiles?: string[]
+            responseAnnotations?: CodexResponseAnnotation[]
             onEvent: (event: CodexSessionStreamEvent) => void
         }
     ) => {
@@ -1444,6 +1455,7 @@ export const codexSessionApi = {
                 promptArtifact: options.promptArtifact,
                 attachments: options.attachments,
                 artifactFiles: options.artifactFiles,
+                responseAnnotations: options.responseAnnotations,
             }),
             signal: options.signal,
         })

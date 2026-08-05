@@ -192,7 +192,13 @@
             "outlineTitle": "大纲召回",
             "outlineDescription": "控制 '{{ novel.outline }}' 在提示词中如何拼装小说大纲。",
             "collapseChaptersLabel": "卷总结优先",
-            "collapseChaptersDescription": "当某一卷有卷总结时，只用卷总结代表该卷，跳过其下各章/场的小结；卷总结为空时仍会列出各章小结。关闭后则在卷总结之后接上该卷每一章的小结。当前所在卷不受影响，始终保留进度。"
+            "collapseChaptersDescription": "当某一卷有卷总结时，只用卷总结代表该卷，跳过其下各章/场的小结；卷总结为空时仍会列出各章小结。关闭后则在卷总结之后接上该卷每一章的小结。当前所在卷不受影响，始终保留进度。",
+            "termsTitle": "词条召回",
+            "termsDescription": "控制完整词条块在提示词中包含哪些内容。",
+            "termsRelationsLabel": "关系",
+            "termsRelationsDescription": "在词条上下文中包含当前关系。",
+            "termsExperiencesLabel": "经历",
+            "termsExperiencesDescription": "在词条上下文中包含经历时间线。"
         },
         "codex": {
             "title": "Codex 会话",
@@ -1010,6 +1016,9 @@
             "startTitle": "让 Codex 帮你创作小说",
             "startDescription": "",
             "composerPlaceholder": "让 Codex 帮你创作小说。输入 @ 提及小说内容,输入 / 发送指令",
+            "addToChat": "添加到对话",
+            "annotationCount": "{count} 条引用",
+            "removeAnnotation": "移除引用",
             "compaction": {
                 "running": "正在压缩上下文",
                 "done": "上下文已压缩"

@@ -103,8 +103,8 @@ export function shouldUseOfficialDeepSeekCatalog(
 
 /**
  * Build a catalog entry from DeepSeek's official Codex models.json template.
- * Force tools to be eagerly exposed: OpenNovelWriter relies on first-party MCP
- * tools being present in the session tool list, not deferred behind tool_search.
+ * Keep tool search enabled; the proxy presents it as ordinary function calling
+ * while preserving Codex's deferred MCP tool registry.
  */
 export function buildOfficialDeepSeekCatalogEntry(model: CodexProviderModel, index: number): JsonObject {
     const officialModels = (deepSeekOfficialCatalog.models ?? []) as JsonObject[]
@@ -126,7 +126,6 @@ export function buildOfficialDeepSeekCatalogEntry(model: CodexProviderModel, ind
     entry.max_context_window = model.contextWindow
     entry.supports_parallel_tool_calls = model.supportsParallelToolCalls
     entry.input_modalities = model.inputModalities
-    // Prefer eager tool loading for MCP / plugin namespaces.
-    entry.supports_search_tool = false
+    entry.supports_search_tool = true
     return entry
 }

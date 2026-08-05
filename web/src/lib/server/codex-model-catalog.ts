@@ -75,14 +75,17 @@ function buildCatalogEntry(
     entry.default_reasoning_level = model.defaultReasoningEffort
     entry.supports_parallel_tool_calls = model.supportsParallelToolCalls
     entry.input_modalities = model.inputModalities
-    // Eager tool loading: MCP / plugin tools must appear in the session tool list.
-    entry.supports_search_tool = false
+    // Third-party models use Codex's deferred tool registry. The proxy bridges
+    // tool_search to ordinary function calling when the upstream does not
+    // implement Codex's client-executed search item natively.
+    entry.supports_search_tool = true
+    delete entry.tool_mode
+    entry.use_responses_lite = false
     delete entry.web_search_tool_type
 
     if (upstreamFormat === 'responses' || upstreamFormat === 'anthropic-messages') {
         delete entry.apply_patch_tool_type
         delete entry.model_messages
-        delete entry.tool_mode
         entry.shell_type = 'shell_command'
         entry.experimental_supported_tools = []
         entry.base_instructions =

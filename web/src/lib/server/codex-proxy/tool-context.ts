@@ -146,14 +146,15 @@ export class CodexToolContext {
 }
 
 /**
- * Make a Codex Responses request safe for third-party native Responses gateways
- * (DeepSeek, xAI, etc.) that reject ChatGPT-private shapes:
+ * Convert Codex's tool protocol to ordinary Responses function calling:
  * - promote `input[].type === "additional_tools"` into top-level `tools`
+ * - expose client-executed `tool_search` as a normal function
+ * - promote tools returned by `tool_search_output` into top-level `tools`
  * - flatten `type: "namespace"` tools into top-level `function` tools
- * - rewrite namespaced `function_call` history items to flat names
+ * - rewrite tool-search and namespaced call history to ordinary function items
  *
- * Pair with {@link rewriteNamespacedResponse} on the way back so the Codex
- * client can match MCP / plugin tool calls against its namespaced registry.
+ * Pair with {@link rewriteCompatibleResponsesResponse} on the way back so
+ * Codex receives its native tool-search and namespace items again.
  */
 export function normalizeCodexResponsesTools(body: JsonObject) {
     const originalTools = Array.isArray(body.tools) ? body.tools : []
@@ -171,6 +172,9 @@ export function normalizeCodexResponsesTools(body: JsonObject) {
                 for (const tool of item.tools) extractedTools.push(tool)
                 changed = true
             } else {
+                if (isObject(item) && item.type === 'tool_search_output' && Array.isArray(item.tools)) {
+                    for (const tool of item.tools) extractedTools.push(tool)
+                }
                 normalizedInput.push(item)
             }
         }
@@ -180,9 +184,9 @@ export function normalizeCodexResponsesTools(body: JsonObject) {
         }
     }
 
-    const hasNamespace = tools.some((tool) => isObject(tool) && tool.type === 'namespace')
-    if (hasNamespace) {
-        tools = tools.flatMap((tool) => flattenResponseTool(tool))
+    const normalizedTools = tools.flatMap((tool) => normalizeCompatibleResponseTool(tool))
+    if (normalizedTools.length !== tools.length || normalizedTools.some((tool, index) => tool !== tools[index])) {
+        tools = normalizedTools
         changed = true
     }
 
@@ -197,6 +201,9 @@ export function normalizeCodexResponsesTools(body: JsonObject) {
     let toolChoice = body.tool_choice
     if (isObject(toolChoice) && toolChoice.type === 'namespace') {
         toolChoice = 'auto'
+        changed = true
+    } else if (isObject(toolChoice) && toolChoice.type === 'tool_search') {
+        toolChoice = { type: 'function', name: 'tool_search' }
         changed = true
     } else if (isObject(toolChoice) && toolChoice.type === 'function') {
         const rewritten = normalizeResponseInputItem(toolChoice)
@@ -215,25 +222,42 @@ export function normalizeCodexResponsesTools(body: JsonObject) {
     }
 }
 
-export function rewriteNamespacedResponse(value: unknown, context: CodexToolContext): unknown {
-    if (Array.isArray(value)) return value.map((item) => rewriteNamespacedResponse(item, context))
+export function rewriteCompatibleResponsesResponse(value: unknown, context: CodexToolContext): unknown {
+    if (Array.isArray(value)) return value.map((item) => rewriteCompatibleResponsesResponse(item, context))
     if (!isObject(value)) return value
 
     let result: JsonObject = value
     if (value.type === 'function_call' && typeof value.name === 'string') {
         const spec = context.lookup(value.name)
-        if (spec?.namespace) {
+        if (spec?.kind === 'tool_search') {
+            const {
+                id: _id,
+                name: _name,
+                namespace: _namespace,
+                arguments: argumentsValue,
+                ...rest
+            } = value
+            void _id
+            void _name
+            void _namespace
+            result = {
+                ...rest,
+                type: 'tool_search_call',
+                execution: 'client',
+                arguments: parseArgumentsObject(canonicalArguments(argumentsValue)),
+            }
+        } else if (spec?.namespace) {
             result = { ...value, name: spec.name, namespace: spec.namespace }
         }
     }
     if (isObject(result.item)) {
-        result = { ...result, item: rewriteNamespacedResponse(result.item, context) }
+        result = { ...result, item: rewriteCompatibleResponsesResponse(result.item, context) }
     }
     if (isObject(result.response)) {
-        result = { ...result, response: rewriteNamespacedResponse(result.response, context) }
+        result = { ...result, response: rewriteCompatibleResponsesResponse(result.response, context) }
     }
     if (Array.isArray(result.output)) {
-        result = { ...result, output: result.output.map((item) => rewriteNamespacedResponse(item, context)) }
+        result = { ...result, output: result.output.map((item) => rewriteCompatibleResponsesResponse(item, context)) }
     }
     return result
 }
@@ -334,29 +358,88 @@ function normalizeChatFunctionParameters(value: unknown): JsonObject {
     return params
 }
 
-function flattenResponseTool(value: unknown): unknown[] {
-    if (!isObject(value) || value.type !== 'namespace') return [value]
+function normalizeCompatibleResponseTool(value: unknown): unknown[] {
+    if (!isObject(value)) return [value]
+    if (value.type === 'tool_search') {
+        return [{
+            type: 'function',
+            name: 'tool_search',
+            description:
+                typeof value.description === 'string' && value.description.trim()
+                    ? value.description
+                    : 'Search and load Codex tools, plugins, connectors, and MCP namespaces.',
+            parameters: normalizeChatFunctionParameters(value.parameters),
+        }]
+    }
+    if (value.type === 'function') {
+        if (!('defer_loading' in value)) return [value]
+        const { defer_loading: _deferLoading, ...tool } = value
+        void _deferLoading
+        return [tool]
+    }
+    if (value.type !== 'namespace') return [value]
     const namespace = typeof value.name === 'string' ? value.name.trim() : ''
     const children = Array.isArray(value.tools) ? value.tools : Array.isArray(value.children) ? value.children : []
     if (!namespace) return []
     return children
         .filter(isObject)
         .filter((child) => child.type === 'function' && typeof child.name === 'string')
-        .map((child) => ({
-            ...child,
-            name: flattenNamespaceName(namespace, String(child.name)),
-            parameters: normalizeChatFunctionParameters(child.parameters),
-        }))
+        .map((child) => {
+            const { defer_loading: _deferLoading, ...tool } = child
+            void _deferLoading
+            return {
+                ...tool,
+                name: flattenNamespaceName(namespace, String(child.name)),
+                parameters: normalizeChatFunctionParameters(child.parameters),
+            }
+        })
 }
 
 function normalizeResponseInputItem(value: unknown) {
-    if (!isObject(value) || value.type !== 'function_call') return value
+    if (!isObject(value)) return value
+    if (value.type === 'tool_search_call') {
+        return {
+            type: 'function_call',
+            call_id: value.call_id,
+            name: 'tool_search',
+            arguments: canonicalArguments(value.arguments),
+            ...(value.status !== undefined ? { status: value.status } : {}),
+        }
+    }
+    if (value.type === 'tool_search_output') {
+        return {
+            type: 'function_call_output',
+            call_id: value.call_id,
+            output: JSON.stringify({ loaded_tools: loadedToolNames(value.tools) }),
+        }
+    }
+    if (value.type !== 'function_call') return value
     const namespace = typeof value.namespace === 'string' ? value.namespace.trim() : ''
     const name = typeof value.name === 'string' ? value.name.trim() : ''
     if (!namespace || !name) return value
     const { namespace: _namespace, ...rest } = value
     void _namespace
     return { ...rest, name: flattenNamespaceName(namespace, name) }
+}
+
+function loadedToolNames(value: unknown): string[] {
+    const tools = Array.isArray(value) ? value : []
+    const names: string[] = []
+    for (const tool of tools) {
+        if (!isObject(tool)) continue
+        if (tool.type === 'function' && typeof tool.name === 'string') {
+            names.push(tool.name)
+            continue
+        }
+        if (tool.type !== 'namespace' || typeof tool.name !== 'string') continue
+        const namespace = tool.name
+        const children = Array.isArray(tool.tools) ? tool.tools : Array.isArray(tool.children) ? tool.children : []
+        for (const child of children) {
+            if (!isObject(child) || child.type !== 'function' || typeof child.name !== 'string') continue
+            names.push(flattenNamespaceName(namespace, child.name))
+        }
+    }
+    return names
 }
 
 function parseArgumentsObject(value: string) {

@@ -4,6 +4,7 @@ import { getPrismaClient } from '@/lib/db'
 import { steerActiveCodexRun } from '@/lib/server/codex-app-server'
 import { normalizeManagedAttachmentUrls } from '@/lib/server/storage'
 import { normalizeCodexString } from '@/lib/server/codex-session'
+import { normalizeCodexResponseAnnotations } from '@/lib/codex-response-annotations'
 
 interface RouteContext {
     params: Promise<unknown>
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             sessionId: id,
             message: content,
             attachments: normalizeManagedAttachmentUrls(body?.attachments),
+            responseAnnotations: normalizeCodexResponseAnnotations(body?.responseAnnotations),
         })
         return NextResponse.json({ ok: true })
     } catch (error) {

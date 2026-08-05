@@ -1,5 +1,6 @@
 import type { Prisma } from '@/generated/prisma/client'
 import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import { normalizeCodexResponseAnnotations, type CodexResponseAnnotation } from '@/lib/codex-response-annotations'
 
 export type CodexSessionCategory = 'general' | 'scene_operation' | 'scene_continuation'
 export type CodexSessionStatus = 'idle' | 'running' | 'error'
@@ -22,6 +23,8 @@ export type CodexSessionMessage = {
     attachments?: string[]
     /** JSON artifact file names attached to this message's Codex turn. */
     jsonArtifacts?: string[]
+    /** Text selected from earlier Codex replies and attached as turn context. */
+    responseAnnotations?: CodexResponseAnnotation[]
     createdAt: string
 }
 
@@ -174,7 +177,18 @@ export function parseCodexSessionMessages(value: string | null | undefined): Cod
                         typeof fileName === 'string' && /^[^/\\]+\.json$/i.test(fileName)
                     )
                     : []
-                return { id, role, content, kind, contextWindow, attachments, jsonArtifacts, createdAt }
+                const responseAnnotations = normalizeCodexResponseAnnotations(record.responseAnnotations)
+                return {
+                    id,
+                    role,
+                    content,
+                    kind,
+                    contextWindow,
+                    attachments,
+                    jsonArtifacts,
+                    ...(responseAnnotations.length ? { responseAnnotations } : {}),
+                    createdAt,
+                }
             })
             .filter((message): message is CodexSessionMessage => message !== null)
     } catch {

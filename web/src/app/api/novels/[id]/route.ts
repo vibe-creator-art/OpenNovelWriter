@@ -74,11 +74,21 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             seriesIndex,
             language,
             outlineActSummaryCollapsesChapters,
+            termContextIncludesRelations,
+            termContextIncludesExperiences,
             codexSessionAutoCleanup,
             codexSessionRetentionLimit,
         } = body
         const shouldUpdateCoverImage = Object.prototype.hasOwnProperty.call(body, 'coverImage')
         const shouldUpdateCoverCrop = Object.prototype.hasOwnProperty.call(body, 'coverCrop')
+        const shouldUpdateTermContextIncludesRelations = Object.prototype.hasOwnProperty.call(
+            body,
+            'termContextIncludesRelations'
+        )
+        const shouldUpdateTermContextIncludesExperiences = Object.prototype.hasOwnProperty.call(
+            body,
+            'termContextIncludesExperiences'
+        )
         const shouldUpdateCodexSessionAutoCleanup = Object.prototype.hasOwnProperty.call(body, 'codexSessionAutoCleanup')
         const shouldUpdateCodexSessionRetentionLimit = Object.prototype.hasOwnProperty.call(body, 'codexSessionRetentionLimit')
 
@@ -93,6 +103,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
         if (shouldUpdateCodexSessionAutoCleanup && typeof codexSessionAutoCleanup !== 'boolean') {
             return NextResponse.json({ detail: 'Invalid Codex session cleanup setting' }, { status: 400 })
+        }
+        if (shouldUpdateTermContextIncludesRelations && typeof termContextIncludesRelations !== 'boolean') {
+            return NextResponse.json({ detail: 'Invalid term relation context setting' }, { status: 400 })
+        }
+        if (shouldUpdateTermContextIncludesExperiences && typeof termContextIncludesExperiences !== 'boolean') {
+            return NextResponse.json({ detail: 'Invalid term experience context setting' }, { status: 400 })
         }
         const parsedCodexSessionRetentionLimit = shouldUpdateCodexSessionRetentionLimit
             ? parseCodexSessionRetentionLimit(codexSessionRetentionLimit)
@@ -123,6 +139,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                 language: language ?? existing.language,
                 outlineActSummaryCollapsesChapters:
                     outlineActSummaryCollapsesChapters ?? existing.outlineActSummaryCollapsesChapters,
+                termContextIncludesRelations: shouldUpdateTermContextIncludesRelations
+                    ? termContextIncludesRelations
+                    : existing.termContextIncludesRelations,
+                termContextIncludesExperiences: shouldUpdateTermContextIncludesExperiences
+                    ? termContextIncludesExperiences
+                    : existing.termContextIncludesExperiences,
                 codexSessionAutoCleanup: shouldUpdateCodexSessionAutoCleanup
                     ? codexSessionAutoCleanup
                     : existing.codexSessionAutoCleanup,

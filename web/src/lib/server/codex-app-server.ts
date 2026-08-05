@@ -4,6 +4,10 @@ import path from 'path'
 import { getPrismaClient } from '@/lib/db'
 import { resolveManagedUploadPath, saveImageBuffer } from '@/lib/server/storage'
 import { canUseCodexFastMode, DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import {
+    prependCodexResponseAnnotations,
+    type CodexResponseAnnotation,
+} from '@/lib/codex-response-annotations'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
@@ -200,6 +204,7 @@ export async function steerActiveCodexRun(input: {
     sessionId: string
     message: string
     attachments?: string[]
+    responseAnnotations?: CodexResponseAnnotation[]
 }) {
     const activeRun = getActiveCodexRun(input.sessionId)
     if (!activeRun || activeRun.stopped || !activeRun.client || !activeRun.threadId || !activeRun.turnId) {
@@ -212,12 +217,14 @@ export async function steerActiveCodexRun(input: {
     }
 
     const imageItems = resolveCodexImageInputItems(input.attachments)
+    const prompt = prependCodexResponseAnnotations(content, input.responseAnnotations ?? [])
     const event: CodexRunEvent = {
         id: `codex_steer_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`,
         kind: 'steer',
         title: 'Steered conversation',
         content,
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+        ...(input.responseAnnotations?.length ? { responseAnnotations: input.responseAnnotations } : {}),
         createdAt: new Date().toISOString(),
     }
     activeRun.emitEvent(event)
@@ -225,7 +232,7 @@ export async function steerActiveCodexRun(input: {
     const response = await activeRun.client.request<{ turnId: string }>('turn/steer', {
         threadId: activeRun.threadId,
         expectedTurnId: activeRun.turnId,
-        input: [{ type: 'text', text: content, text_elements: [] }, ...imageItems],
+        input: [{ type: 'text', text: prompt, text_elements: [] }, ...imageItems],
     })
     if (response && typeof response.turnId === 'string') {
         activeRun.turnId = response.turnId
@@ -443,6 +450,7 @@ type CodexRunEvent = {
     content: string
     /** Managed `/uploads/...` image URLs carried by this event (steer input, generated images). */
     attachments?: string[]
+    responseAnnotations?: CodexResponseAnnotation[]
     createdAt: string
 }
 

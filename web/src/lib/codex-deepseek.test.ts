@@ -71,7 +71,7 @@ test('unrelated models are left alone', () => {
     assert.equal(model.contextWindow, 128_000)
 })
 
-test('official catalog eagerly disables tool_search deferral', () => {
+test('official catalog keeps tool_search deferral enabled', () => {
     const entry = buildOfficialDeepSeekCatalogEntry(applyDeepSeekV4ModelDefaults({
         id: 'deepseek-v4-flash',
         displayName: 'DeepSeek V4 Flash',
@@ -81,7 +81,7 @@ test('official catalog eagerly disables tool_search deferral', () => {
         supportsParallelToolCalls: true,
         inputModalities: ['text'],
     }), 0)
-    assert.equal(entry.supports_search_tool, false)
+    assert.equal(entry.supports_search_tool, true)
     assert.equal(entry.context_window, 1_048_576)
     assert.equal(entry.apply_patch_tool_type, 'freeform')
 })

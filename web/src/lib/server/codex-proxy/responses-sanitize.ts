@@ -48,10 +48,11 @@ export function sanitizeThirdPartyResponsesRequest(body: JsonObject): JsonObject
     }
 
     if (Array.isArray(result.tools)) {
-        const tools = result.tools
+        const originalTools = result.tools
+        const tools = originalTools
             .map((tool) => normalizeTool(tool))
             .filter((tool): tool is JsonObject => tool !== null)
-        if (tools.length !== result.tools.length || tools.some((tool, index) => tool !== result.tools![index])) {
+        if (tools.length !== originalTools.length || tools.some((tool, index) => tool !== originalTools[index])) {
             result = { ...result, tools }
             changed = true
         }
@@ -74,10 +75,11 @@ export function sanitizeThirdPartyResponsesRequest(body: JsonObject): JsonObject
     }
 
     if (Array.isArray(result.input)) {
-        const input = result.input
+        const originalInput = result.input
+        const input = originalInput
             .map((item) => sanitizeInputItem(item))
             .filter((item) => item !== null)
-        if (input.length !== result.input.length || input.some((item, index) => item !== result.input![index])) {
+        if (input.length !== originalInput.length || input.some((item, index) => item !== originalInput[index])) {
             result = { ...result, input }
             changed = true
         }

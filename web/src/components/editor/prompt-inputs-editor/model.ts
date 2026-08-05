@@ -58,6 +58,7 @@ import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { countChatUserInputReferencesInText, extractStringArgCallsFromMessages } from '@/lib/prompt-template'
 import { buildNovelOutlineTexts } from '@/lib/novel-outline'
 import { NOVEL_OUTLINE_DATA_CHANGED_EVENT, type NovelOutlineDataChangedDetail } from '@/lib/novel-outline-events'
+import { NOVEL_SETTINGS_CHANGED_EVENT, type NovelSettingsChangedDetail } from '@/lib/novel-settings-events'
 import { renderPromptTemplateMessages, renderPromptTemplateText, type PromptTemplateRenderWarning } from '@/lib/prompt-template-render'
 import { getContentSelectionTemplateItems } from '@/lib/content-selection-template'
 import { findPreviousSceneContent } from '@/lib/scene-continuation'
@@ -425,6 +426,8 @@ export function useInputsEditorModel({
     )
     const [novelLanguage, setNovelLanguage] = useState<string | null>(null)
     const [novelOutlineCollapsesChapters, setNovelOutlineCollapsesChapters] = useState(true)
+    const [novelTermContextIncludesRelations, setNovelTermContextIncludesRelations] = useState(true)
+    const [novelTermContextIncludesExperiences, setNovelTermContextIncludesExperiences] = useState(true)
     const [novelChapters, setNovelChapters] = useState<ChapterWithScenes[]>([])
     const novelLanguageLoadTokenRef = useRef(0)
     const [novelActs, setNovelActs] = useState<Act[]>([])
@@ -432,6 +435,7 @@ export function useInputsEditorModel({
     // Bumped when act/scene titles or summaries change elsewhere so the fetched copies of
     // acts/chapters below re-pull instead of serving stale outline data in the preview.
     const [novelDataRefreshNonce, setNovelDataRefreshNonce] = useState(0)
+    const [novelSettingsRefreshNonce, setNovelSettingsRefreshNonce] = useState(0)
     const [selectedInputId, setSelectedInputId] = useState<InputId | null>(() => value[0]?.id ?? null)
     const [editingOptionId, setEditingOptionId] = useState<OptionId | null>(null)
     const [previewStateByStorageKey, setPreviewStateByStorageKey] = useState<Record<string, InputsEditorPreviewState>>(
@@ -599,6 +603,8 @@ export function useInputsEditorModel({
                 if (novelLanguageLoadTokenRef.current !== token) return
                 setNovelLanguage(novel.language ?? null)
                 setNovelOutlineCollapsesChapters(novel.outlineActSummaryCollapsesChapters ?? true)
+                setNovelTermContextIncludesRelations(novel.termContextIncludesRelations)
+                setNovelTermContextIncludesExperiences(novel.termContextIncludesExperiences)
                 setNovelChapters(novel.chapters ?? [])
             })
             .catch((e) => {
@@ -606,9 +612,11 @@ export function useInputsEditorModel({
                 if (novelLanguageLoadTokenRef.current !== token) return
                 setNovelLanguage(null)
                 setNovelOutlineCollapsesChapters(true)
+                setNovelTermContextIncludesRelations(true)
+                setNovelTermContextIncludesExperiences(true)
                 setNovelChapters([])
             })
-    }, [novelId, novelDataRefreshNonce])
+    }, [novelId, novelDataRefreshNonce, novelSettingsRefreshNonce])
 
     useEffect(() => {
         if (!novelId) {
@@ -639,6 +647,17 @@ export function useInputsEditorModel({
         }
         window.addEventListener(NOVEL_OUTLINE_DATA_CHANGED_EVENT, handler as EventListener)
         return () => window.removeEventListener(NOVEL_OUTLINE_DATA_CHANGED_EVENT, handler as EventListener)
+    }, [novelId])
+
+    useEffect(() => {
+        if (!novelId) return
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<NovelSettingsChangedDetail>).detail
+            if (!detail || detail.novelId !== novelId) return
+            setNovelSettingsRefreshNonce((nonce) => nonce + 1)
+        }
+        window.addEventListener(NOVEL_SETTINGS_CHANGED_EVENT, handler as EventListener)
+        return () => window.removeEventListener(NOVEL_SETTINGS_CHANGED_EVENT, handler as EventListener)
     }, [novelId])
 
     // Eagerly load lightweight outline summaries (no content) so the detail-outline macro and
@@ -2239,12 +2258,21 @@ export function useInputsEditorModel({
             const entry = termEntriesById.get(id) ?? null
             const rendered = renderTermTemplateValue({
                 entry,
+                termsById: termEntriesById,
+                includeRelations: novelTermContextIncludesRelations,
+                includeExperiences: novelTermContextIncludesExperiences,
                 locale,
                 customCategories: termEntriesMeta?.customCategories,
             })
             return rendered || null
         },
-        [locale, termEntriesById, termEntriesMeta?.customCategories]
+        [
+            locale,
+            novelTermContextIncludesExperiences,
+            novelTermContextIncludesRelations,
+            termEntriesById,
+            termEntriesMeta?.customCategories,
+        ]
     )
 
     const resolveIncludeContent = useCallback(

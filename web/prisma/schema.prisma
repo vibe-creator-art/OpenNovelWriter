@@ -44,6 +44,8 @@ model Novel {
   seriesIndex Int?
   language    String?   @default("en")
   outlineActSummaryCollapsesChapters Boolean @default(true)
+  termContextIncludesRelations Boolean @default(true)
+  termContextIncludesExperiences Boolean @default(true)
   codexSessionAutoCleanup Boolean @default(false)
   codexSessionRetentionLimit Int @default(10)
   ownerId     String

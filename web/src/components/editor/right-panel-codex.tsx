@@ -1,6 +1,7 @@
 'use client'
 
 import { type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject, Fragment, createContext, useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import {
     ArrowUp,
@@ -22,6 +23,7 @@ import {
     Layers,
     ListChecks,
     ListTree,
+    MessageSquareQuote,
     Paperclip,
     Pin,
     Plus,
@@ -77,6 +79,7 @@ import { plainTextToSnippetHtml } from '@/lib/snippet-html'
 import { type WriteNavTarget } from '@/components/editor/plan-view'
 import { actApi, chapterApi, materialApi, outlineApi, sceneEditApi, skillApi, snippetApi, type Act, type Chapter, type MaterialSummary, type OutlineSummary, type SceneEditStatus, type Skill, type Snippet } from '@/lib/api'
 import { normalizeSkillCategory } from '@/lib/skills'
+import type { CodexResponseAnnotation } from '@/lib/codex-response-annotations'
 import { useStoredTermEntries } from '@/components/editor/terms/use-stored-term-entries'
 import type { TermEntry } from '@/components/editor/terms/types'
 import { CodexSkillTweakDialog, type CodexRenderedBlock } from '@/components/editor/codex-skill-tweak-dialog'
@@ -127,6 +130,7 @@ type QueuedCodexMessage = {
     id: string
     content: string
     attachments: string[]
+    responseAnnotations: CodexResponseAnnotation[]
     createdAt: string
 }
 
@@ -161,11 +165,16 @@ const PLAN_COMPOSER_ACTION_OPTIONS: CodexComposerActionOption[] = [
     { id: 'revise', label: 'No, and tell Codex what to do differently', kind: 'input' },
 ]
 
-function createQueuedCodexMessage(content: string, attachments: string[]): QueuedCodexMessage {
+function createQueuedCodexMessage(
+    content: string,
+    attachments: string[],
+    responseAnnotations: CodexResponseAnnotation[]
+): QueuedCodexMessage {
     return {
         id: `codex_queue_${crypto.randomUUID?.() ?? Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`,
         content,
         attachments,
+        responseAnnotations,
         createdAt: new Date().toISOString(),
     }
 }
@@ -177,6 +186,7 @@ function mergeQueuedCodexMessages(messages: QueuedCodexMessage[]) {
             .filter((content) => content.length > 0)
             .join('\n\n'),
         attachments: [...new Set(messages.flatMap((message) => message.attachments))],
+        responseAnnotations: messages.flatMap((message) => message.responseAnnotations),
     }
 }
 
@@ -675,13 +685,18 @@ function getComposerMentionTextClass(kind: ComposerMentionKind) {
     return 'text-orange-700 dark:text-orange-300'
 }
 
-function createOptimisticSteerMessage(content: string, attachments: string[]): CodexSessionMessage {
+function createOptimisticSteerMessage(
+    content: string,
+    attachments: string[],
+    responseAnnotations: CodexResponseAnnotation[]
+): CodexSessionMessage {
     return {
         id: `codex_optimistic_steer_${crypto.randomUUID?.() ?? Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`,
         role: 'event',
         kind: 'steer',
         content: ['Steered conversation', content].join('\n\n'),
         attachments,
+        responseAnnotations,
         createdAt: new Date().toISOString(),
     }
 }
@@ -874,6 +889,7 @@ function getApprovalDetail(approval: CodexApprovalRequest) {
 const CodexNavContext = createContext<((target: WriteNavTarget) => void) | undefined>(undefined)
 const CodexNovelIdContext = createContext<string | undefined>(undefined)
 const CodexSessionIdContext = createContext<string | null>(null)
+const CodexResponseAnnotationContext = createContext<((text: string) => void) | undefined>(undefined)
 const SceneEditStatusContext = createContext<{
     statuses: Record<string, SceneEditStatus>
     loading: boolean
@@ -1421,6 +1437,78 @@ function CodexMarkdown({ content, embedLlm = true }: { content: string; embedLlm
     )
 }
 
+function SelectableAssistantMessage({ content }: { content: string }) {
+    const t = useTranslations('editor')
+    const addResponseAnnotation = useContext(CodexResponseAnnotationContext)
+    const contentRef = useRef<HTMLDivElement | null>(null)
+    const [menu, setMenu] = useState<{ text: string; left: number; top: number } | null>(null)
+
+    const captureSelection = () => {
+        const root = contentRef.current
+        const selection = window.getSelection()
+        if (!root || !selection || selection.isCollapsed || selection.rangeCount === 0) {
+            setMenu(null)
+            return
+        }
+        const range = selection.getRangeAt(0)
+        if (!root.contains(range.commonAncestorContainer)) {
+            setMenu(null)
+            return
+        }
+        const text = selection.toString().trim()
+        if (!text) {
+            setMenu(null)
+            return
+        }
+        const rect = range.getBoundingClientRect()
+        setMenu({
+            text,
+            left: Math.max(72, Math.min(window.innerWidth - 72, rect.left + rect.width / 2)),
+            top: Math.max(48, rect.top - 8),
+        })
+    }
+
+    useEffect(() => {
+        if (!menu) return
+        const dismiss = () => setMenu(null)
+        window.addEventListener('resize', dismiss)
+        window.addEventListener('scroll', dismiss, true)
+        return () => {
+            window.removeEventListener('resize', dismiss)
+            window.removeEventListener('scroll', dismiss, true)
+        }
+    }, [menu])
+
+    return (
+        <div ref={contentRef} onMouseUp={() => window.requestAnimationFrame(captureSelection)}>
+            <CodexMarkdown content={content} />
+            {menu && addResponseAnnotation && createPortal(
+                <div
+                    className="fixed z-[100] -translate-x-1/2 -translate-y-full rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
+                    style={{ left: menu.left, top: menu.top }}
+                >
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-2 rounded-lg px-3"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                            addResponseAnnotation(menu.text)
+                            window.getSelection()?.removeAllRanges()
+                            setMenu(null)
+                        }}
+                    >
+                        <MessageSquareQuote className="h-4 w-4" />
+                        {t('codex.addToChat')}
+                    </Button>
+                </div>,
+                document.body
+            )}
+        </div>
+    )
+}
+
 function ContextWindowIndicator({ contextWindow }: { contextWindow: CodexContextWindow | null }) {
     const hasContextWindow = Boolean(contextWindow && contextWindow.totalTokens > 0)
     const usedPercent = hasContextWindow ? Math.min(100, Math.max(0, Math.round(contextWindow!.usagePercent))) : 0
@@ -1959,6 +2047,7 @@ function QueuedMessageRow({
                             <div className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
                                 {message.content}
                             </div>
+                            <ResponseAnnotationChips annotations={message.responseAnnotations} className="mt-2" />
                         </>
                     )}
                 </div>
@@ -1981,6 +2070,63 @@ export function stripUserMessageTokens(content: string) {
 // ordinary text instead of leaking the internal message token into `turn/steer`.
 function flattenSkillCommandsForSteer(content: string) {
     return content.replace(/\[([^\]]+)\]\(skill:[^)]+\)/g, (_match, label: string) => `/${label}`)
+}
+
+function ResponseAnnotationChips({
+    annotations,
+    onRemove,
+    inverted = false,
+    className,
+}: {
+    annotations: CodexResponseAnnotation[] | null | undefined
+    onRemove?: (index: number) => void
+    inverted?: boolean
+    className?: string
+}) {
+    const t = useTranslations('editor')
+    if (!annotations?.length) return null
+
+    return (
+        <div className={cn('space-y-1.5', className)}>
+            <div className={cn(
+                'flex items-center gap-1.5 text-xs font-medium',
+                inverted ? 'text-primary-foreground/80 dark:text-accent-foreground/80' : 'text-muted-foreground'
+            )}>
+                <MessageSquareQuote className="h-3.5 w-3.5" />
+                <span>{t('codex.annotationCount', { count: annotations.length })}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+                {annotations.map((annotation, index) => (
+                    <span
+                        key={`${index}:${annotation.text}`}
+                        className={cn(
+                            'flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-xs',
+                            inverted
+                                ? 'border-primary-foreground/25 bg-primary-foreground/10 text-primary-foreground dark:border-accent-foreground/25 dark:bg-accent-foreground/10 dark:text-accent-foreground'
+                                : 'border-border bg-muted/60 text-foreground'
+                        )}
+                        title={annotation.text}
+                    >
+                        <span className="max-w-72 truncate">“{annotation.text}”</span>
+                        {onRemove && (
+                            <button
+                                type="button"
+                                className={cn(
+                                    'shrink-0 rounded-sm opacity-70 hover:opacity-100',
+                                    inverted ? 'hover:bg-primary-foreground/15' : 'hover:bg-muted'
+                                )}
+                                title={t('codex.removeAnnotation')}
+                                aria-label={t('codex.removeAnnotation')}
+                                onClick={() => onRemove(index)}
+                            >
+                                <X className="h-3 w-3" />
+                            </button>
+                        )}
+                    </span>
+                ))}
+            </div>
+        </div>
+    )
 }
 
 function MessageActions({ message }: { message: CodexSessionMessage }) {
@@ -2093,6 +2239,11 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
                         </div>
                         <div className="max-w-full rounded-2xl bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground dark:bg-accent dark:text-accent-foreground">
                             <ImageThumbnails urls={message.attachments} className="mb-1.5" />
+                            <ResponseAnnotationChips
+                                annotations={message.responseAnnotations}
+                                inverted
+                                className="mb-2"
+                            />
                             <div className="whitespace-pre-wrap break-words">{eventBody || message.content}</div>
                         </div>
                     </div>
@@ -2140,10 +2291,17 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
                 >
                     <ImageThumbnails urls={message.attachments} className={cn(message.content.trim() && 'mb-1.5')} />
                     {isUser && <JsonArtifactChips fileNames={message.jsonArtifacts} className={message.content.trim() ? 'mb-1.5' : undefined} />}
+                    {isUser && (
+                        <ResponseAnnotationChips
+                            annotations={message.responseAnnotations}
+                            inverted
+                            className={message.content.trim() ? 'mb-2' : undefined}
+                        />
+                    )}
                     {isUser ? (
                         <UserMessageContent content={message.content} />
                     ) : (
-                        <CodexMarkdown content={message.content} />
+                        <SelectableAssistantMessage content={message.content} />
                     )}
                 </div>
                 <MessageActions message={message} />
@@ -2711,6 +2869,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const [approvalActionInput, setApprovalActionInput] = useState('')
     const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null)
     const [dismissedPlanUpdateId, setDismissedPlanUpdateId] = useState<string | null>(null)
+    const [responseAnnotationsBySession, setResponseAnnotationsBySession] = useState<Record<string, CodexResponseAnnotation[]>>({})
     const [sceneEditStatusRevision, setSceneEditStatusRevision] = useState(0)
     const [sceneEditStatusSnapshot, setSceneEditStatusSnapshot] = useState<{
         key: string
@@ -2780,11 +2939,41 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const sessions = sessionState?.sessions ?? []
     const selectedSessionId = sessionState?.selectedSessionId ?? null
     const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null
+    const responseAnnotations = selectedSessionId
+        ? responseAnnotationsBySession[selectedSessionId] ?? []
+        : []
     const imageItems = selectedSessionId ? imageAttachmentsBySession[selectedSessionId] ?? [] : []
     const jsonArtifactUploading = selectedSessionId
         ? jsonArtifactUploadingBySession[selectedSessionId] ?? false
         : false
     selectedSessionIdRef.current = selectedSessionId
+
+    const addResponseAnnotation = useCallback((text: string) => {
+        const sessionId = selectedSessionIdRef.current
+        const normalized = text.trim()
+        if (!sessionId || !normalized) return
+        setResponseAnnotationsBySession((current) => ({
+            ...current,
+            [sessionId]: [...(current[sessionId] ?? []), { text: normalized }],
+        }))
+        window.requestAnimationFrame(() => composerRef.current?.focus())
+    }, [])
+
+    const removeResponseAnnotation = (sessionId: string, index: number) => {
+        setResponseAnnotationsBySession((current) => ({
+            ...current,
+            [sessionId]: (current[sessionId] ?? []).filter((_, itemIndex) => itemIndex !== index),
+        }))
+    }
+
+    const clearResponseAnnotations = (sessionId: string) => {
+        setResponseAnnotationsBySession((current) => {
+            if (!(sessionId in current)) return current
+            const next = { ...current }
+            delete next[sessionId]
+            return next
+        })
+    }
     const imageAttachments = useImageAttachments({
         items: imageItems,
         scopeId: selectedSessionId,
@@ -3617,21 +3806,36 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         skillIds?: string[],
         promptArtifact?: CodexPromptArtifact,
         attachments?: string[],
-        artifactFiles?: string[]
+        artifactFiles?: string[],
+        responseAnnotations?: CodexResponseAnnotation[]
     ) => {
         if (!content.trim() || running) return
         setRunError(null)
         const targetSessionId = sessionId ?? await ensureSession()
         if (!targetSessionId) return
         try {
-            await sendMessage(novelId, targetSessionId, content.trim(), { skillIds, promptArtifact, attachments, artifactFiles })
+            await sendMessage(novelId, targetSessionId, content.trim(), {
+                skillIds,
+                promptArtifact,
+                attachments,
+                artifactFiles,
+                responseAnnotations,
+            })
         } catch (error) {
             setRunError(error instanceof Error ? error.message : String(error))
         }
     }
 
-    const enqueueQueuedMessage = (sessionId: string, content: string, attachments: string[]) => {
-        setQueuedMessages(sessionId, (current) => [...current, createQueuedCodexMessage(content, attachments)])
+    const enqueueQueuedMessage = (
+        sessionId: string,
+        content: string,
+        attachments: string[],
+        responseAnnotations: CodexResponseAnnotation[]
+    ) => {
+        setQueuedMessages(sessionId, (current) => [
+            ...current,
+            createQueuedCodexMessage(content, attachments, responseAnnotations),
+        ])
     }
 
     const updateQueuedMessage = (sessionId: string, messageId: string, content: string) => {
@@ -3667,9 +3871,17 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
 
         try {
             if (running) {
-                await steerContent(merged.content, sessionId, merged.attachments)
+                await steerContent(merged.content, sessionId, merged.attachments, merged.responseAnnotations)
             } else if (merged.content) {
-                await sendContent(merged.content, sessionId, undefined, undefined, merged.attachments)
+                await sendContent(
+                    merged.content,
+                    sessionId,
+                    undefined,
+                    undefined,
+                    merged.attachments,
+                    undefined,
+                    merged.responseAnnotations
+                )
             }
         } catch (error) {
             setQueuedMessages(sessionId, () => currentQueue)
@@ -3685,7 +3897,15 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         setQueuedMessages(sessionId, (current) => current.slice(1))
 
         try {
-            await sendContent(message.content, sessionId, undefined, undefined, message.attachments)
+            await sendContent(
+                message.content,
+                sessionId,
+                undefined,
+                undefined,
+                message.attachments,
+                undefined,
+                message.responseAnnotations
+            )
         } catch (error) {
             setRunError(error instanceof Error ? error.message : String(error))
             setQueuedMessages(sessionId, (current) => [message, ...current])
@@ -3694,17 +3914,22 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         }
     })
 
-    const steerContent = async (content: string, sessionId?: string | null, attachments: string[] = []) => {
+    const steerContent = async (
+        content: string,
+        sessionId?: string | null,
+        attachments: string[] = [],
+        responseAnnotations: CodexResponseAnnotation[] = []
+    ) => {
         const normalizedContent = flattenSkillCommandsForSteer(content).trim()
         if (!normalizedContent) return
         setRunError(null)
         const targetSessionId = sessionId ?? await ensureSession()
         if (!targetSessionId) return
-        const optimisticMessage = createOptimisticSteerMessage(normalizedContent, attachments)
+        const optimisticMessage = createOptimisticSteerMessage(normalizedContent, attachments, responseAnnotations)
         setOptimisticSteerMessages(targetSessionId, (current) => [...current, optimisticMessage])
 
         try {
-            await codexSessionApi.steerMessage(targetSessionId, normalizedContent, attachments)
+            await codexSessionApi.steerMessage(targetSessionId, normalizedContent, attachments, responseAnnotations)
             updateDraft(novelId, targetSessionId, '')
         } catch (error) {
             setOptimisticSteerMessages(targetSessionId, (current) =>
@@ -3862,19 +4087,22 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             if (!content) return
             const attachments = imageAttachments.readyUrls
             const artifactFiles = jsonArtifacts.map((artifact) => artifact.fileName)
+            const annotations = responseAnnotationsBySession[targetSessionId] ?? []
 
             if (running) {
                 if (queueingEnabled) {
                     // This becomes a normal turn after the active one finishes, so retain the
                     // structured token for the messages route to resolve into a skill input item.
-                    enqueueQueuedMessage(targetSessionId, content, attachments)
+                    enqueueQueuedMessage(targetSessionId, content, attachments, annotations)
                     imageAttachments.clear()
+                    clearResponseAnnotations(targetSessionId)
                     updateDraft(novelId, targetSessionId, '')
                     return
                 }
 
                 imageAttachments.clear()
-                await steerContent(content, targetSessionId, attachments)
+                clearResponseAnnotations(targetSessionId)
+                await steerContent(content, targetSessionId, attachments, annotations)
                 return
             }
 
@@ -3887,8 +4115,17 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
 
             setTweakOpen(false)
             imageAttachments.clear()
+            clearResponseAnnotations(targetSessionId)
             updateDraftArtifacts(novelId, targetSessionId, [])
-            await sendContent(content, targetSessionId, skillIds, promptArtifact, attachments, artifactFiles)
+            await sendContent(
+                content,
+                targetSessionId,
+                skillIds,
+                promptArtifact,
+                attachments,
+                artifactFiles,
+                annotations
+            )
             setTweakBlocks(null)
             setTweakChatInput('')
         })().catch((error) => {
@@ -4054,6 +4291,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     return (
         <CodexNovelIdContext.Provider value={novelId}>
         <CodexSessionIdContext.Provider value={selectedSession?.id ?? null}>
+        <CodexResponseAnnotationContext.Provider value={addResponseAnnotation}>
         <CodexNavContext.Provider value={onNavigateToWrite}>
         <SceneEditStatusContext.Provider value={sceneEditStatusContextValue}>
         <ImageViewerExtraActionsProvider render={(src) => <TermGalleryImportButton novelId={novelId} src={src} />}>
@@ -4131,9 +4369,19 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                             const targetSessionId = selectedSession.id
                                             removeQueuedMessage(targetSessionId, message.id)
                                             try {
-                                                await steerContent(message.content, targetSessionId, message.attachments)
+                                                await steerContent(
+                                                    message.content,
+                                                    targetSessionId,
+                                                    message.attachments,
+                                                    message.responseAnnotations
+                                                )
                                             } catch {
-                                                enqueueQueuedMessage(targetSessionId, message.content, message.attachments)
+                                                enqueueQueuedMessage(
+                                                    targetSessionId,
+                                                    message.content,
+                                                    message.attachments,
+                                                    message.responseAnnotations
+                                                )
                                             }
                                         })()
                                     }}
@@ -4250,6 +4498,13 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             </div>
                         </div>
                     )}
+                    <ResponseAnnotationChips
+                        annotations={responseAnnotations}
+                        onRemove={selectedSessionId
+                            ? (index) => removeResponseAnnotation(selectedSessionId, index)
+                            : undefined}
+                        className="mb-2"
+                    />
                     <AttachmentStrip items={imageAttachments.items} onRemove={imageAttachments.removeItem} className="mb-2" />
                     {jsonArtifacts.length > 0 && (
                         <div className="mb-2 flex flex-wrap gap-1.5">
@@ -4679,6 +4934,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         </ImageViewerExtraActionsProvider>
         </SceneEditStatusContext.Provider>
         </CodexNavContext.Provider>
+        </CodexResponseAnnotationContext.Provider>
         </CodexSessionIdContext.Provider>
         </CodexNovelIdContext.Provider>
     )

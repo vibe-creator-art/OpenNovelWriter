@@ -236,6 +236,8 @@ export async function composeSceneContinuation(params: {
             where: { id: params.novelId, ownerId: params.ownerId },
             select: {
                 language: true,
+                termContextIncludesRelations: true,
+                termContextIncludesExperiences: true,
                 acts: { select: { number: true, title: true, summary: true } },
                 chapters: {
                     select: {
@@ -374,7 +376,14 @@ export async function composeSceneContinuation(params: {
         resolveInputChapterOutlines: () => [],
         resolveTermText: (termId) => renderTermTemplateText(termsById.get(termId) ?? null) || null,
         resolveTermValue: (termId) =>
-            renderTermTemplateValue({ entry: termsById.get(termId) ?? null, locale: novel.language, customCategories }) || null,
+            renderTermTemplateValue({
+                entry: termsById.get(termId) ?? null,
+                termsById,
+                includeRelations: novel.termContextIncludesRelations,
+                includeExperiences: novel.termContextIncludesExperiences,
+                locale: novel.language,
+                customCategories,
+            }) || null,
     }
 
     const context = {

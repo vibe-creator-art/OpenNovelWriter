@@ -1,7 +1,7 @@
 import { sseData, takeSseBlocks } from '@/lib/server/codex-proxy/sse'
-import { CodexToolContext, rewriteNamespacedResponse } from '@/lib/server/codex-proxy/tool-context'
+import { CodexToolContext, rewriteCompatibleResponsesResponse } from '@/lib/server/codex-proxy/tool-context'
 
-export function createResponsesNamespaceStream(input: {
+export function createResponsesToolStream(input: {
     upstream: ReadableStream<Uint8Array>
     context: CodexToolContext
 }) {
@@ -42,7 +42,7 @@ function rewriteBlock(block: string, context: CodexToolContext) {
             .split(/\r?\n/)
             .filter((line) => !line.startsWith('data:') && line.trim())
             .join('\n')
-        const rewritten = `data: ${JSON.stringify(rewriteNamespacedResponse(parsed, context))}`
+        const rewritten = `data: ${JSON.stringify(rewriteCompatibleResponsesResponse(parsed, context))}`
         return `${prefix ? `${prefix}\n` : ''}${rewritten}\n\n`
     } catch {
         return `${block.trimEnd()}\n\n`
