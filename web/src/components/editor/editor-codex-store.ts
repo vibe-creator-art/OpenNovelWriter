@@ -29,7 +29,7 @@ const STICKY_REVIEW_LEVEL_KEY = 'codex.reviewLevel'
 const DEFAULT_REVIEW_LEVEL: CodexReviewLevel = 'user_review'
 
 function isReviewLevel(value: string | null): value is CodexReviewLevel {
-    return value === 'user_review' || value === 'auto_review' || value === 'no_review'
+    return value === 'user_review' || value === 'auto_review' || value === 'no_review' || value === 'full_access'
 }
 
 function getStickyReviewLevel(): CodexReviewLevel {

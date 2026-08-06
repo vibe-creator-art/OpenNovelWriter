@@ -159,7 +159,7 @@ function JsonArtifactChips({
     )
 }
 
-const CODEX_REVIEW_LEVELS: CodexReviewLevel[] = ['user_review', 'auto_review', 'no_review']
+const CODEX_REVIEW_LEVELS: CodexReviewLevel[] = ['user_review', 'auto_review', 'no_review', 'full_access']
 const PLAN_COMPOSER_ACTION_OPTIONS: CodexComposerActionOption[] = [
     { id: 'implement', label: 'Yes, implement this plan', kind: 'submit' },
     { id: 'revise', label: 'No, and tell Codex what to do differently', kind: 'input' },
@@ -4824,7 +4824,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                     variant="ghost"
                                     className={cn(
                                         'min-w-0 gap-1',
-                                        reviewLevel === 'no_review' ? 'text-amber-700' : 'text-muted-foreground'
+                                        reviewLevel === 'full_access'
+                                            ? 'text-red-600 dark:text-red-400'
+                                            : reviewLevel === 'no_review'
+                                                ? 'text-amber-700'
+                                                : 'text-muted-foreground'
                                     )}
                                 >
                                     <Shield className="h-4 w-4" />
@@ -4838,7 +4842,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                     onValueChange={(value) => selectReviewLevel(value as CodexReviewLevel)}
                                 >
                                     {CODEX_REVIEW_LEVELS.map((level) => (
-                                        <DropdownMenuRadioItem key={level} value={level}>
+                                        <DropdownMenuRadioItem
+                                            key={level}
+                                            value={level}
+                                            className={cn(
+                                                level === 'full_access' &&
+                                                    'text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400'
+                                            )}
+                                        >
                                             {t(`codex.reviewLevels.${level}`)}
                                         </DropdownMenuRadioItem>
                                     ))}

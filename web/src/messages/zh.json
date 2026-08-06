@@ -1056,7 +1056,8 @@
             "reviewLevels": {
                 "user_review": "用户确认",
                 "auto_review": "自动审核",
-                "no_review": "无需审核"
+                "no_review": "无需审核",
+                "full_access": "完全访问"
             },
             "approval": {
                 "submit": "提交",

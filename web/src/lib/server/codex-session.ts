@@ -5,7 +5,7 @@ import { normalizeCodexResponseAnnotations, type CodexResponseAnnotation } from 
 export type CodexSessionCategory = 'general' | 'scene_operation' | 'scene_continuation'
 export type CodexSessionStatus = 'idle' | 'running' | 'error'
 export type CodexSessionMessageRole = 'user' | 'assistant' | 'event'
-export type CodexReviewLevel = 'user_review' | 'auto_review' | 'no_review'
+export type CodexReviewLevel = 'user_review' | 'auto_review' | 'no_review' | 'full_access'
 export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
 export type CodexServiceTier = 'standard' | 'fast'
 
@@ -65,7 +65,7 @@ export function normalizeCodexSessionStatus(value: string): CodexSessionStatus {
 }
 
 export function normalizeCodexReviewLevel(value: unknown): CodexReviewLevel | null {
-    if (value === 'user_review' || value === 'auto_review' || value === 'no_review') {
+    if (value === 'user_review' || value === 'auto_review' || value === 'no_review' || value === 'full_access') {
         return value
     }
     return null

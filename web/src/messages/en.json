@@ -1056,7 +1056,8 @@
             "reviewLevels": {
                 "user_review": "User review",
                 "auto_review": "Auto-review",
-                "no_review": "No review"
+                "no_review": "No review",
+                "full_access": "Full access"
             },
             "approval": {
                 "submit": "Submit",

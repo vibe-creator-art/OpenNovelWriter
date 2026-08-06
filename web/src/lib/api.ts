@@ -1132,7 +1132,7 @@ export interface CodexPromptArtifact {
     renderedBlocks: Array<{ role: string; text: string }>
 }
 export type CodexSessionStatus = 'idle' | 'running' | 'error'
-export type CodexReviewLevel = 'user_review' | 'auto_review' | 'no_review'
+export type CodexReviewLevel = 'user_review' | 'auto_review' | 'no_review' | 'full_access'
 export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
 export type CodexServiceTier = 'standard' | 'fast'
 

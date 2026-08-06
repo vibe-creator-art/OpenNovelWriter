@@ -486,12 +486,15 @@ type CodexRuntimeReviewOptions = {
 }
 
 function getCodexRuntimeReviewOptions(reviewLevel: CodexReviewLevel): CodexRuntimeReviewOptions {
-    // Keep requests observable in every mode. no_review resolves only supported escalations in
-    // the host handler; using upstream `never` would reject them before ONW can inspect them.
+    // Keep requests observable so the host can fail closed in no_review and accept them in full_access.
     return {
         approvalPolicy: 'on-request',
         approvalsReviewer: reviewLevel === 'auto_review' ? 'auto_review' : 'user',
     }
+}
+
+function getCodexRuntimeSandbox(reviewLevel: CodexReviewLevel) {
+    return reviewLevel === 'full_access' ? 'danger-full-access' : 'workspace-write'
 }
 
 function getCodexCollaborationMode(input: {
@@ -1095,9 +1098,10 @@ export async function runNovelCodexTurn(input: {
         : await ensureCodexConnectionHome(input.ownerId, connection.id)
     const reviewLevel = normalizeCodexReviewLevel(input.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL
     const reviewOptions = getCodexRuntimeReviewOptions(reviewLevel)
+    const sandbox = getCodexRuntimeSandbox(reviewLevel)
     // Rewrite the managed MCP config block before spawning the app-server so config.toml
     // (read at process startup) always reflects the current code. Under manual review our
-    // first-party tools prompt the human; under auto/no review they pre-approve so calls are
+    // first-party tools prompt the human; other modes pre-approve so calls are
     // not routed to the review subagent (which can 503 and block the tool).
     await syncCodexConnectionMcp({
         ownerId: input.ownerId,
@@ -1199,7 +1203,7 @@ export async function runNovelCodexTurn(input: {
                 cwd: sessionWorkspacePath,
                 approvalPolicy: reviewOptions.approvalPolicy,
                 approvalsReviewer: reviewOptions.approvalsReviewer,
-                sandbox: 'workspace-write',
+                sandbox,
                 excludeTurns: true,
             })
             : await client.request<{ thread: { id: string } }>('thread/start', {
@@ -1208,34 +1212,16 @@ export async function runNovelCodexTurn(input: {
                 cwd: sessionWorkspacePath,
                 approvalPolicy: reviewOptions.approvalPolicy,
                 approvalsReviewer: reviewOptions.approvalsReviewer,
-                sandbox: 'workspace-write',
+                sandbox,
                 sessionStartSource: 'startup',
             })
 
         const threadId = threadResponse.thread.id
         activeRunHandle.threadId = threadId
         throwIfCodexRunStopped(activeRunHandle)
-        const skillInputItems = await resolveCodexSkillInputItems(client, codexHome, input.skillRefs)
-        throwIfCodexRunStopped(activeRunHandle)
-        const turnResponse = await client.request<{ turn: { id: string } }>('turn/start', {
-            threadId,
-            cwd: sessionWorkspacePath,
-            model: modelId,
-            serviceTier,
-            effort: reasoningEffort,
-            collaborationMode,
-            approvalPolicy: reviewOptions.approvalPolicy,
-            approvalsReviewer: reviewOptions.approvalsReviewer,
-            input: [
-                { type: 'text', text: input.prompt, text_elements: [] },
-                ...resolveCodexImageInputItems(input.imageUrls),
-                ...skillInputItems,
-            ],
-        })
-        let turnId = turnResponse.turn.id
-        activeRunHandle.turnId = turnId
-        throwIfCodexRunStopped(activeRunHandle)
+        let turnId: string | null = null
 
+        // Approval requests can arrive before the turn/start response continuation runs.
         client.setServerRequestHandler(async (message) => {
             throwIfCodexRunStopped(activeRunHandle)
             const method = typeof message.method === 'string' ? message.method : ''
@@ -1244,6 +1230,9 @@ export async function runNovelCodexTurn(input: {
                 : {}
             if (!isApprovalServerRequest(method) || message.id === undefined) {
                 return getDefaultServerRequestResponse(method)
+            }
+            if (reviewLevel === 'full_access') {
+                return getAcceptedServerRequestResponse(method, params)
             }
             // no_review grants only the canonical, shallow GitHub clone used by edit-skills.
             // Other sandbox escalations still fail closed; MCP elicitations keep their existing
@@ -1293,9 +1282,11 @@ export async function runNovelCodexTurn(input: {
                     createdAt: new Date().toISOString(),
                 })
                 setTimeout(() => {
+                    const expectedTurnId = turnId ?? approvalRequest.turnId
+                    if (!expectedTurnId) return
                     void runClient.request('turn/steer', {
                         threadId,
-                        expectedTurnId: turnId,
+                        expectedTurnId,
                         input: [{ type: 'text', text: decision.message!.trim(), text_elements: [] }],
                     }).then((response) => {
                         if (response && typeof response === 'object' && typeof (response as { turnId?: unknown }).turnId === 'string') {
@@ -1314,6 +1305,27 @@ export async function runNovelCodexTurn(input: {
                 decision,
             })
         })
+
+        const skillInputItems = await resolveCodexSkillInputItems(client, codexHome, input.skillRefs)
+        throwIfCodexRunStopped(activeRunHandle)
+        const turnResponse = await client.request<{ turn: { id: string } }>('turn/start', {
+            threadId,
+            cwd: sessionWorkspacePath,
+            model: modelId,
+            serviceTier,
+            effort: reasoningEffort,
+            collaborationMode,
+            approvalPolicy: reviewOptions.approvalPolicy,
+            approvalsReviewer: reviewOptions.approvalsReviewer,
+            input: [
+                { type: 'text', text: input.prompt, text_elements: [] },
+                ...resolveCodexImageInputItems(input.imageUrls),
+                ...skillInputItems,
+            ],
+        })
+        turnId = turnResponse.turn.id
+        activeRunHandle.turnId = turnId
+        throwIfCodexRunStopped(activeRunHandle)
 
         let interrupted = false
         try {
@@ -1553,6 +1565,7 @@ export async function runNovelCodexCompaction(input: {
         : await ensureCodexConnectionHome(input.ownerId, connection.id)
     const reviewLevel = normalizeCodexReviewLevel(input.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL
     const reviewOptions = getCodexRuntimeReviewOptions(reviewLevel)
+    const sandbox = getCodexRuntimeSandbox(reviewLevel)
     client = await CodexAppServerClient.create(codexHome, (createdClient) => {
         client = createdClient
         activeRunHandle.client = createdClient
@@ -1578,7 +1591,7 @@ export async function runNovelCodexCompaction(input: {
             cwd: sessionWorkspacePath,
             approvalPolicy: reviewOptions.approvalPolicy,
             approvalsReviewer: reviewOptions.approvalsReviewer,
-            sandbox: 'workspace-write',
+            sandbox,
             excludeTurns: true,
         })
         const threadId = threadResponse.thread.id
