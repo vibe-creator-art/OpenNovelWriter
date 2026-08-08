@@ -5,6 +5,8 @@ import { serializeScene } from '@/lib/scenes'
 import { deleteCodexSessionWorkspace } from '@/lib/server/codex-session-workspace'
 import { deleteNovelWorkspace, ensureNovelWorkspace } from '@/lib/server/novel-workspace'
 import { parseCodexSessionRetentionLimit } from '@/lib/codex-session-retention'
+import { petExists } from '@/lib/server/pet-storage'
+import { loadRetrievalAssignment } from '@/lib/server/retrieval-models'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -76,8 +78,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             outlineActSummaryCollapsesChapters,
             termContextIncludesRelations,
             termContextIncludesExperiences,
+            retrievalEmbeddingEnabled,
+            retrievalEmbeddingAssignmentId,
+            retrievalRerankerEnabled,
+            retrievalRerankerAssignmentId,
+            retrievalTopK,
+            resetRetrievalEmbeddings,
             codexSessionAutoCleanup,
             codexSessionRetentionLimit,
+            codexPetEnabled,
+            codexPetId,
         } = body
         const shouldUpdateCoverImage = Object.prototype.hasOwnProperty.call(body, 'coverImage')
         const shouldUpdateCoverCrop = Object.prototype.hasOwnProperty.call(body, 'coverCrop')
@@ -89,8 +99,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             body,
             'termContextIncludesExperiences'
         )
+        const shouldUpdateRetrievalEmbeddingEnabled = Object.prototype.hasOwnProperty.call(body, 'retrievalEmbeddingEnabled')
+        const shouldUpdateRetrievalEmbeddingAssignmentId = Object.prototype.hasOwnProperty.call(body, 'retrievalEmbeddingAssignmentId')
+        const shouldUpdateRetrievalRerankerEnabled = Object.prototype.hasOwnProperty.call(body, 'retrievalRerankerEnabled')
+        const shouldUpdateRetrievalRerankerAssignmentId = Object.prototype.hasOwnProperty.call(body, 'retrievalRerankerAssignmentId')
+        const shouldUpdateRetrievalTopK = Object.prototype.hasOwnProperty.call(body, 'retrievalTopK')
         const shouldUpdateCodexSessionAutoCleanup = Object.prototype.hasOwnProperty.call(body, 'codexSessionAutoCleanup')
         const shouldUpdateCodexSessionRetentionLimit = Object.prototype.hasOwnProperty.call(body, 'codexSessionRetentionLimit')
+        const shouldUpdateCodexPetEnabled = Object.prototype.hasOwnProperty.call(body, 'codexPetEnabled')
+        const shouldUpdateCodexPetId = Object.prototype.hasOwnProperty.call(body, 'codexPetId')
 
         // Check ownership
         const existing = await prisma.novel.findFirst({
@@ -110,11 +127,97 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         if (shouldUpdateTermContextIncludesExperiences && typeof termContextIncludesExperiences !== 'boolean') {
             return NextResponse.json({ detail: 'Invalid term experience context setting' }, { status: 400 })
         }
+        if (shouldUpdateRetrievalEmbeddingEnabled && typeof retrievalEmbeddingEnabled !== 'boolean') {
+            return NextResponse.json({ detail: 'Invalid embedding retrieval setting' }, { status: 400 })
+        }
+        if (shouldUpdateRetrievalRerankerEnabled && typeof retrievalRerankerEnabled !== 'boolean') {
+            return NextResponse.json({ detail: 'Invalid reranker retrieval setting' }, { status: 400 })
+        }
+        if (
+            shouldUpdateRetrievalTopK
+            && (!Number.isInteger(retrievalTopK) || retrievalTopK < 1 || retrievalTopK > 50)
+        ) {
+            return NextResponse.json({ detail: 'Retrieval Top K must be an integer from 1 to 50' }, { status: 400 })
+        }
+        if (shouldUpdateCodexPetEnabled && typeof codexPetEnabled !== 'boolean') {
+            return NextResponse.json({ detail: 'Invalid Codex pet enabled setting' }, { status: 400 })
+        }
+        if (
+            shouldUpdateCodexPetId
+            && (typeof codexPetId !== 'string' || !(await petExists(user.userId, codexPetId)))
+        ) {
+            return NextResponse.json({ detail: 'Selected Codex pet was not found' }, { status: 400 })
+        }
         const parsedCodexSessionRetentionLimit = shouldUpdateCodexSessionRetentionLimit
             ? parseCodexSessionRetentionLimit(codexSessionRetentionLimit)
             : existing.codexSessionRetentionLimit
         if (parsedCodexSessionRetentionLimit === null) {
             return NextResponse.json({ detail: 'Codex session retention limit must be an integer of at least 10' }, { status: 400 })
+        }
+
+        const nextEmbeddingEnabled = shouldUpdateRetrievalEmbeddingEnabled
+            ? retrievalEmbeddingEnabled
+            : existing.retrievalEmbeddingEnabled
+        const nextEmbeddingAssignmentId = shouldUpdateRetrievalEmbeddingAssignmentId
+            ? (typeof retrievalEmbeddingAssignmentId === 'string' && retrievalEmbeddingAssignmentId.trim()
+                ? retrievalEmbeddingAssignmentId.trim()
+                : null)
+            : existing.retrievalEmbeddingAssignmentId
+        const nextRerankerEnabled = shouldUpdateRetrievalRerankerEnabled
+            ? retrievalRerankerEnabled
+            : existing.retrievalRerankerEnabled
+        const nextRerankerAssignmentId = shouldUpdateRetrievalRerankerAssignmentId
+            ? (typeof retrievalRerankerAssignmentId === 'string' && retrievalRerankerAssignmentId.trim()
+                ? retrievalRerankerAssignmentId.trim()
+                : null)
+            : existing.retrievalRerankerAssignmentId
+
+        if (nextEmbeddingEnabled && !nextEmbeddingAssignmentId) {
+            return NextResponse.json({ detail: 'Select an embedding model before enabling embedding retrieval' }, { status: 400 })
+        }
+        if (nextRerankerEnabled && !nextRerankerAssignmentId) {
+            return NextResponse.json({ detail: 'Select a reranker model before enabling reranking' }, { status: 400 })
+        }
+        const embeddingConfigChanged =
+            nextEmbeddingEnabled !== existing.retrievalEmbeddingEnabled
+            || nextEmbeddingAssignmentId !== existing.retrievalEmbeddingAssignmentId
+        const rerankerConfigChanged =
+            nextRerankerEnabled !== existing.retrievalRerankerEnabled
+            || nextRerankerAssignmentId !== existing.retrievalRerankerAssignmentId
+        try {
+            if (embeddingConfigChanged && nextEmbeddingEnabled && nextEmbeddingAssignmentId) {
+                await loadRetrievalAssignment(prisma, {
+                    ownerId: user.userId,
+                    assignmentId: nextEmbeddingAssignmentId,
+                    capability: 'embedding',
+                })
+            }
+            if (rerankerConfigChanged && nextRerankerEnabled && nextRerankerAssignmentId) {
+                await loadRetrievalAssignment(prisma, {
+                    ownerId: user.userId,
+                    assignmentId: nextRerankerAssignmentId,
+                    capability: 'reranker',
+                })
+            }
+        } catch (error) {
+            return NextResponse.json({
+                detail: error instanceof Error ? error.message : 'Selected retrieval model is unavailable.',
+            }, { status: 400 })
+        }
+
+        const embeddingAssignmentChanged =
+            shouldUpdateRetrievalEmbeddingAssignmentId
+            && nextEmbeddingAssignmentId !== existing.retrievalEmbeddingAssignmentId
+        if (embeddingAssignmentChanged && resetRetrievalEmbeddings !== true) {
+            const cachedEmbeddingCount = await prisma.sceneRetrievalIndex.count({
+                where: { novelId: id, embeddingJson: { not: null } },
+            })
+            if (cachedEmbeddingCount > 0) {
+                return NextResponse.json({
+                    detail: 'Changing the embedding model requires explicit cache reset confirmation.',
+                    code: 'RETRIEVAL_EMBEDDING_RESET_REQUIRED',
+                }, { status: 409 })
+            }
         }
 
         const nextCoverImage = shouldUpdateCoverImage ? (coverImage || null) : existing.coverImage
@@ -125,9 +228,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
               ? (coverCrop || null)
               : existing.coverCrop
 
-        const novel = await prisma.novel.update({
-            where: { id },
-            data: {
+        const [novel] = await prisma.$transaction([
+            prisma.novel.update({
+                where: { id },
+                data: {
                 title: title ?? existing.title,
                 description: description ?? existing.description,
                 category: category ?? existing.category,
@@ -145,12 +249,34 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                 termContextIncludesExperiences: shouldUpdateTermContextIncludesExperiences
                     ? termContextIncludesExperiences
                     : existing.termContextIncludesExperiences,
+                retrievalEmbeddingEnabled: nextEmbeddingEnabled,
+                retrievalEmbeddingAssignmentId: nextEmbeddingAssignmentId,
+                retrievalRerankerEnabled: nextRerankerEnabled,
+                retrievalRerankerAssignmentId: nextRerankerAssignmentId,
+                retrievalTopK: shouldUpdateRetrievalTopK ? retrievalTopK : existing.retrievalTopK,
                 codexSessionAutoCleanup: shouldUpdateCodexSessionAutoCleanup
                     ? codexSessionAutoCleanup
                     : existing.codexSessionAutoCleanup,
                 codexSessionRetentionLimit: parsedCodexSessionRetentionLimit,
-            },
-        })
+                codexPetEnabled: shouldUpdateCodexPetEnabled ? codexPetEnabled : existing.codexPetEnabled,
+                codexPetId: shouldUpdateCodexPetId ? codexPetId : existing.codexPetId,
+                },
+            }),
+            ...(embeddingAssignmentChanged && resetRetrievalEmbeddings === true
+                ? [prisma.sceneRetrievalIndex.updateMany({
+                    where: { novelId: id },
+                    data: {
+                        embeddingJson: null,
+                        embeddingHash: null,
+                        embeddingAssignmentId: null,
+                        embeddingModelId: null,
+                        embeddingDimensions: null,
+                        embeddingError: null,
+                        embeddingUpdatedAt: null,
+                    },
+                })]
+                : []),
+        ])
 
         // Orphaned cover files (replaced or cleared here) are reclaimed by the
         // startup image GC — see lib/server/image-gc.ts.

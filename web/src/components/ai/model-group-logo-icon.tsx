@@ -1,44 +1,20 @@
 'use client'
 
-import { useState } from 'react'
-import Image from 'next/image'
-import OpenAIProviderLogo from '@/lib/cherrystudio-model-config/assets/images/providers/openai.png'
-import { getCherryStudioModelLogoById } from '@/lib/cherrystudio-model-config'
-import { useAiStore, type AiConnection, type ModelGroup } from '@/lib/ai-store'
+import { useEffect, useMemo, useState } from 'react'
+import {
+    getLoadedCherryStudioIcon,
+    inferCherryStudioProviderId,
+    loadCherryStudioIcon,
+    resolveCherryStudioIcon,
+    type CherryStudioIcon,
+} from '@/lib/cherrystudio-model-config'
+import { useAiStore, type ModelGroup } from '@/lib/ai-store'
 import { cn } from '@/lib/utils'
 
 type ModelGroupLogoGroup = Pick<ModelGroup, 'name' | 'assignments'>
 
 function getPrimaryAssignment(group?: ModelGroupLogoGroup | null) {
     return group?.assignments.find((assignment) => assignment.modelId.trim())
-}
-
-function getModelGroupLogoKey(group?: ModelGroupLogoGroup | null, fallbackLabel?: string) {
-    const assignedModelId = getPrimaryAssignment(group)?.modelId.trim()
-    if (assignedModelId) return assignedModelId
-
-    const groupName = group?.name?.trim()
-    if (groupName) return groupName
-
-    return fallbackLabel?.trim() ?? ''
-}
-
-function isOfficialOpenAIConnection(connection?: AiConnection | null) {
-    if (!connection || connection.providerType !== 'openai-chat') {
-        return false
-    }
-
-    const baseUrl = connection.baseUrl?.trim().toLocaleLowerCase()
-    if (!baseUrl) {
-        return true
-    }
-
-    return baseUrl.includes('openai.com') || baseUrl.includes('azure.com')
-}
-
-function isOpenAIModelFamily(modelId: string) {
-    const normalized = modelId.trim().toLocaleLowerCase()
-    return /(^|\/)(gpt|o[1-4]|text-embedding|dall-e|whisper|tts)/.test(normalized)
 }
 
 export function ModelGroupLogoIcon({
@@ -54,26 +30,45 @@ export function ModelGroupLogoIcon({
 }) {
     const connections = useAiStore((state) => state.connections)
     const label = fallbackLabel?.trim() || group?.name?.trim() || '?'
-    const logoKey = getModelGroupLogoKey(group, fallbackLabel)
     const primaryAssignment = getPrimaryAssignment(group)
-    const primaryModelId = primaryAssignment?.modelId?.trim() || ''
-    const primaryConnection = connections.find(
-        (connection) => connection.id === primaryAssignment?.connectionId
+    const modelId = primaryAssignment?.modelId.trim() || group?.name?.trim() || fallbackLabel?.trim() || ''
+    const connection = connections.find((item) => item.id === primaryAssignment?.connectionId)
+    const providerId = inferCherryStudioProviderId({
+        providerType: connection?.providerType,
+        baseUrl: connection?.baseUrl,
+    })
+    const iconRef = useMemo(
+        () => resolveCherryStudioIcon(modelId, providerId),
+        [modelId, providerId]
     )
-    const usesOpenAIProviderLogo =
-        Boolean(logoKey) &&
-        Boolean(primaryModelId) &&
-        isOfficialOpenAIConnection(primaryConnection) &&
-        isOpenAIModelFamily(primaryModelId)
-    const logo = usesOpenAIProviderLogo
-        ? OpenAIProviderLogo
-        : logoKey
-            ? getCherryStudioModelLogoById(logoKey)
-            : undefined
-    const logoIdentity = `${usesOpenAIProviderLogo ? 'openai-provider' : 'model'}:${logoKey}`
-    const [failedLogoIdentity, setFailedLogoIdentity] = useState<string | null>(null)
+    const iconIdentity = iconRef ? `${iconRef.kind}:${iconRef.key}` : ''
+    const [iconState, setIconState] = useState<{
+        identity: string
+        icon: CherryStudioIcon
+    } | null>(null)
+    const loadedIcon =
+        iconState?.identity === iconIdentity
+            ? iconState.icon
+            : iconRef
+              ? getLoadedCherryStudioIcon(iconRef)
+              : undefined
 
-    if (!logo || failedLogoIdentity === logoIdentity) {
+    useEffect(() => {
+        let active = true
+        if (!iconRef) return
+
+        const cached = getLoadedCherryStudioIcon(iconRef)
+        if (cached) return
+
+        void loadCherryStudioIcon(iconRef).then((icon) => {
+            if (active && icon) setIconState({ identity: iconIdentity, icon })
+        })
+        return () => {
+            active = false
+        }
+    }, [iconIdentity, iconRef])
+
+    if (!loadedIcon) {
         return (
             <div
                 className={cn(
@@ -86,6 +81,9 @@ export function ModelGroupLogoIcon({
         )
     }
 
+    const LightIcon = loadedIcon.light
+    const DarkIcon = loadedIcon.dark
+
     return (
         <div
             className={cn(
@@ -93,16 +91,16 @@ export function ModelGroupLogoIcon({
                 className
             )}
         >
-            <Image
-                key={logoIdentity}
-                src={logo}
-                alt=""
-                width={16}
-                height={16}
-                className={cn('h-4 w-4 object-contain', imageClassName)}
-                unoptimized
-                onError={() => setFailedLogoIdentity(logoIdentity)}
+            <LightIcon
+                aria-hidden="true"
+                className={cn('h-4 w-4 object-contain', DarkIcon && 'dark:hidden', imageClassName)}
             />
+            {DarkIcon && (
+                <DarkIcon
+                    aria-hidden="true"
+                    className={cn('hidden h-4 w-4 object-contain dark:block', imageClassName)}
+                />
+            )}
         </div>
     )
 }

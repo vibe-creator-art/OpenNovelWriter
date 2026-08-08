@@ -39,6 +39,8 @@ const internalToken = process.env.OPENNOVELWRITER_INTERNAL_TOKEN || ''
 const RUN_LLM_TIMEOUT_MS = 175_000
 const TERM_RELATION_DIRECTIONS = ['outgoing', 'incoming', 'bidirectional']
 const TERM_RELATION_OP_ACTIONS = ['set', 'delete']
+const TERM_GALLERY_IMAGE_EXTENSIONS = new Set(['.jpeg', '.jpg', '.png', '.gif', '.webp'])
+const TERM_GALLERY_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 // A reference to an assistant reply inside a run_llm conversation artifact, used so
 // the model output goes straight from the .md into a scene without Codex retyping it.
@@ -414,6 +416,85 @@ const tools = [
         },
     },
     {
+        name: 'upload_term_gallery_image',
+        description:
+            'Upload one existing image file from this Codex session artifacts directory to an OpenNovelWriter term gallery. This tool only uploads and appends the image; it does not generate, edit, delete, or set the term avatar. Read novelId and termId from the term projection metadata. The image must be JPEG, PNG, GIF, or WebP and no larger than 5 MB.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from the term projection metadata.' },
+                termId: { type: 'string', description: 'The term id from the `<!-- term_id: ... -->` comment in novel/terms/<title>.md.' },
+                imagePath: { type: 'string', description: 'Absolute path to an existing JPEG, PNG, GIF, or WebP file inside this Codex session artifacts directory.' },
+            },
+            required: ['novelId', 'termId', 'imagePath'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'generate_images',
+        description:
+            'Generate or edit images with OpenNovelWriter\'s configured GPT Image provider and save the results under this Codex session artifacts directory. For one requested output, pass `prompt` and the options directly. Only for a multi-image request, first write the batch JSON described by the onw-imagegen skill under artifacts/ and pass `jobPath`. Provide exactly one of `prompt` or `jobPath`. The tool returns `suggestedLink`; put that link on its own line so the front-end renders the artifact image gallery.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                directoryPath: {
+                    type: 'string',
+                    description: 'Absolute path for a new output directory under this Codex session artifacts directory. The directory must not already exist.',
+                },
+                prompt: { type: 'string', description: 'Prompt for one image request. Omit when using jobPath.' },
+                jobPath: { type: 'string', description: 'Absolute path to a batch .json file under this Codex session artifacts directory. Use only when the user requested multiple images.' },
+                title: { type: 'string', description: 'Gallery title. Defaults to the image label.' },
+                id: { type: 'string', description: 'Stable lowercase id used for the output filename and image reference.' },
+                label: { type: 'string', description: 'Human-readable image label.' },
+                images: {
+                    type: 'array',
+                    maxItems: 16,
+                    description: 'Artifact images used as edit targets or references. Any image makes the request use the edits endpoint.',
+                    items: {
+                        oneOf: [
+                            { type: 'string' },
+                            {
+                                type: 'object',
+                                properties: {
+                                    path: { type: 'string', description: 'Absolute or artifact-relative image path.' },
+                                    role: { type: 'string', description: 'Role such as edit target, identity reference, style reference, or composition reference.' },
+                                },
+                                required: ['path'],
+                                additionalProperties: false,
+                            },
+                        ],
+                    },
+                },
+                mask: { type: 'string', description: 'Optional absolute or artifact-relative mask path. Requires at least one input image.' },
+                size: { type: 'string', description: 'auto or a valid WxH size. Defaults to auto.' },
+                quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'], description: 'Defaults to high.' },
+                n: { type: 'integer', minimum: 1, maximum: 10, description: 'Number of variants. Defaults to 1.' },
+                background: { type: 'string', enum: ['auto', 'opaque'] },
+                outputFormat: { type: 'string', enum: ['png', 'jpeg', 'webp'], description: 'Defaults to png.' },
+                outputCompression: { type: 'integer', minimum: 0, maximum: 100, description: 'Only valid for jpeg or webp.' },
+                moderation: { type: 'string', enum: ['auto', 'low'] },
+            },
+            required: ['directoryPath'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'install_pet',
+        description:
+            'Install a validated Codex-compatible pet package into the current OpenNovelWriter author\'s pet library. Read the built-in onw-pet-studio skill first. directoryPath must be an existing directory inside this Codex session artifacts directory and contain pet.json plus its declared 1536x1872 PNG or WebP spritesheet. Downloaded package scripts are never needed and must not be executed.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                directoryPath: {
+                    type: 'string',
+                    description: 'Absolute path to the pet package directory inside this Codex session artifacts directory.',
+                },
+            },
+            required: ['directoryPath'],
+            additionalProperties: false,
+        },
+    },
+    {
         name: 'run_llm',
         description:
             'Run an external LLM (model group) on a conversation Markdown file in the current Codex session artifacts directory, and append the model reply back into that file. First write a `.md` file under artifacts/ with `## system`, `## user` (and optionally prior `## assistant`) sections, then call this tool with its absolute path and the target model group id. The tool sends the conversation to the model group and appends a new `## assistant` section with the reply. After it returns, surface the reply to the user with the returned `suggestedLink` (an inline link `[模型回复](<ref>)`, where `ref` already starts with `llm:`), which the front-end renders as the model output — do NOT retype the reply yourself. The model group id comes from the user picking a model in the composer (rendered as `[名称](model:GROUP_ID)`).',
@@ -558,6 +639,21 @@ const tools = [
         },
     },
     {
+        name: 'retrieve_story_context',
+        description:
+            'Search the current OpenNovelWriter manuscript for scenes relevant to a natural-language query. BM25 is always used; embedding and reranking follow the novel\'s Memory Recall settings. This tool is read-only and returns scene/chapter ids, excerpts, and component scores. Use the returned ids to open the exact projected chapter file when full scene context is needed.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                query: { type: 'string', description: 'A concise natural-language description of the event, character detail, location, object, or prior scene to find.' },
+                topK: { type: 'integer', minimum: 1, maximum: 50, description: 'Optional result limit. Omit to use the novel setting.' },
+            },
+            required: ['novelId', 'query'],
+            additionalProperties: false,
+        },
+    },
+    {
         name: 'compose_scene_continuation',
         description:
             'Assemble a scene-continuation prompt into a conversation artifact, exactly as the scene-continuation panel would — without a real panel. Use this only when a skill tells you to assemble a specific prompt. Call `describe_prompt` first to learn the inputs. This tool renders the prompt (`promptName`) against a concrete scene plus your `instruction` and `inputs`, pulling in the scene\'s previous/following text, the terms mentioned in your instruction, outlines, etc., and writes a `## system` / `## user` markdown file to `mdPath` under this Codex session artifacts directory. Its job ends there: it does NOT call a model and does NOT touch the manuscript. What happens next (run_llm, showing the result, editing the scene) is decided by the skill / author. Returns the written `mdPath`, the bound `groups`, and any `missingInputs` / `unsupportedRequiredContentSelection` warnings.',
@@ -696,7 +792,7 @@ async function handleRequest(request) {
                     name: 'opennovelwriter',
                     version: '0.1.0',
                 },
-                instructions: 'Use these tools to update OpenNovelWriter novel metadata, summaries, snippets, and terms. Do not edit generated projection files directly.',
+                instructions: 'Use these tools to retrieve OpenNovelWriter story context and to update novel metadata, summaries, snippets, and terms. Do not edit generated projection files directly.',
             }
         case 'ping':
             return {}
@@ -763,6 +859,12 @@ async function callTool(params) {
                 return toolResult(await editTerm(args))
             case 'delete_term':
                 return toolResult(await deleteTerm(args))
+            case 'upload_term_gallery_image':
+                return toolResult(await uploadTermGalleryImage(args))
+            case 'generate_images':
+                return toolResult(await generateImages(args))
+            case 'install_pet':
+                return toolResult(await installPet(args))
             case 'run_llm':
                 return toolResult(await runLlm(args))
             case 'get_continuation_draft':
@@ -779,6 +881,8 @@ async function callTool(params) {
                 return toolResult(await exportSkillLibrary(args))
             case 'apply_skill_changes':
                 return toolResult(await applySkillChanges(args))
+            case 'retrieve_story_context':
+                return toolResult(await retrieveStoryContext(args))
             case 'compose_scene_continuation':
                 return toolResult(await composeSceneContinuation(args))
             default:
@@ -2153,6 +2257,27 @@ async function deleteTerm(args) {
     }
 }
 
+async function uploadTermGalleryImage(args) {
+    const novelId = requireNonEmptyString(args.novelId, 'novelId')
+    const termId = requireNonEmptyString(args.termId, 'termId')
+    const artifact = await resolveArtifactImagePath(requireNonEmptyString(args.imagePath, 'imagePath'))
+    const session = await prisma.codexSession.findFirst({
+        where: { id: artifact.sessionId, ownerId, novelId },
+        select: { id: true },
+    })
+    if (!session) {
+        throw new Error('imagePath must belong to a Codex session for the requested novel.')
+    }
+
+    return callInternalCodexEndpoint('/api/internal/codex/upload-term-gallery-image', {
+        ownerId,
+        sessionId: artifact.sessionId,
+        novelId,
+        termId,
+        imagePath: artifact.realPath,
+    }, 60_000)
+}
+
 async function requestTermDeletionApproval(entry) {
     const label = typeof entry.title === 'string' && entry.title.trim() ? entry.title.trim() : '未命名词条'
     const message = `run tool "delete_term"：永久删除词条「${label}」（id ${entry.id}）？此操作不可撤销。`
@@ -2244,6 +2369,97 @@ async function runLlm(args) {
         groupName: payload.groupName ?? null,
         modelId: payload.modelId ?? null,
     }
+}
+
+async function retrieveStoryContext(args) {
+    const novelId = requireNonEmptyString(args.novelId, 'novelId')
+    const query = requireNonEmptyString(args.query, 'query')
+    const topK = args.topK === undefined ? undefined : requirePositiveInteger(args.topK, 'topK')
+    if (topK !== undefined && topK > 50) throw new Error('topK must not exceed 50.')
+    await requireOwnedNovel(novelId)
+    const payload = await callInternalCodexEndpoint('/api/internal/codex/retrieve-story-context', {
+        ownerId,
+        novelId,
+        query,
+        topK,
+    }, 175_000)
+    return {
+        ok: true,
+        query: payload.query,
+        topK: payload.topK,
+        modes: payload.modes,
+        warnings: payload.warnings,
+        results: payload.results,
+    }
+}
+
+async function generateImages(args) {
+    const directoryPath = requireNonEmptyString(args.directoryPath, 'directoryPath')
+    const hasPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
+    const hasJobPath = typeof args.jobPath === 'string' && args.jobPath.trim().length > 0
+    if (hasPrompt === hasJobPath) {
+        throw new Error('Provide exactly one of prompt or jobPath.')
+    }
+
+    const output = await resolveArtifactDirectoryOutputPath(directoryPath)
+    const session = await prisma.codexSession.findFirst({
+        where: { id: output.sessionId, ownerId },
+        select: { id: true },
+    })
+    if (!session) {
+        throw new Error(`Codex session ${output.sessionId} was not found for this connection.`)
+    }
+
+    let body
+    if (hasJobPath) {
+        const artifact = await resolveArtifactJsonPath(requireNonEmptyString(args.jobPath, 'jobPath'))
+        if (artifact.sessionId !== output.sessionId) {
+            throw new Error('jobPath and directoryPath must belong to the same Codex session.')
+        }
+        let batch
+        try {
+            batch = JSON.parse(await fs.readFile(artifact.realPath, 'utf8'))
+        } catch (error) {
+            throw new Error(`Failed to read batch image job JSON: ${error instanceof Error ? error.message : String(error)}`)
+        }
+        body = { ownerId, sessionId: output.sessionId, directoryPath: output.realPath, batch }
+    } else {
+        body = {
+            ownerId,
+            sessionId: output.sessionId,
+            directoryPath: output.realPath,
+            prompt: args.prompt,
+            title: args.title,
+            id: args.id,
+            label: args.label,
+            images: args.images,
+            mask: args.mask,
+            size: args.size,
+            quality: args.quality,
+            n: args.n,
+            background: args.background,
+            outputFormat: args.outputFormat,
+            outputCompression: args.outputCompression,
+            moderation: args.moderation,
+        }
+    }
+
+    return callInternalCodexEndpoint('/api/internal/codex/generate-images', body, 3_590_000)
+}
+
+async function installPet(args) {
+    const directory = await resolveArtifactDirectoryPath(requireNonEmptyString(args.directoryPath, 'directoryPath'))
+    const session = await prisma.codexSession.findFirst({
+        where: { id: directory.sessionId, ownerId },
+        select: { id: true },
+    })
+    if (!session) {
+        throw new Error(`Codex session ${directory.sessionId} was not found for this connection.`)
+    }
+    return callInternalCodexEndpoint('/api/internal/codex/install-pet', {
+        ownerId,
+        directoryPath: directory.realPath,
+    }, 60_000)
 }
 
 // POST a JSON body to one of the app's internal Codex endpoints (authenticated with the shared
@@ -2985,6 +3201,38 @@ async function resolveArtifactJsonPath(rawPath) {
     return { realPath, sessionId }
 }
 
+async function resolveArtifactImagePath(rawPath) {
+    if (!path.isAbsolute(rawPath)) {
+        throw new Error('imagePath must be an absolute path inside this Codex session artifacts directory.')
+    }
+    const resolvedPath = path.resolve(rawPath)
+    const extension = path.extname(resolvedPath).toLowerCase()
+    if (!TERM_GALLERY_IMAGE_EXTENSIONS.has(extension)) {
+        throw new Error('imagePath must point to a JPEG, PNG, GIF, or WebP file.')
+    }
+    const realPath = await fs.realpath(resolvedPath)
+    const sessionsOwnerRoot = path.join(getOpenNovelWriterDataDir(), 'codex', 'sessions', ownerId)
+    const realSessionsOwnerRoot = await fs.realpath(sessionsOwnerRoot)
+    const relativeToSessions = path.relative(realSessionsOwnerRoot, realPath)
+    if (!relativeToSessions || relativeToSessions.startsWith('..') || path.isAbsolute(relativeToSessions)) {
+        throw new Error('imagePath must be inside this user Codex sessions directory.')
+    }
+    const segments = relativeToSessions.split(path.sep)
+    const sessionId = segments[0]
+    if (!sessionId || segments[1] !== 'artifacts' || segments.length < 3) {
+        throw new Error('imagePath must be inside a Codex session artifacts directory.')
+    }
+    const realArtifactsRoot = await fs.realpath(path.join(realSessionsOwnerRoot, sessionId, 'artifacts'))
+    const relativeToArtifacts = path.relative(realArtifactsRoot, realPath)
+    if (!relativeToArtifacts || relativeToArtifacts.startsWith('..') || path.isAbsolute(relativeToArtifacts)) {
+        throw new Error('imagePath must be inside this Codex session artifacts directory.')
+    }
+    const stat = await fs.stat(realPath)
+    if (!stat.isFile()) throw new Error('imagePath must point to a file.')
+    if (stat.size > TERM_GALLERY_MAX_IMAGE_BYTES) throw new Error('Term gallery images cannot exceed 5 MB.')
+    return { realPath, sessionId }
+}
+
 // Like resolveArtifactMarkdownPath, but for a file that may not exist yet (an output target): we
 // realpath the parent directory instead of the file, so compose_scene_continuation can write a new
 // `.md` while still guaranteeing the path stays inside a session this connection owns.
@@ -3041,6 +3289,29 @@ async function resolveArtifactDirectoryOutputPath(rawPath) {
         if (error && error.code !== 'ENOENT') throw error
     }
     return { realPath: target, sessionId: segments[0] }
+}
+
+async function resolveArtifactDirectoryPath(rawPath) {
+    if (!path.isAbsolute(rawPath)) {
+        throw new Error('directoryPath must be an absolute path inside this Codex session artifacts directory.')
+    }
+    const realPath = await fs.realpath(path.resolve(rawPath))
+    const stat = await fs.stat(realPath)
+    if (!stat.isDirectory()) throw new Error('directoryPath must point to a directory.')
+
+    const realSessionsOwnerRoot = await fs.realpath(path.join(getOpenNovelWriterDataDir(), 'codex', 'sessions', ownerId))
+    const relativeToSessions = path.relative(realSessionsOwnerRoot, realPath)
+    const segments = relativeToSessions.split(path.sep)
+    if (
+        !relativeToSessions
+        || relativeToSessions.startsWith('..')
+        || path.isAbsolute(relativeToSessions)
+        || segments.length < 3
+        || segments[1] !== 'artifacts'
+    ) {
+        throw new Error('directoryPath must be inside a Codex session artifacts directory.')
+    }
+    return { realPath, sessionId: segments[0] }
 }
 
 function toSnippetProjectionInput(snippet) {

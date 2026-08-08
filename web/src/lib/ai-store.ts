@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { CherryStudioDetectionState } from '@/lib/cherrystudio-model-config'
 
-export type ProviderType = 'openai-chat' | 'openai-image' | 'gemini'
+export type ProviderType = 'openai-chat' | 'gemini'
 
 export interface AiModel {
     id: string

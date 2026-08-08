@@ -9,6 +9,7 @@ import type { RevisionHistoryItem } from '@/lib/revision-history'
 import type { PromptBundleV1 } from './prompt-bundle'
 import type { SkillPresetAssetV1 } from './skill-preset'
 import type { CodexResponseAnnotation } from './codex-response-annotations'
+import type { PetSummary } from './pets'
 
 const API_BASE = '/api'
 
@@ -95,8 +96,15 @@ export interface Novel {
     outlineActSummaryCollapsesChapters: boolean
     termContextIncludesRelations: boolean
     termContextIncludesExperiences: boolean
+    retrievalEmbeddingEnabled: boolean
+    retrievalEmbeddingAssignmentId: string | null
+    retrievalRerankerEnabled: boolean
+    retrievalRerankerAssignmentId: string | null
+    retrievalTopK: number
     codexSessionAutoCleanup: boolean
     codexSessionRetentionLimit: number
+    codexPetEnabled: boolean
+    codexPetId: string
     ownerId: string
     createdAt: string
     updatedAt: string
@@ -111,11 +119,60 @@ export const novelApi = {
     create: (data: { title: string; description?: string; category?: string; coverImage?: string; coverCrop?: string | null; language?: string }) =>
         fetchApi<Novel>('/novels', { method: 'POST', body: JSON.stringify(data) }),
 
-    update: (id: string, data: Partial<Novel>) =>
+    update: (id: string, data: Partial<Novel> & { resetRetrievalEmbeddings?: boolean }) =>
         fetchApi<Novel>(`/novels/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
     delete: (id: string) =>
         fetchApi<{ message: string }>(`/novels/${id}`, { method: 'DELETE' }),
+}
+
+export type RetrievalModelOption = {
+    assignmentId: string
+    modelId: string
+    modelName: string
+    groupName: string
+    connectionName: string
+    providerType: ProviderType
+}
+
+export type SceneEmbeddingStatus = 'fresh' | 'stale' | 'missing' | 'error'
+
+export type RetrievalStatusResponse = {
+    embeddingEnabled: boolean
+    cachedCount: number
+    statuses: Array<{
+        sceneId: string
+        status: SceneEmbeddingStatus
+        embeddedAt: string | null
+        error: string | null
+    }>
+    counts: Record<SceneEmbeddingStatus, number>
+}
+
+export const retrievalApi = {
+    options: (novelId: string) =>
+        fetchApi<{ embeddingModels: RetrievalModelOption[]; rerankerModels: RetrievalModelOption[] }>(
+            `/novels/${encodeURIComponent(novelId)}/retrieval`
+        ),
+
+    status: (novelId: string) =>
+        fetchApi<RetrievalStatusResponse>(`/novels/${encodeURIComponent(novelId)}/retrieval/status`),
+
+    updateEmbeddings: (novelId: string, sceneId?: string) =>
+        fetchApi<{ updated: number; skipped: number; assignmentId: string; modelId: string }>(
+            `/novels/${encodeURIComponent(novelId)}/retrieval/embeddings`,
+            {
+                method: 'POST',
+                body: JSON.stringify(sceneId ? { sceneId } : {}),
+            }
+        ),
+}
+
+export const petApi = {
+    list: () => fetchApi<{ pets: PetSummary[] }>('/pets'),
+
+    delete: (id: string) =>
+        fetchApi<{ ok: true }>(`/pets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
 
 export type NovelWritingDay = {
@@ -412,6 +469,16 @@ export const termsApi = {
         fetchApi<{ entryId: string; gallery: TermEntryGalleryItem[] }>(`/novels/${novelId}/terms/gallery`, {
             method: 'POST',
             body: JSON.stringify({ entryId, url }),
+        }),
+
+    addGalleryArtifactImage: (
+        novelId: string,
+        entryId: string,
+        artifact: { sessionId: string; imagePath: string }
+    ) =>
+        fetchApi<{ entryId: string; gallery: TermEntryGalleryItem[] }>(`/novels/${novelId}/terms/gallery`, {
+            method: 'POST',
+            body: JSON.stringify({ entryId, artifact }),
         }),
 }
 
@@ -837,7 +904,7 @@ export const uploadApi = {
 }
 
 // AI API
-export type ProviderType = 'openai-chat' | 'openai-image' | 'gemini'
+export type ProviderType = 'openai-chat' | 'gemini'
 
 export interface AiModel {
     id: string
@@ -854,6 +921,13 @@ export interface AiConnection {
     lastFetchedAt: string | null
     createdAt: string
     updatedAt: string
+}
+
+export interface GptImageConnection {
+    baseUrl: string
+    modelId: string
+    models: AiModel[]
+    hasApiKey: boolean
 }
 
 export type CodexConnectionProviderType = 'openai-official' | 'custom'
@@ -1024,6 +1098,28 @@ export const aiApi = {
         fetchApi<{ ok: true }>(`/ai/model-sets/${setId}/members`, {
             method: 'PUT',
             body: JSON.stringify({ members }),
+        }),
+}
+
+export const gptImageApi = {
+    getConnection: () =>
+        fetchApi<{ connection: GptImageConnection | null }>('/other-connections/gpt-image'),
+
+    fetchModels: (data: { baseUrl: string; apiKey?: string }) =>
+        fetchApi<{ models: AiModel[] }>('/other-connections/gpt-image/models', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
+
+    saveConnection: (data: {
+        baseUrl: string
+        apiKey?: string
+        modelId: string
+        models: AiModel[]
+    }) =>
+        fetchApi<{ connection: GptImageConnection }>('/other-connections/gpt-image', {
+            method: 'PUT',
+            body: JSON.stringify(data),
         }),
 }
 

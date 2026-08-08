@@ -12,11 +12,12 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useSettingsStore, Locale } from '@/lib/store'
-import { Key, Settings, Globe, Bot, Zap } from 'lucide-react'
+import { Key, Settings, Globe, Bot, Plug, Zap } from 'lucide-react'
 import { AIConnectionsTab } from '@/components/settings/ai-connections-tab'
 import { CodexConnectionsTab } from '@/components/settings/codex-connections-tab'
+import { OtherConnectionsTab } from '@/components/settings/other-connections-tab'
 
-type SettingsTab = 'codex-connections' | 'ai-connections' | 'general'
+type SettingsTab = 'codex-connections' | 'ai-connections' | 'other-connections' | 'general'
 
 interface SettingsDialogProps {
     open: boolean
@@ -50,6 +51,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                             label={t('tabs.aiConnections')}
                         />
                         <TabButton
+                            active={activeTab === 'other-connections'}
+                            onClick={() => setActiveTab('other-connections')}
+                            icon={<Plug className="h-4 w-4" />}
+                            label={t('tabs.otherConnections')}
+                        />
+                        <TabButton
                             active={activeTab === 'general'}
                             onClick={() => setActiveTab('general')}
                             icon={<Settings className="h-4 w-4" />}
@@ -62,6 +69,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 <div className="px-6 py-6 min-h-[300px]">
                     {activeTab === 'codex-connections' && <CodexConnectionsTab />}
                     {activeTab === 'ai-connections' && <AIConnectionsTab />}
+                    {activeTab === 'other-connections' && <OtherConnectionsTab />}
                     {activeTab === 'general' && <GeneralTab />}
                 </div>
             </DialogContent>

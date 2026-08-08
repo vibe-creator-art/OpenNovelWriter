@@ -105,12 +105,10 @@ type RenameGroupResult = {
 
 const PROVIDER_DEFAULT_BASE_URLS: Record<ProviderType, string> = {
     'openai-chat': 'https://api.openai.com/v1',
-    'openai-image': 'https://api.openai.com/v1',
     gemini: 'https://generativelanguage.googleapis.com/v1beta',
 }
 
 function getProviderTypeLabelKey(providerType: string) {
-    if (providerType === 'openai-image') return 'providerTypes.openaiImage'
     if (providerType === 'gemini') return 'providerTypes.gemini'
     return 'providerTypes.openai'
 }
@@ -705,7 +703,6 @@ export function AIConnectionsTab() {
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="openai-chat">{t('providerTypes.openai')}</SelectItem>
-                                    <SelectItem value="openai-image">{t('providerTypes.openaiImage')}</SelectItem>
                                     <SelectItem value="gemini">{t('providerTypes.gemini')}</SelectItem>
                                 </SelectContent>
                             </Select>
@@ -715,6 +712,7 @@ export function AIConnectionsTab() {
                             <Label htmlFor="connection-name">{t('connectionName')}</Label>
                             <Input
                                 id="connection-name"
+                                autoComplete="off"
                                 value={connectionName}
                                 onChange={(event) => setConnectionName(event.target.value)}
                                 placeholder={t('connectionNamePlaceholder')}
@@ -728,6 +726,7 @@ export function AIConnectionsTab() {
                             <Input
                                 id="api-key"
                                 type={showApiKey ? 'text' : 'password'}
+                                autoComplete="new-password"
                                 placeholder={t('apiKeyPlaceholder')}
                                 value={apiKey}
                                 onChange={(event) => setApiKey(event.target.value)}
@@ -1028,10 +1027,9 @@ function detectGroupModelTypeState(
 
     for (const assignment of group.assignments) {
         const connection = connections.find((item) => item.id === assignment.connectionId)
-        const model = connection?.models.find((item) => item.id === assignment.modelId)
         const detected = detectCherryStudioModelTypes({
             modelId: assignment.modelId,
-            modelName: model?.name ?? assignment.modelId,
+            providerType: connection?.providerType ?? null,
             baseUrl: connection?.baseUrl ?? null,
         })
 
@@ -1039,6 +1037,8 @@ function detectGroupModelTypeState(
             state[modelType] = state[modelType] || detected[modelType]
         }
     }
+
+    if (state.reranker) state.embedding = false
 
     return state
 }
@@ -1169,6 +1169,8 @@ function ModelGroupCard({
             ...effectiveModelTypeState,
             [modelType]: !effectiveModelTypeState[modelType],
         }
+        if (nextState[modelType] && modelType === 'reranker') nextState.embedding = false
+        if (nextState[modelType] && modelType === 'embedding') nextState.reranker = false
 
         onUpdateGroup(group.id, {
             modelTypes: areModelTypeStatesEqual(nextState, detectedModelTypeState) ? null : nextState,

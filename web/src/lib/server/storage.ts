@@ -5,15 +5,9 @@ import { basename, join } from 'path'
 /**
  * Unified image storage adapter.
  *
- * All image-producing features (novel covers, term avatars / character images,
- * chat & codex generated images) go through this module so there is exactly one
- * place that decides where bytes live and how URLs are formed. Today the backend
- * is the local `public/uploads` directory; swapping to object storage (R2/S3)
- * later means replacing the implementations below, not the call sites.
+ * Novel covers, term images, chat attachments, and Codex generated images share this storage boundary.
  *
- * Cleanup is NOT the responsibility of call sites — see `image-gc.ts`. Orphan
- * files are reclaimed by a mark-and-sweep GC, so correctness does not depend on
- * every delete path remembering to call `deleteImage`.
+ * The backend is the local `public/uploads` directory and orphan files are reclaimed by `image-gc.ts`.
  */
 
 export const UPLOADS_PUBLIC_PREFIX = '/uploads/'
@@ -126,63 +120,6 @@ export async function persistExternalImage(sourceUrl: string): Promise<SavedImag
     const contentType = res.headers.get('content-type') || 'image/png'
     const buffer = Buffer.from(await res.arrayBuffer())
     return saveImageBuffer(buffer, mimeToExt(contentType))
-}
-
-// Inline images a model can emit in its reply text: markdown `![..](data:image/...)`,
-// a bare base64 data URI (relay providers return generated images this way for
-// image-output chat models), or a markdown reference to an already-managed upload
-// (our own image-generation path emits these).
-const MARKDOWN_DATA_IMAGE_RE = /!\[[^\]]*\]\(\s*(data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+?)\s*\)/g
-const BARE_DATA_IMAGE_RE = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]{200,}/g
-const MARKDOWN_MANAGED_IMAGE_RE = /!\[[^\]]*\]\(\s*(\/uploads\/[^)\s]+)\s*\)/g
-
-/**
- * Lift every inline image found in model output out of the text: data-URI images
- * are persisted as managed uploads, managed-URL references are taken as-is. Returns
- * the cleaned text plus the managed URLs, so callers can store the images as message
- * attachments instead of megabytes of base64 in the message body.
- */
-export async function extractInlineImagesToUploads(content: string): Promise<{ content: string; urls: string[] }> {
-    if (!content.includes('data:image/') && !content.includes(UPLOADS_PUBLIC_PREFIX)) {
-        return { content, urls: [] }
-    }
-
-    const urls: string[] = []
-    const replaceDataUrl = async (dataUrl: string) => {
-        try {
-            const saved = await saveImageDataUrl(dataUrl.replace(/\s+/g, ''))
-            urls.push(saved.url)
-            return ''
-        } catch {
-            return ''
-        }
-    }
-
-    let next = ''
-    let lastIndex = 0
-    const applyPattern = async (source: string, pattern: RegExp, getDataUrl: (match: RegExpExecArray) => string) => {
-        next = ''
-        lastIndex = 0
-        let match: RegExpExecArray | null
-        const regex = new RegExp(pattern)
-        while ((match = regex.exec(source)) !== null) {
-            next += source.slice(lastIndex, match.index)
-            next += await replaceDataUrl(getDataUrl(match))
-            lastIndex = match.index + match[0].length
-        }
-        next += source.slice(lastIndex)
-        return next
-    }
-
-    let cleaned = await applyPattern(content, MARKDOWN_DATA_IMAGE_RE, (match) => match[1])
-    cleaned = await applyPattern(cleaned, BARE_DATA_IMAGE_RE, (match) => match[0])
-    cleaned = cleaned.replace(MARKDOWN_MANAGED_IMAGE_RE, (_full, ref: string) => {
-        const url = toManagedUploadUrl(ref)
-        if (url && !urls.includes(url)) urls.push(url)
-        return ''
-    })
-
-    return { content: cleaned.trim(), urls }
 }
 
 /** Best-effort immediate deletion. Not required for correctness (GC backstops). */

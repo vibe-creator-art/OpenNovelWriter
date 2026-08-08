@@ -1,0 +1,4 @@
+interface:
+  display_name: "ONW ImageGen"
+  short_description: "原生 ImageGen 不可用时使用配置的 GPT 图片服务"
+  default_prompt: "使用 $onw-imagegen 在原生 ImageGen 不可用时生成或编辑小说图片。"

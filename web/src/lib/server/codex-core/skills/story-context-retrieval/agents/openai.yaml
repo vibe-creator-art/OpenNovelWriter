@@ -1,0 +1,4 @@
+interface:
+  display_name: "故事上下文检索"
+  short_description: "从小说全文只读召回相关场景，辅助回忆前文与核对连续性"
+  default_prompt: "使用 $story-context-retrieval 从当前小说中检索与我的问题相关的场景。"

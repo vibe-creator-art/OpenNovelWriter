@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises'
-import { generateImage, generateText, streamText, type LanguageModelUsage, type ModelMessage } from 'ai'
+import { generateText, streamText, type LanguageModelUsage, type ModelMessage } from 'ai'
 import { prisma } from '@/lib/db'
-import { resolveManagedUploadPath, saveImageBuffer } from '@/lib/server/storage'
+import { resolveManagedUploadPath } from '@/lib/server/storage'
 import type { ModelAssignment, ModelGroup } from '@/lib/ai-store'
 import {
     computeFailureUpdates,
@@ -12,8 +12,7 @@ import {
     normalizeGroupSettings,
 } from '@/lib/ai-group-config'
 import { decryptApiKey } from '@/lib/server/ai-credentials'
-import { createImageModel, createLanguageModel, parseProviderType, type ProviderType } from '@/lib/server/ai-providers'
-import { isImageGenerationModel } from '@/lib/cherrystudio-model-config'
+import { createLanguageModel, parseProviderType } from '@/lib/server/ai-providers'
 
 export class ModelGroupRunnerError extends Error {
     code: string
@@ -42,21 +41,13 @@ type RunModelInput = {
     prompt?: string
 }
 
-function uploadMediaType(filepath: string) {
-    const ext = filepath.split('.').pop()?.toLowerCase()
-    if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
-    if (ext === 'webp') return 'image/webp'
-    if (ext === 'gif') return 'image/gif'
-    return 'image/png'
-}
-
 async function readAttachmentBuffers(images: string[]) {
-    const buffers: Array<{ data: Buffer; mediaType: string }> = []
+    const buffers: Buffer[] = []
     for (const url of images) {
         const filepath = typeof url === 'string' ? resolveManagedUploadPath(url) : null
         if (!filepath) continue
         try {
-            buffers.push({ data: await readFile(filepath), mediaType: uploadMediaType(filepath) })
+            buffers.push(await readFile(filepath))
         } catch {
             // attachment file vanished (e.g. GC'd) — send the rest without it
         }
@@ -64,57 +55,26 @@ async function readAttachmentBuffers(images: string[]) {
     return buffers
 }
 
-/**
- * Expand `images` (managed `/uploads/...` URLs) into AI SDK multimodal content
- * parts: image parts on user messages, file parts on assistant messages (how
- * Gemini round-trips its own generated images for multi-turn editing; OpenAI
- * chat conversion silently drops assistant file parts). Image bytes are read
- * from local disk and inlined, so providers receive them regardless of whether
- * this server is reachable from the internet.
- */
+/** Expand user image attachments into AI SDK multimodal content with locally inlined bytes. */
 async function resolveMessagesWithImages(messages: RunModelMessage[]): Promise<ModelMessage[]> {
     return Promise.all(
         messages.map(async (message) => {
             const { images, ...rest } = message
-            if (!Array.isArray(images) || images.length === 0 || typeof rest.content !== 'string') {
+            if (rest.role !== 'user' || !Array.isArray(images) || images.length === 0 || typeof rest.content !== 'string') {
                 return rest as ModelMessage
             }
-            const text = rest.content
 
-            if (rest.role === 'user') {
-                const buffers = await readAttachmentBuffers(images)
-                if (buffers.length === 0) return rest as ModelMessage
-                return {
-                    role: 'user',
-                    content: [
-                        ...buffers.map(({ data }) => ({ type: 'image' as const, image: data })),
-                        ...(text ? [{ type: 'text' as const, text }] : []),
-                    ],
-                } satisfies ModelMessage
-            }
-
-            if (rest.role === 'assistant') {
-                const buffers = await readAttachmentBuffers(images)
-                if (buffers.length === 0) return rest as ModelMessage
-                return {
-                    role: 'assistant',
-                    content: [
-                        ...(text ? [{ type: 'text' as const, text }] : []),
-                        ...buffers.map(({ data, mediaType }) => ({ type: 'file' as const, data, mediaType })),
-                    ],
-                } satisfies ModelMessage
-            }
-
-            return rest as ModelMessage
+            const buffers = await readAttachmentBuffers(images)
+            if (buffers.length === 0) return rest as ModelMessage
+            return {
+                role: 'user',
+                content: [
+                    ...buffers.map((image) => ({ type: 'image' as const, image })),
+                    ...(rest.content ? [{ type: 'text' as const, text: rest.content }] : []),
+                ],
+            } satisfies ModelMessage
         })
     )
-}
-
-/** Persist a model-emitted image file and return its markdown reference. */
-async function saveGeneratedFileAsMarkdownRef(file: { uint8Array: Uint8Array; mediaType: string }) {
-    const ext = file.mediaType?.split('/')[1] ?? 'png'
-    const saved = await saveImageBuffer(Buffer.from(file.uint8Array), ext)
-    return `![image](${saved.url})`
 }
 
 type LoadedModelAssignment = ModelAssignment & {
@@ -242,94 +202,6 @@ export async function loadModelGroupForOwner(params: { ownerId: string; groupId:
     return toLoadedModelGroup(record)
 }
 
-
-/** The drawing instruction: the last non-empty user message, or the bare prompt. */
-function getImageGenerationPrompt(input: RunModelInput) {
-    for (let index = (input.messages?.length ?? 0) - 1; index >= 0; index -= 1) {
-        const message = input.messages![index]
-        if (message?.role === 'user' && typeof message.content === 'string' && message.content.trim()) {
-            return message.content.trim()
-        }
-    }
-    return input.prompt?.trim() ?? ''
-}
-
-/**
- * Input images for an edit: the attachments of the last message (any role) that
- * has any. Generated images live on assistant messages, so a follow-up like
- * "change the hair to silver" must pick up the previous output as the canvas.
- */
-async function getImageGenerationInputImages(input: RunModelInput): Promise<Buffer[]> {
-    for (let index = (input.messages?.length ?? 0) - 1; index >= 0; index -= 1) {
-        const message = input.messages![index]
-        if (!Array.isArray(message?.images) || message.images.length === 0) continue
-
-        const buffers: Buffer[] = []
-        for (const url of message.images) {
-            const filepath = typeof url === 'string' ? resolveManagedUploadPath(url) : null
-            if (!filepath) continue
-            try {
-                buffers.push(await readFile(filepath))
-            } catch {
-                // attachment file vanished (e.g. GC'd) — edit with the rest
-            }
-        }
-        return buffers
-    }
-    return []
-}
-
-/**
- * Run an `openai-image` connection model: `/images/edits` when the conversation
- * carries input images (and the model takes image input), otherwise
- * `/images/generations`. Generated images are persisted as managed uploads and
- * returned as markdown references — the chat message route lifts those into
- * message attachments on save.
- */
-export async function runImageGenerationAttempt(params: {
-    providerType: ProviderType
-    apiKey: string
-    baseUrl: string | null
-    modelId: string
-    input: RunModelInput
-    allowImageInput?: boolean
-    signal?: AbortSignal
-    onTextDelta?: (delta: string) => Promise<void> | void
-}): Promise<{ text: string; reasoningText?: string; usage?: LanguageModelUsage }> {
-    const prompt = getImageGenerationPrompt(params.input)
-    if (!prompt) {
-        throw new ModelGroupRunnerError('IMAGE_PROMPT_REQUIRED', 'Image generation needs a text prompt.', {
-            retryable: false,
-        })
-    }
-
-    const inputImages = params.allowImageInput === false ? [] : await getImageGenerationInputImages(params.input)
-    const result = await generateImage({
-        model: createImageModel({
-            providerType: params.providerType,
-            apiKey: params.apiKey,
-            baseUrl: params.baseUrl,
-            modelId: params.modelId,
-        }),
-        prompt: inputImages.length > 0 ? { text: prompt, images: inputImages } : prompt,
-        abortSignal: params.signal,
-    })
-
-    const urls: string[] = []
-    for (const image of result.images) {
-        const ext = image.mediaType?.split('/')[1] ?? 'png'
-        const saved = await saveImageBuffer(Buffer.from(image.uint8Array), ext)
-        urls.push(saved.url)
-    }
-    if (urls.length === 0) {
-        throw new ModelGroupRunnerError('IMAGE_GENERATION_EMPTY', 'The model returned no image.', { retryable: true })
-    }
-
-    const text = urls.map((url) => `![image](${url})`).join('\n')
-    await params.onTextDelta?.(text)
-    return { text }
-}
-
 export async function runModelGroupWithFallbackOnServer(options: {
     group: LoadedModelGroup
     input: RunModelInput
@@ -384,92 +256,50 @@ export async function runModelGroupWithFallbackOnServer(options: {
             }
 
             const apiKey = decryptApiKey(assignment.connection.encryptedApiKey)
+            const model = createLanguageModel({
+                providerType,
+                apiKey,
+                baseUrl: assignment.connection.baseUrl,
+                modelId: assignment.modelId,
+            })
+            const stream = options.input.stream === true
+            const requestPayload = {
+                model,
+                system: options.input.system,
+                temperature: options.input.temperature,
+                maxOutputTokens: options.input.maxTokens,
+                abortSignal: options.signal,
+                ...(resolvedMessages
+                    ? { messages: resolvedMessages }
+                    : { prompt: options.input.prompt ?? '' }),
+            }
 
-            const { text, reasoningText, usage } = providerType === 'openai-image'
-                ? await runImageGenerationAttempt({
-                      providerType,
-                      apiKey,
-                      baseUrl: assignment.connection.baseUrl,
-                      modelId: assignment.modelId,
-                      input: options.input,
-                      allowImageInput: visionCapable,
-                      signal: options.signal,
-                      onTextDelta: options.onTextDelta,
-                  })
-                : await (async () => {
-                      const model = createLanguageModel({
-                          providerType,
-                          apiKey,
-                          baseUrl: assignment.connection.baseUrl,
-                          modelId: assignment.modelId,
-                      })
+            let text = ''
+            let reasoningText: string | undefined
+            let usage: LanguageModelUsage
 
-                      // Gemini image-output models (nano banana) return images as
-                      // native file parts when IMAGE response modality is requested.
-                      const imageOutput =
-                          providerType === 'gemini' && isImageGenerationModel({ modelId: assignment.modelId })
+            if (!stream) {
+                const result = await generateText(requestPayload)
+                text = result.text
+                reasoningText = result.reasoningText?.trim() ? result.reasoningText : undefined
+                usage = result.usage
+            } else {
+                const result = streamText(requestPayload)
+                let streamedReasoning = ''
 
-                      const stream = options.input.stream === true
-                      const requestPayload = {
-                          model,
-                          system: options.input.system,
-                          temperature: options.input.temperature,
-                          maxOutputTokens: options.input.maxTokens,
-                          abortSignal: options.signal,
-                          ...(imageOutput
-                              ? { providerOptions: { google: { responseModalities: ['TEXT', 'IMAGE'] } } }
-                              : {}),
-                          ...(resolvedMessages
-                              ? { messages: resolvedMessages }
-                              : { prompt: options.input.prompt ?? '' }),
-                      }
+                for await (const part of result.fullStream) {
+                    if (part.type === 'text-delta' && part.text) {
+                        text += part.text
+                        await options.onTextDelta?.(part.text)
+                    } else if (part.type === 'reasoning-delta' && part.text) {
+                        streamedReasoning += part.text
+                        await options.onReasoningDelta?.(part.text)
+                    }
+                }
 
-                      if (!stream) {
-                          const result = await generateText(requestPayload)
-                          let text = result.text
-                          for (const file of result.files) {
-                              if (!file.mediaType?.startsWith('image/')) continue
-                              const ref = await saveGeneratedFileAsMarkdownRef(file)
-                              text += text && !text.endsWith('\n') ? `\n${ref}` : ref
-                          }
-                          return {
-                              text,
-                              reasoningText: result.reasoningText?.trim() ? result.reasoningText : undefined,
-                              usage: result.usage,
-                          }
-                      }
-
-                      const result = streamText(requestPayload)
-                      let text = ''
-                      let reasoningText = ''
-
-                      for await (const part of result.fullStream) {
-                          if (part.type === 'text-delta' && part.text) {
-                              text += part.text
-                              await options.onTextDelta?.(part.text)
-                              continue
-                          }
-
-                          if (part.type === 'file' && part.file.mediaType?.startsWith('image/')) {
-                              const ref = await saveGeneratedFileAsMarkdownRef(part.file)
-                              const delta = text && !text.endsWith('\n') ? `\n${ref}` : ref
-                              text += delta
-                              await options.onTextDelta?.(delta)
-                              continue
-                          }
-
-                          if (part.type === 'reasoning-delta' && part.text) {
-                              reasoningText += part.text
-                              await options.onReasoningDelta?.(part.text)
-                          }
-                      }
-
-                      return {
-                          text,
-                          reasoningText: reasoningText.trim() ? reasoningText : undefined,
-                          usage: await result.usage,
-                      }
-                  })()
+                reasoningText = streamedReasoning.trim() ? streamedReasoning : undefined
+                usage = await result.usage
+            }
 
             if (assignment.failureCount !== 0 || assignment.ignoredUntil || assignment.manuallyDisabled) {
                 await persistAssignmentState(assignment.id, getResetAssignmentHealth())

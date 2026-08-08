@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { normalizeString, normalizeStringId, serializeEditorChatConversation } from '@/lib/server/editor-chat'
-import { extractInlineImagesToUploads, normalizeManagedAttachmentUrls } from '@/lib/server/storage'
+import { normalizeManagedAttachmentUrls } from '@/lib/server/storage'
 import { scheduleImageGcSweep } from '@/lib/server/image-gc'
 
 interface RouteParams {
@@ -67,17 +67,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             return NextResponse.json({ detail: 'Invalid message role' }, { status: 400 })
         }
 
-        let content = normalizeString(body?.content)
+        const content = normalizeString(body?.content)
         const attachments = normalizeManagedAttachmentUrls(body?.attachments)
-        // A reply from an image-output model can carry generated images inline as
-        // base64 data URIs; persist them as managed uploads and keep only the URLs.
-        if (role === 'assistant') {
-            const extracted = await extractInlineImagesToUploads(content)
-            content = extracted.content
-            for (const url of extracted.urls) {
-                if (!attachments.includes(url)) attachments.push(url)
-            }
-        }
         const termIds = normalizeTermIds(body?.termIds)
         const id = normalizeStringId(body?.id) ?? undefined
         const now = new Date()

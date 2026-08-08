@@ -198,14 +198,51 @@
             "termsRelationsLabel": "Relations",
             "termsRelationsDescription": "Include current relations in term context.",
             "termsExperiencesLabel": "Experiences",
-            "termsExperiencesDescription": "Include the experience timeline in term context."
+            "termsExperiencesDescription": "Include the experience timeline in term context.",
+            "retrievalTitle": "Hybrid Manuscript Retrieval",
+            "retrievalDescription": "Configure how Codex and future knowledge-base features retrieve manuscript scenes.",
+            "bm25Label": "BM25 keyword retrieval",
+            "bm25Description": "Always enabled and independent of AI connections. The index updates whenever a scene is saved.",
+            "embeddingLabel": "Embedding semantic retrieval",
+            "embeddingDescription": "Retrieve semantically similar scenes alongside BM25. Requires an embedding model in AI Connections.",
+            "embeddingModelPlaceholder": "Select an embedding model",
+            "embeddingModelRequired": "Select a model before enabling embeddings.",
+            "rerankerLabel": "Reranker",
+            "rerankerDescription": "Rerank the combined BM25 and embedding candidates, or rerank BM25 results on its own.",
+            "rerankerModelPlaceholder": "Select a reranker model",
+            "rerankerModelRequired": "Select a model before enabling reranking.",
+            "modelsLoading": "Loading models…",
+            "unavailableModel": "The selected model is unavailable",
+            "noEmbeddingModels": "No embedding models are available in AI Connections.",
+            "noRerankerModels": "No available model exposes a supported rerank endpoint.",
+            "topKLabel": "Return Top K",
+            "topKDescription": "Number of scenes returned, from 1 to 50. The internal candidate pool expands automatically.",
+            "embeddingCacheTitle": "Scene embedding cache",
+            "embeddingCacheSummary": "Cached {fresh} · stale {stale} · missing {missing} · failed {error}",
+            "embeddingCacheUnknown": "Cache status has not been loaded.",
+            "updateAllEmbeddings": "Update all embeddings",
+            "saveBeforeEmbeddingUpdate": "Save the selected model before updating the full cache.",
+            "confirmEmbeddingModelChange": "Changing the embedding model clears every cached vector for this novel. Continue?",
+            "retrievalLoadFailed": "Failed to load hybrid retrieval settings.",
+            "retrievalSaveFailed": "Failed to save hybrid retrieval settings.",
+            "embeddingUpdateFailed": "Failed to update the embedding cache."
         },
         "codex": {
             "title": "Codex Sessions",
             "autoCleanupLabel": "Automatically clean up excess sessions",
             "autoCleanupDescription": "When enabled, creating a Codex session cleans up older sessions in that category. Running sessions, sessions linked to an open continuation panel, and sessions with pending manuscript edits are neither counted nor removed automatically.",
             "retentionLimitLabel": "Sessions to keep per category",
-            "retentionLimitDescription": "Keep at least {min} sessions in each category. Use the stepper arrows or enter a number directly."
+            "retentionLimitDescription": "Keep at least {min} sessions in each category. Use the stepper arrows or enter a number directly.",
+            "pet": {
+                "enabledLabel": "Enable Codex pet",
+                "enabledDescription": "Show a pet in the editor and collect running, actionable, and newly completed Codex sessions for this novel.",
+                "chooseLabel": "Choose a pet",
+                "chooseDescription": "Community pets can be installed through Codex with onw-pet-studio.",
+                "builtIn": "Built in",
+                "loading": "Loading pets…",
+                "delete": "Delete pet",
+                "deleteConfirm": "Delete the pet “{name}”?"
+            }
         },
         "saveChanges": "Save Changes",
         "saving": "Saving..."
@@ -215,6 +252,7 @@
         "tabs": {
             "codexConnections": "Codex Connections",
             "aiConnections": "AI Connections",
+            "otherConnections": "Other Connections",
             "general": "General"
         },
         "codex": {
@@ -327,7 +365,6 @@
             "connectionType": "Format",
             "providerTypes": {
                 "openai": "OpenAI-Chat",
-                "openaiImage": "OpenAI-Image",
                 "gemini": "Gemini"
             },
             "connectionName": "Connection name",
@@ -436,6 +473,35 @@
             },
             "defaults": {
                 "openaiName": "OpenAI-Chat"
+            }
+        },
+        "other": {
+            "title": "GPT Image",
+            "description": "Configure an OpenAI Images-compatible service for Codex image generation and editing. Credentials are encrypted and stored on the server.",
+            "loading": "Loading configuration...",
+            "baseUrl": "Base URL",
+            "baseUrlHint": "Requests use /models, /images/generations, and /images/edits under this URL.",
+            "apiKey": "API Key",
+            "apiKeyPlaceholder": "sk-...",
+            "apiKeySavedPlaceholder": "Saved; leave blank to keep it",
+            "apiKeyHint": "Enter a new key to replace the saved key, or leave this blank to keep it.",
+            "showApiKey": "Show API key",
+            "hideApiKey": "Hide API key",
+            "fetchModels": "Fetch models",
+            "fetchingModels": "Fetching...",
+            "model": "Image model",
+            "modelPlaceholder": "Fetch models first",
+            "modelHint": "Only models returned by the service and recognized for image generation are shown.",
+            "save": "Save configuration",
+            "saving": "Saving...",
+            "saved": "GPT Image configuration saved.",
+            "errors": {
+                "loadFailed": "Failed to load the GPT Image configuration.",
+                "missingBaseUrl": "Please enter a Base URL.",
+                "missingApiKey": "Please enter an API key.",
+                "missingModel": "Fetch and select an image model first.",
+                "fetchModelsFailed": "Failed to fetch image models.",
+                "saveFailed": "Failed to save the GPT Image configuration."
             }
         },
         "general": {
@@ -1013,6 +1079,22 @@
             "boundCategoryEmpty": "This category is created by its workflow.",
             "noMessages": "No messages yet",
             "unreadCompletion": "Codex finished",
+            "pet": {
+                "untitled": "Codex session",
+                "status": {
+                    "needs-input": "Needs your input",
+                    "blocked": "The session is blocked",
+                    "ready": "Task completed",
+                    "running": "Working"
+                },
+                "followUp": "Follow up",
+                "followUpPlaceholder": "Tell Codex what to do next…",
+                "send": "Send",
+                "stop": "Stop",
+                "drag": "Drag pet",
+                "showSummary": "Show session summary",
+                "minimize": "Minimize pet"
+            },
             "startTitle": "Let Codex help write your novel",
             "startDescription": "",
             "composerPlaceholder": "Let Codex help write your novel. @ to mention novel content, / to run a command",
@@ -1154,7 +1236,13 @@
             "continueStory": "Continue story",
             "creating": "Creating...",
             "operationRunning": "Running: {name}",
-            "operationNeedsInput": "Your input is needed: {name}"
+            "operationNeedsInput": "Your input is needed: {name}",
+            "embeddingFresh": "Embedding cached",
+            "embeddingStale": "Embedding needs update",
+            "embeddingMissing": "Embedding not cached",
+            "embeddingError": "Embedding update failed",
+            "embeddingUpdating": "Updating embedding",
+            "updateEmbedding": "Update scene embedding"
         },
         "codexSkillTweak": {
             "tweak": "Tweak",

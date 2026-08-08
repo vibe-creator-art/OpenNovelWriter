@@ -1,4 +1,5 @@
 import type { ModelGroup, ModelSet } from '@/lib/ai-store'
+import { detectCherryStudioModelTypes } from '@/lib/cherrystudio-model-config'
 
 type ModelBindingSelection = {
     modelGroupIds?: string[] | null
@@ -6,10 +7,17 @@ type ModelBindingSelection = {
 }
 
 type ModelSetLike = Pick<ModelSet, 'id' | 'members'>
-type ModelGroupLike = Pick<ModelGroup, 'id' | 'modelTypes'>
+type ModelGroupLike = Pick<ModelGroup, 'id' | 'modelTypes' | 'assignments'>
 
-export function isModelGroupBindableToLlm(group: Pick<ModelGroup, 'modelTypes'> | null | undefined) {
-    return !group?.modelTypes?.reranker && !group?.modelTypes?.embedding
+export function isModelGroupBindableToLlm(
+    group: Pick<ModelGroup, 'modelTypes' | 'assignments'> | null | undefined
+) {
+    if (!group) return true
+    if (group.modelTypes) return !group.modelTypes.reranker && !group.modelTypes.embedding
+    return !group.assignments.some((assignment) => {
+        const detected = detectCherryStudioModelTypes({ modelId: assignment.modelId })
+        return detected.reranker || detected.embedding
+    })
 }
 
 export function getLlmBindableModelGroups<T extends ModelGroupLike>(modelGroups: readonly T[]) {

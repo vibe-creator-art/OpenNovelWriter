@@ -4,14 +4,26 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useTranslations } from 'next-intl'
 import { NodeSelection } from 'prosemirror-state'
 import type { Editor } from '@tiptap/core'
-import { novelApi, promptApi, skillApi, type ChapterWithScenes, type Novel, type NovelLabel, type Prompt, type Scene, type Skill, sceneApi } from '@/lib/api'
+import {
+    novelApi,
+    promptApi,
+    skillApi,
+    type ChapterWithScenes,
+    type Novel,
+    type NovelLabel,
+    type Prompt,
+    type RetrievalStatusResponse,
+    type Scene,
+    type Skill,
+    sceneApi,
+} from '@/lib/api'
 import { TipTapEditor } from './tiptap-editor'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { htmlToText } from '@/lib/html-to-text'
-import { Loader2, MoreVertical, PenLine, Plus, Sparkles, Tag, X } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Clock3, Database, Loader2, MoreVertical, PenLine, Plus, Sparkles, Tag, X } from 'lucide-react'
 import type { TermEntry } from '@/components/editor/terms/types'
 import { getTermEntryColorClasses, getTermEntryColorId } from '@/components/editor/terms/term-entry-colors'
 import { findMentionedTermIds, type TermMentionMatcher } from '@/components/editor/terms/term-mentions-utils'
@@ -54,6 +66,11 @@ interface ChapterSceneEditorProps {
     labels: NovelLabel[]
     onManageLabels: () => void
     onOpenRightSidebar?: () => void
+    embeddingEnabled: boolean
+    embeddingStatusBySceneId: ReadonlyMap<string, RetrievalStatusResponse['statuses'][number]>
+    embeddingUpdatingSceneId: string | null
+    onSceneContentIndexed: (sceneId: string) => void
+    onUpdateSceneEmbedding: (sceneId: string) => Promise<void>
 }
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -85,6 +102,11 @@ export function ChapterSceneEditor({
     labels,
     onManageLabels,
     onOpenRightSidebar,
+    embeddingEnabled,
+    embeddingStatusBySceneId,
+    embeddingUpdatingSceneId,
+    onSceneContentIndexed,
+    onUpdateSceneEmbedding,
 }: ChapterSceneEditorProps) {
     type RunningSceneOperationState = {
         promptId: string
@@ -347,10 +369,11 @@ export function ChapterSceneEditor({
             updateScenes((current) => current.map(s =>
                 s.id === sceneId ? { ...s, content, wordCount: updated.wordCount } : s
             ))
+            onSceneContentIndexed(sceneId)
         } catch (error) {
             console.error('Failed to save scene:', error)
         }
-    }, [updateScenes])
+    }, [onSceneContentIndexed, updateScenes])
 
     // Save scene summary
     const saveSceneSummary = useCallback(async (sceneId: string, summary: string) => {
@@ -618,6 +641,8 @@ export function ChapterSceneEditor({
                 const clipboardText = contentText
                 const effectiveSummary = editingSummaryId === scene.id ? summaryText : (scene.summary || '')
                 const activeSceneOperation = runningSceneOperations[scene.id] ?? null
+                const embeddingStatus = embeddingStatusBySceneId.get(scene.id) ?? null
+                const embeddingIsUpdating = embeddingUpdatingSceneId === scene.id
                 const activeSceneOperationDialog = sceneOperationDialogs[scene.id] ?? null
                 const detectedSet = findMentionedTermIds(`${contentText}\n${effectiveSummary}`, termMentionMatcher)
                 const canDeleteSceneDirectly = !sceneHasBodyContent({ content: getSceneContent(scene) })
@@ -737,6 +762,33 @@ export function ChapterSceneEditor({
                                     – {scene.wordCount} {scene.wordCount === 1 ? tCommon('word') : tCommon('words')}
                                 </span>
                             </div>
+
+                            {embeddingEnabled && contentText.trim() && (
+                                <div className="flex items-center gap-1 px-1 text-[11px]">
+                                    {embeddingIsUpdating ? (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : embeddingStatus?.status === 'fresh' ? (
+                                        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                    ) : embeddingStatus?.status === 'stale' ? (
+                                        <Clock3 className="h-3 w-3 text-amber-600" />
+                                    ) : embeddingStatus?.status === 'error' ? (
+                                        <AlertCircle className="h-3 w-3 text-destructive" />
+                                    ) : (
+                                        <Database className="h-3 w-3" />
+                                    )}
+                                    <span title={embeddingStatus?.error ?? undefined}>
+                                        {embeddingIsUpdating
+                                            ? t('scene.embeddingUpdating')
+                                            : embeddingStatus?.status === 'fresh'
+                                              ? t('scene.embeddingFresh')
+                                              : embeddingStatus?.status === 'stale'
+                                                ? t('scene.embeddingStale')
+                                                : embeddingStatus?.status === 'error'
+                                                  ? t('scene.embeddingError')
+                                                  : t('scene.embeddingMissing')}
+                                    </span>
+                                </div>
+                            )}
 
                             {/* Summary */}
                             <TermMentionsHighlightTextarea
@@ -892,6 +944,20 @@ export function ChapterSceneEditor({
                                             {t('scene.copyScene')}
                                         </DropdownMenuItem>
                                         <DropdownMenuSeparator />
+                                        {embeddingEnabled && contentText.trim() && (
+                                            <>
+                                                <DropdownMenuItem
+                                                    disabled={Boolean(embeddingUpdatingSceneId)}
+                                                    onClick={() => void onUpdateSceneEmbedding(scene.id)}
+                                                >
+                                                    {embeddingIsUpdating
+                                                        ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        : <Database className="mr-2 h-4 w-4" />}
+                                                    {t('scene.updateEmbedding')}
+                                                </DropdownMenuItem>
+                                                <DropdownMenuSeparator />
+                                            </>
+                                        )}
                                         <SceneOperationPromptMenu
                                             onRun={(spec) => handleSceneOperationRun(scene.id, spec)}
                                             onRunSkill={(skill) => handleSceneOperationSkillRun(scene.id, index, skill)}

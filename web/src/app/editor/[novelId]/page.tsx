@@ -26,6 +26,7 @@ import { ChapterScrollbarMarks } from '@/components/editor/chapter-scrollbar-mar
 import { useInfoPanelStore } from '@/components/editor/info-panel-store'
 import { useSceneEditsStore } from '@/components/editor/scene-edits-store'
 import { ManuscriptReviewToolbar } from '@/components/editor/manuscript-review'
+import { CodexPet } from '@/components/editor/codex-pet'
 import { SCENE_EDITS_CHANGED_EVENT } from '@/components/editor/scene-edit-events'
 import { OPEN_TERM_ENTRY_EVENT, type OpenTermEntryEventDetail, type TermEntryPanelTab } from '@/components/editor/terms/term-entry-events'
 import { dispatchWriteJump } from '@/components/editor/write-jump-events'
@@ -1536,6 +1537,19 @@ export default function EditorPage({ params }: EditorPageProps) {
                     />
                 )}
             </div>
+
+            {novelId && novel?.codexPetEnabled && (
+                <CodexPet
+                    novelId={novelId}
+                    petId={novel.codexPetId}
+                    onOpenSession={() => {
+                        handleActiveTabChange('write')
+                        setFocusMode(false)
+                        setRightSidebarOpen(true)
+                        setInfoPanelActiveTab('codex')
+                    }}
+                />
+            )}
 
             {/* Novel Settings Dialog */}
             <NovelSettingsDialog

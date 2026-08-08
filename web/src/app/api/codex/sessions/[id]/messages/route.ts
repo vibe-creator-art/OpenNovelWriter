@@ -44,6 +44,26 @@ async function getRouteId(params: Promise<unknown>) {
         : ''
 }
 
+function imageArtifactInstruction(label: string, target: string) {
+    const hashIndex = target.lastIndexOf('#')
+    const rawPath = (hashIndex >= 0 ? target.slice(0, hashIndex) : target).replace(/\\/g, '/')
+    const itemId = hashIndex >= 0 ? target.slice(hashIndex + 1).trim() : ''
+    const normalized = path.posix.normalize(rawPath.trim())
+    if (
+        !normalized ||
+        normalized === '.' ||
+        normalized === '..' ||
+        normalized.startsWith('../') ||
+        normalized.startsWith('/') ||
+        path.posix.extname(normalized).toLowerCase() !== '.json'
+    ) {
+        return label
+    }
+    return itemId
+        ? `${label} (image artifact — read artifacts/${normalized}, select item id ${itemId}, and use that item's file when the request needs the image)`
+        : `${label} (image artifact gallery — read artifacts/${normalized} and use the relevant item files when the request needs these images)`
+}
+
 function encodeSse(event: string, data: unknown) {
     return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 }
@@ -303,6 +323,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 /\[([^\]]+)\]\(material:([^)]+)\)/g,
                 (_full, label: string, materialId: string) =>
                     `${label} (material — read its full content in novel/materials/${materialId}.md before responding)`
+            )
+            .replace(
+                /\[([^\]]+)\]\(image:([^)]+)\)/g,
+                (_full, label: string, target: string) => imageArtifactInstruction(label, target)
             )
             // A chapter detailed-outline (章纲) reference: read the projected file when it has content,
             // otherwise tell Codex the slot exists but is empty (a write target). Must run before the bare

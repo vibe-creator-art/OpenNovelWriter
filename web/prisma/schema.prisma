@@ -23,6 +23,7 @@ model User {
   prompts   Prompt[]
   promptDefaults PromptDefault[]
   aiConnections AiConnection[]
+  gptImageConnection GptImageConnection?
   codexConnections CodexConnection[]
   aiModelGroups AiModelGroup[]
   aiModelAssignments AiModelAssignment[]
@@ -46,8 +47,15 @@ model Novel {
   outlineActSummaryCollapsesChapters Boolean @default(true)
   termContextIncludesRelations Boolean @default(true)
   termContextIncludesExperiences Boolean @default(true)
+  retrievalEmbeddingEnabled Boolean @default(false)
+  retrievalEmbeddingAssignmentId String?
+  retrievalRerankerEnabled Boolean @default(false)
+  retrievalRerankerAssignmentId String?
+  retrievalTopK Int @default(10)
   codexSessionAutoCleanup Boolean @default(false)
   codexSessionRetentionLimit Int @default(10)
+  codexPetEnabled Boolean @default(false)
+  codexPetId String @default("xixi")
   ownerId     String
   owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   chapters    Chapter[]
@@ -61,6 +69,7 @@ model Novel {
   codexSessions CodexSession[]
   sceneEdits  SceneEdit[]
   continuationDrafts SceneContinuationDraft[]
+  sceneRetrievalIndexes SceneRetrievalIndex[]
   writingDays NovelWritingDay[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -171,10 +180,32 @@ model Scene {
   termIdsJson String @default("[]")
   chapterId String
   chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  retrievalIndex SceneRetrievalIndex?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([chapterId, order])
+}
+
+model SceneRetrievalIndex {
+  sceneId               String   @id
+  scene                 Scene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  novelId               String
+  novel                 Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  searchText            String   @default("")
+  contentHash           String
+  embeddingJson         String?
+  embeddingHash         String?
+  embeddingAssignmentId String?
+  embeddingModelId      String?
+  embeddingDimensions   Int?
+  embeddingError        String?
+  embeddingUpdatedAt    DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([novelId])
+  @@index([novelId, embeddingAssignmentId])
 }
 
 model Label {
@@ -210,6 +241,18 @@ model AiConnection {
   @@index([ownerId])
   @@index([ownerId, isActive])
   @@unique([ownerId, name])
+}
+
+model GptImageConnection {
+  id              String   @id @default(cuid())
+  baseUrl         String
+  encryptedApiKey String
+  modelId         String
+  modelsJson      String   @default("[]")
+  ownerId         String   @unique
+  owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model CodexConnection {

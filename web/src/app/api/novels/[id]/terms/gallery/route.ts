@@ -1,16 +1,14 @@
-import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
+import {
+    appendCodexArtifactToTermGallery,
+    appendTermGalleryImage,
+    isImportableTermGalleryUrl,
+    TermGalleryError,
+} from '@/lib/server/term-gallery'
 
 interface RouteParams {
     params: Promise<{ id: string }>
-}
-
-type GalleryItem = { id: string; url: string }
-
-function isImportableUrl(url: string) {
-    return url.startsWith('/uploads/') || url.startsWith('http://') || url.startsWith('https://')
 }
 
 // POST /api/novels/[id]/terms/gallery - Append an image to one term entry's gallery.
@@ -27,63 +25,40 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
         const { id: novelId } = await params
 
-        const novel = await prisma.novel.findFirst({
-            where: { id: novelId, ownerId: user.userId },
-            select: { id: true },
-        })
-        if (!novel) {
-            return NextResponse.json({ detail: 'Novel not found' }, { status: 404 })
-        }
-
-        const body = (await request.json().catch(() => null)) as { entryId?: unknown; url?: unknown } | null
+        const body = (await request.json().catch(() => null)) as {
+            entryId?: unknown
+            url?: unknown
+            artifact?: { sessionId?: unknown; imagePath?: unknown }
+        } | null
         const entryId = typeof body?.entryId === 'string' ? body.entryId : ''
         const url = typeof body?.url === 'string' ? body.url.trim() : ''
-        if (!entryId || !url || !isImportableUrl(url)) {
+        const sessionId = typeof body?.artifact?.sessionId === 'string' ? body.artifact.sessionId.trim() : ''
+        const imagePath = typeof body?.artifact?.imagePath === 'string' ? body.artifact.imagePath.trim() : ''
+        const hasUrl = Boolean(url)
+        const hasArtifact = Boolean(sessionId && imagePath)
+        if (!entryId || hasUrl === hasArtifact || (hasUrl && !isImportableTermGalleryUrl(url))) {
             return NextResponse.json({ detail: 'Invalid gallery item' }, { status: 400 })
         }
 
-        const record = await prisma.novelTermState.findUnique({
-            where: { novelId },
-            select: { stateJson: true },
-        })
-        let state: { entries?: unknown[] } | null = null
-        try {
-            state = record ? (JSON.parse(record.stateJson) as { entries?: unknown[] }) : null
-        } catch {
-            state = null
-        }
-        if (!state || !Array.isArray(state.entries)) {
-            return NextResponse.json({ detail: 'Term entry not found' }, { status: 404 })
-        }
-
-        const entry = state.entries.find(
-            (candidate): candidate is Record<string, unknown> =>
-                Boolean(candidate) &&
-                typeof candidate === 'object' &&
-                (candidate as { id?: unknown }).id === entryId
-        )
-        if (!entry) {
-            return NextResponse.json({ detail: 'Term entry not found' }, { status: 404 })
-        }
-
-        const gallery: GalleryItem[] = Array.isArray(entry.gallery)
-            ? (entry.gallery as unknown[]).filter(
-                  (item): item is GalleryItem =>
-                      Boolean(item) && typeof item === 'object' && typeof (item as { url?: unknown }).url === 'string'
-              )
-            : []
-
-        if (!gallery.some((item) => item.url === url)) {
-            gallery.push({ id: randomUUID(), url })
-            entry.gallery = gallery
-            await prisma.novelTermState.update({
-                where: { novelId },
-                data: { stateJson: JSON.stringify(state) },
+        const gallery = hasArtifact
+            ? (await appendCodexArtifactToTermGallery({
+                ownerId: user.userId,
+                sessionId,
+                novelId,
+                termId: entryId,
+                imagePath,
+            })).gallery
+            : await appendTermGalleryImage({
+                ownerId: user.userId,
+                novelId,
+                termId: entryId,
+                url,
             })
-        }
-
         return NextResponse.json({ entryId, gallery })
     } catch (error) {
+        if (error instanceof TermGalleryError) {
+            return NextResponse.json({ detail: error.message }, { status: error.status })
+        }
         console.error('Add term gallery image error:', error)
         return NextResponse.json({ detail: 'Internal server error' }, { status: 500 })
     }

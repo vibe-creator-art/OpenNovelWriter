@@ -231,17 +231,10 @@ function buildChatPromptMessages(params: {
 
 function buildStoredChatPromptMessages(params: {
     prompt: Prompt | null
-    historyMessages: Array<Pick<EditorChatMessage, 'id' | 'role' | 'content' | 'sentContent' | 'attachments'>>
+    historyMessages: Array<Pick<EditorChatMessage, 'id' | 'role' | 'content' | 'sentContent'>>
 }) {
     const promptMessages = params.prompt?.messages ?? []
     const prefixMessages = promptMessages.slice(0, Math.max(0, promptMessages.length - 1))
-    // Image-only history messages have empty text (the image lives in attachments)
-    // and must survive the empty-text filter.
-    const attachmentMessageIds = new Set(
-        params.historyMessages
-            .filter((message) => message.attachments.length > 0)
-            .map((message) => `chat_history_${message.id}`)
-    )
 
     return [
         ...prefixMessages,
@@ -252,7 +245,7 @@ function buildStoredChatPromptMessages(params: {
                 content: message.role === 'user' ? message.sentContent ?? message.content : message.content,
             })
         ),
-    ].filter((message) => message.content.trim() || attachmentMessageIds.has(message.id))
+    ].filter((message) => message.content.trim())
 }
 
 function normalizeUsageToken(value: number | undefined) {
@@ -618,24 +611,12 @@ export function RightPanelChat({ novelId, tweakOpen, onTweakOpenChange }: RightP
         chatHistoryTerms: previewChatHistoryTermIds,
     })
 
-    // Image-only messages (a generated image, or an upload sent without text) have
-    // empty text — the image lives in attachments. They must survive the empty-text
-    // filter or follow-up edits lose their canvas.
-    const attachmentMessageIds = useMemo(
-        () =>
-            new Set(
-                (selectedConversation?.messages ?? [])
-                    .filter((message) => message.attachments.length > 0)
-                    .map((message) => `chat_history_${message.id}`)
-            ),
-        [selectedConversation?.messages]
-    )
     const renderedMessages = useMemo(
         () =>
             model.renderedMessages
                 .map((message) => ({ id: message.id, role: message.role, content: message.content }))
-                .filter((message) => message.content.trim() || attachmentMessageIds.has(message.id)),
-        [attachmentMessageIds, model.renderedMessages]
+                .filter((message) => message.content.trim()),
+        [model.renderedMessages]
     )
     const clearContentSelectionPreviewState = model.setContentSelectionPreviewStateByInputId
     const promptDisabledReason = getPromptRunDisabledReason(activePrompt, groups)
@@ -879,12 +860,11 @@ export function RightPanelChat({ novelId, tweakOpen, onTweakOpenChange }: RightP
                 role: message.role,
                 content: message.content,
                 sentContent: message.sentContent,
-                attachments: message.attachments,
             }))
             const historyImagesById = new Map(
                 messages
                     .slice(0, userIndex + 1)
-                    .filter((message) => message.attachments.length > 0)
+                    .filter((message) => message.role === 'user' && message.attachments.length > 0)
                     .map((message) => [`chat_history_${message.id}`, message.attachments])
             )
             const requestMessages = buildStoredChatPromptMessages({
@@ -994,13 +974,10 @@ export function RightPanelChat({ novelId, tweakOpen, onTweakOpenChange }: RightP
             sentContent: message.sentContent,
             termIds: message.termIds,
         })) ?? []
-        // History messages keep their images across turns (chat APIs are stateless).
-        // Assistant attachments are generated images — they must be resent too, or
-        // a follow-up edit ("change the hair color") has no canvas to start from.
-        // Skipped when the current model can't take vision input — then text only.
+        // User images are resent because chat provider APIs are stateless.
         const historyImagesById = new Map(
             (selectedConversation?.messages ?? [])
-                .filter((message) => message.attachments.length > 0)
+                .filter((message) => message.role === 'user' && message.attachments.length > 0)
                 .map((message) => [message.id, message.attachments])
         )
         const requestMessages = renderedMessages.map((message) => {

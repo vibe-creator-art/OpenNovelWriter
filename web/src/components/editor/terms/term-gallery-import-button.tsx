@@ -45,7 +45,15 @@ function matchesQuery(entry: TermEntry, query: string) {
  * (search + category chips + list, mirroring the content-selection term
  * picker) and appends the viewed image to that term's gallery server-side.
  */
-export function TermGalleryImportButton({ novelId, src }: { novelId?: string; src: string }) {
+export function TermGalleryImportButton({
+    novelId,
+    src,
+    artifact,
+}: {
+    novelId?: string
+    src: string
+    artifact?: { sessionId: string; imagePath: string }
+}) {
     const t = useTranslations('editor.terms.gallery')
     const tCategories = useTranslations('editor.terms.categories')
     const entries = useStoredTermEntries(novelId)
@@ -69,15 +77,16 @@ export function TermGalleryImportButton({ novelId, src }: { novelId?: string; sr
         [activeEntries, filter, normalizedQuery]
     )
 
-    // Only persistent URLs survive outside the current session — blob:/data:
-    // previews from the composer cannot be imported.
-    if (!novelId || !(src.startsWith('/uploads/') || src.startsWith('http://') || src.startsWith('https://'))) {
+    const hasPersistentUrl = src.startsWith('/uploads/') || src.startsWith('http://') || src.startsWith('https://')
+    if (!novelId || (!artifact && !hasPersistentUrl)) {
         return null
     }
 
     const handleSelect = async (entry: TermEntry) => {
         try {
-            const response = await termsApi.addGalleryImage(novelId, entry.id, src)
+            const response = artifact
+                ? await termsApi.addGalleryArtifactImage(novelId, entry.id, artifact)
+                : await termsApi.addGalleryImage(novelId, entry.id, src)
             applyTermGalleryUpdate({ novelId, entryId: entry.id, gallery: response.gallery })
             setStatus('done')
         } catch (error) {
@@ -174,7 +183,7 @@ export function TermGalleryImportButton({ novelId, src }: { novelId?: string; sr
                             visibleEntries.map((entry) => {
                                 const colorId = getTermEntryColorId(entry.color)
                                 const colorClasses = getTermEntryColorClasses(colorId)
-                                const alreadyImported = entry.gallery?.some((item) => item.url === src) ?? false
+                                const alreadyImported = !artifact && (entry.gallery?.some((item) => item.url === src) ?? false)
                                 return (
                                     <DropdownMenuItem key={entry.id} onSelect={() => void handleSelect(entry)}>
                                         <span className="flex w-full items-center gap-2 min-w-0">

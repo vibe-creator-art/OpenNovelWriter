@@ -4,7 +4,6 @@ import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { decryptApiKey } from '@/lib/server/ai-credentials'
 import { createLanguageModel, parseProviderType } from '@/lib/server/ai-providers'
-import { runImageGenerationAttempt } from '@/lib/server/model-group-runner'
 
 const DEFAULT_TEST_PROMPT =
     'hi, just testing the connection, if you see this message, plz respond with connection success'
@@ -39,19 +38,6 @@ export async function POST(request: NextRequest) {
         }
 
         const apiKey = decryptApiKey(connection.encryptedApiKey)
-
-        // An image connection is tested with a real (cheapest possible) generation.
-        if (providerType === 'openai-image') {
-            const result = await runImageGenerationAttempt({
-                providerType,
-                apiKey,
-                baseUrl: connection.baseUrl,
-                modelId,
-                input: { prompt: 'A plain white circle on a black background.' },
-                signal: request.signal,
-            })
-            return NextResponse.json({ text: result.text })
-        }
 
         const model = createLanguageModel({
             providerType,

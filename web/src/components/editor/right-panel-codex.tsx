@@ -70,6 +70,10 @@ import { type ModelGroup } from '@/lib/ai-store'
 import { useAuthStore } from '@/lib/store'
 import { canUseCodexFastMode, DEFAULT_CODEX_MODEL, isNativeCodexModelId } from '@/lib/codex-config'
 import {
+    modelSupportsCodexFastMode,
+    setStickyCodexFastMode,
+} from '@/lib/codex-fast-mode-preference'
+import {
     getCodexRateLimitSummary,
     hasMeaningfulCodexRateLimits,
 } from '@/lib/codex-rate-limits'
@@ -192,14 +196,6 @@ function mergeQueuedCodexMessages(messages: QueuedCodexMessage[]) {
 
 function isKeyboardEventComposing(event: { isComposing?: boolean; nativeEvent?: { isComposing?: boolean } }) {
     return Boolean(event.isComposing || event.nativeEvent?.isComposing)
-}
-
-function modelSupportsFastMode(models: CodexModelCatalogEntry[], modelId: string) {
-    const normalizedModelId = modelId.trim().toLowerCase()
-    return models.some(
-        (model) => model.id.trim().toLowerCase() === normalizedModelId
-            && model.serviceTiers.some((tier) => tier.name.trim().toLowerCase() === 'fast')
-    )
 }
 
 // The app authenticates API routes with a Bearer token from the auth store, not a
@@ -1057,9 +1053,183 @@ function CodexLlmArtifactRef({ target }: { target: string; label: string }) {
     )
 }
 
+type CodexImageArtifactItem = {
+    id: string
+    label: string
+    path: string
+    prompt: string
+    revisedPrompt: string | null
+    url: string
+}
+
+function parseImageArtifactTarget(target: string) {
+    const hashIndex = target.lastIndexOf('#')
+    if (hashIndex < 0) return { path: target, itemId: null }
+    return {
+        path: target.slice(0, hashIndex),
+        itemId: target.slice(hashIndex + 1) || null,
+    }
+}
+
+function GeneratedImagePrompt({ prompt }: { prompt: string }) {
+    const [expanded, setExpanded] = useState(false)
+    if (!prompt) return null
+
+    return expanded ? (
+        <div className="text-xs leading-5 text-muted-foreground">
+            <span className="select-text whitespace-pre-wrap break-words">{prompt}</span>
+            <button
+                type="button"
+                className="ml-1.5 align-baseline text-primary hover:underline"
+                onClick={() => setExpanded(false)}
+            >
+                收起
+            </button>
+        </div>
+    ) : (
+        <button
+            type="button"
+            className="block w-full truncate text-left text-xs text-muted-foreground hover:text-foreground"
+            title={prompt}
+            onClick={() => setExpanded(true)}
+        >
+            {prompt}
+        </button>
+    )
+}
+
+function CodexImageArtifactRef({ target, label }: { target: string; label: string }) {
+    const sessionId = useContext(CodexSessionIdContext)
+    const novelId = useContext(CodexNovelIdContext)
+    const parsedTarget = useMemo(() => parseImageArtifactTarget(target), [target])
+    const [state, setState] = useState<{
+        status: 'loading' | 'ready' | 'error'
+        title?: string
+        items?: CodexImageArtifactItem[]
+        error?: string
+    }>({ status: 'loading' })
+    const [openItem, setOpenItem] = useState<CodexImageArtifactItem | null>(null)
+
+    useEffect(() => {
+        if (!sessionId) return
+        const controller = new AbortController()
+        const objectUrls: string[] = []
+        let cancelled = false
+        setOpenItem(null)
+        setState({ status: 'loading' })
+        const artifactUrl = (artifactPath: string) =>
+            `/api/codex/sessions/${encodeURIComponent(sessionId)}/image-artifact?path=${encodeURIComponent(artifactPath)}`
+
+        void (async () => {
+            try {
+                const manifestResponse = await authFetch(artifactUrl(parsedTarget.path), { signal: controller.signal })
+                const manifest = await manifestResponse.json().catch(() => null)
+                if (!manifestResponse.ok || !manifest?.ok || !Array.isArray(manifest.items)) {
+                    throw new Error(manifest?.detail ?? 'Failed to load image artifact')
+                }
+                const selected = parsedTarget.itemId
+                    ? manifest.items.filter((item: { id?: unknown }) => item?.id === parsedTarget.itemId)
+                    : manifest.items
+                if (selected.length === 0) throw new Error('Referenced image was not found in this artifact')
+                const items = await Promise.all(selected.map(async (item: Record<string, unknown>) => {
+                    if (typeof item.path !== 'string' || typeof item.id !== 'string') {
+                        throw new Error('Image artifact contains an invalid item')
+                    }
+                    const imageResponse = await authFetch(artifactUrl(item.path), { signal: controller.signal })
+                    if (!imageResponse.ok) throw new Error('Failed to load generated image')
+                    const url = URL.createObjectURL(await imageResponse.blob())
+                    objectUrls.push(url)
+                    return {
+                        id: item.id,
+                        label: typeof item.label === 'string' ? item.label : item.id,
+                        path: item.path,
+                        prompt: typeof item.prompt === 'string' ? item.prompt : '',
+                        revisedPrompt: typeof item.revisedPrompt === 'string' ? item.revisedPrompt : null,
+                        url,
+                    }
+                }))
+                if (!cancelled) {
+                    setState({
+                        status: 'ready',
+                        title: typeof manifest.title === 'string' ? manifest.title : label,
+                        items,
+                    })
+                }
+            } catch (error) {
+                if (!cancelled && !controller.signal.aborted) {
+                    setState({
+                        status: 'error',
+                        error: error instanceof Error ? error.message : 'Failed to load image artifact',
+                    })
+                }
+            }
+        })()
+
+        return () => {
+            cancelled = true
+            controller.abort()
+            objectUrls.forEach((url) => URL.revokeObjectURL(url))
+        }
+    }, [label, parsedTarget.itemId, parsedTarget.path, sessionId])
+
+    const items = state.items ?? []
+    return (
+        <div className="not-prose my-2 overflow-hidden rounded-xl border bg-background/60">
+            <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{state.title ?? label}</span>
+                {state.status === 'ready' && <span>{items.length}</span>}
+            </div>
+            <div className="p-2">
+                {!sessionId && <span className="text-sm text-destructive">No active session</span>}
+                {sessionId && state.status === 'loading' && (
+                    <span className="text-sm text-muted-foreground">Loading images…</span>
+                )}
+                {sessionId && state.status === 'error' && (
+                    <span className="text-sm text-destructive">{state.error ?? 'Failed to load images'}</span>
+                )}
+                {sessionId && state.status === 'ready' && (
+                    <div className="flex flex-wrap gap-2">
+                        {items.map((item) => (
+                            <div key={item.id} className="max-w-full space-y-1.5">
+                                <button
+                                    type="button"
+                                    className="max-w-full overflow-hidden rounded-lg border bg-background text-left transition-opacity hover:opacity-90"
+                                    title={item.label}
+                                    onClick={() => setOpenItem(item)}
+                                >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={item.url} alt={item.label} className="max-h-80 w-auto max-w-full object-contain" />
+                                </button>
+                                <div className="max-w-80">
+                                    <GeneratedImagePrompt prompt={item.prompt || item.revisedPrompt || ''} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+            <ImageViewerDialog
+                src={openItem?.url ?? null}
+                open={openItem !== null}
+                onOpenChange={(open) => !open && setOpenItem(null)}
+                actions={
+                    openItem && sessionId ? (
+                        <TermGalleryImportButton
+                            novelId={novelId}
+                            src={openItem.url}
+                            artifact={{ sessionId, imagePath: openItem.path }}
+                        />
+                    ) : undefined
+                }
+            />
+        </div>
+    )
+}
+
 // Matches the inline tokens that can appear in a user message: model/content mentions and skill
 // commands (rendered as pills), plus chapter/act/scene jump links (rendered as clickable nav links).
-const USER_MENTION_RE = /\[([^\]]+)\]\((model|skill|term|snippet|material|outlineChapter|outlineAct|chapter|act|scene|continuation):([^)]+)\)/g
+const USER_MENTION_RE = /\[([^\]]+)\]\((model|skill|term|snippet|material|outlineChapter|outlineAct|chapter|act|scene|continuation|image):([^)]+)\)/g
 
 function UserMessageContent({ content }: { content: string }) {
     const onNavigate = useContext(CodexNavContext)
@@ -1077,7 +1247,7 @@ function UserMessageContent({ content }: { content: string }) {
             const label = match[1]
             const kind = match[2]
             const target = match[3]
-            if (kind === 'model' || kind === 'skill' || kind === 'term' || kind === 'snippet' || kind === 'material' || kind === 'outlineChapter' || kind === 'outlineAct') {
+            if (kind === 'model' || kind === 'skill' || kind === 'term' || kind === 'snippet' || kind === 'material' || kind === 'outlineChapter' || kind === 'outlineAct' || kind === 'image') {
                 out.push(
                     <span
                         key={`mention-${key++}`}
@@ -1088,6 +1258,7 @@ function UserMessageContent({ content }: { content: string }) {
                         {kind === 'snippet' ? <StickyNote className="h-3 w-3 shrink-0" /> : null}
                         {kind === 'material' ? <FileText className="h-3 w-3 shrink-0" /> : null}
                         {kind === 'outlineChapter' || kind === 'outlineAct' ? <ListTree className="h-3 w-3 shrink-0" /> : null}
+                        {kind === 'image' ? <ImageIcon className="h-3 w-3 shrink-0" /> : null}
                         {kind === 'skill' ? '/' : '@'}{label}
                     </span>
                 )
@@ -1354,16 +1525,17 @@ function CodexSlashMenu({
     )
 }
 
-// A standalone line that is only an `[label](llm:target)` reference. These become
-// block-level model-reply cards; everything else renders as normal markdown. This
-// keeps the card (a <div>) out of a <p>, which would be invalid HTML.
+// Standalone artifact references become block cards; everything else renders as normal markdown.
+// Keeping cards out of paragraphs avoids invalid nested HTML.
 const LLM_BLOCK_LINE_RE = /^[ \t]*\[([^\]]+)\]\(llm:([^\s)]+)\)[ \t]*$/
+const IMAGE_BLOCK_LINE_RE = /^[ \t]*\[([^\]]+)\]\(image:([^)]+)\)[ \t]*$/
 
 type CodexMarkdownBlock =
     | { type: 'md'; text: string }
     | { type: 'llm'; target: string; label: string }
+    | { type: 'image'; target: string; label: string }
 
-function splitLlmBlocks(content: string): CodexMarkdownBlock[] {
+function splitArtifactBlocks(content: string): CodexMarkdownBlock[] {
     const lines = content.replace(/\r\n?/g, '\n').split('\n')
     const blocks: CodexMarkdownBlock[] = []
     let buffer: string[] = []
@@ -1375,10 +1547,16 @@ function splitLlmBlocks(content: string): CodexMarkdownBlock[] {
     }
 
     for (const line of lines) {
-        const match = line.match(LLM_BLOCK_LINE_RE)
-        if (match) {
+        const llmMatch = line.match(LLM_BLOCK_LINE_RE)
+        if (llmMatch) {
             flush()
-            blocks.push({ type: 'llm', label: match[1], target: match[2] })
+            blocks.push({ type: 'llm', label: llmMatch[1], target: llmMatch[2] })
+            continue
+        }
+        const imageMatch = line.match(IMAGE_BLOCK_LINE_RE)
+        if (imageMatch) {
+            flush()
+            blocks.push({ type: 'image', label: imageMatch[1], target: imageMatch[2] })
             continue
         }
         buffer.push(line)
@@ -1390,7 +1568,7 @@ function splitLlmBlocks(content: string): CodexMarkdownBlock[] {
 
 function CodexMarkdown({ content, embedLlm = true }: { content: string; embedLlm?: boolean }) {
     const blocks = useMemo(
-        () => (embedLlm ? splitLlmBlocks(content) : [{ type: 'md', text: content } as CodexMarkdownBlock]),
+        () => (embedLlm ? splitArtifactBlocks(content) : [{ type: 'md', text: content } as CodexMarkdownBlock]),
         [content, embedLlm]
     )
     const onNavigate = useContext(CodexNavContext)
@@ -1428,6 +1606,8 @@ function CodexMarkdown({ content, embedLlm = true }: { content: string; embedLlm
                 {blocks.map((block, index) =>
                     block.type === 'llm' ? (
                         <CodexLlmArtifactRef key={`llm-${index}`} target={block.target} label={block.label} />
+                    ) : block.type === 'image' ? (
+                        <CodexImageArtifactRef key={`image-${index}`} target={block.target} label={block.label} />
                     ) : (
                         <Fragment key={`md-${index}`}>{renderSimpleMarkdown(block.text)}</Fragment>
                     )
@@ -2465,7 +2645,6 @@ function isImageGenerationMessage(message: CodexSessionMessage) {
  */
 function ImageGenerationCard({ message }: { message: CodexSessionMessage }) {
     const [openUrl, setOpenUrl] = useState<string | null>(null)
-    const [promptExpanded, setPromptExpanded] = useState(false)
     const [, ...body] = message.content.split(/\n\n/u)
     const prompt = body.join('\n\n').trim()
     const urls = message.attachments ?? []
@@ -2496,29 +2675,7 @@ function ImageGenerationCard({ message }: { message: CodexSessionMessage }) {
                     </button>
                 ))}
             </div>
-            {prompt && (
-                promptExpanded ? (
-                    <div className="text-xs leading-5 text-muted-foreground">
-                        <span className="select-text whitespace-pre-wrap break-words">{prompt}</span>
-                        <button
-                            type="button"
-                            className="ml-1.5 align-baseline text-primary hover:underline"
-                            onClick={() => setPromptExpanded(false)}
-                        >
-                            收起
-                        </button>
-                    </div>
-                ) : (
-                    <button
-                        type="button"
-                        className="block w-full truncate text-left text-xs text-muted-foreground hover:text-foreground"
-                        title={prompt}
-                        onClick={() => setPromptExpanded(true)}
-                    >
-                        {prompt}
-                    </button>
-                )
-            )}
+            <GeneratedImagePrompt prompt={prompt} />
             <ImageViewerDialog src={openUrl} open={openUrl !== null} onOpenChange={(isOpen) => !isOpen && setOpenUrl(null)} />
         </div>
     )
@@ -2882,19 +3039,10 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const resolvingApprovalRef = useRef<string | null>(null)
     const queueProcessingRef = useRef<string | null>(null)
     const composerRef = useRef<HTMLTextAreaElement | null>(null)
-    const composerOverlayRef = useRef<HTMLDivElement | null>(null)
-    const composerOverlayTextRef = useRef<HTMLDivElement | null>(null)
     const composerFileInputRef = useRef<HTMLInputElement | null>(null)
     const composerDragDepthRef = useRef(0)
     const selectedSessionIdRef = useRef<string | null>(null)
     const [composerDragActive, setComposerDragActive] = useState(false)
-    const syncComposerOverlayScroll = useCallback(() => {
-        const textarea = composerRef.current
-        const overlayText = composerOverlayTextRef.current
-        if (!textarea || !overlayText) return
-        overlayText.style.width = `${textarea.clientWidth}px`
-        overlayText.style.transform = `translate(${-textarea.scrollLeft}px, ${-textarea.scrollTop}px)`
-    }, [])
     const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
     const [mentionIndex, setMentionIndex] = useState(0)
     const [slash, setSlash] = useState<{ start: number; query: string } | null>(null)
@@ -3505,19 +3653,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         [draft, mentionTargets, skillTargets]
     )
 
-    useLayoutEffect(() => {
-        let secondFrame = 0
-        syncComposerOverlayScroll()
-        const firstFrame = window.requestAnimationFrame(() => {
-            syncComposerOverlayScroll()
-            secondFrame = window.requestAnimationFrame(syncComposerOverlayScroll)
-        })
-        return () => {
-            window.cancelAnimationFrame(firstFrame)
-            if (secondFrame) window.cancelAnimationFrame(secondFrame)
-        }
-    }, [composerSegments, syncComposerOverlayScroll])
-
     // The first `/`-invoked ai_chat skill that carries a bound prompt — it gets a Tweak dialog.
     const activePromptSkill = useMemo(() => {
         if (!draft.includes('/') || !skills) return null
@@ -3648,7 +3783,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         [activeConnection, connections, selectedSession?.codexConnectionId]
     )
     const hasCodexFastModeAuth = canUseCodexFastMode(sessionConnection)
-    const currentModelSupportsFastMode = modelSupportsFastMode(activeModelCatalog, modelId)
+    const currentModelSupportsFastMode = modelSupportsCodexFastMode(activeModelCatalog, modelId)
     const showServiceTier = hasCodexFastModeAuth && currentModelSupportsFastMode
     const fastModeActive = showServiceTier && serviceTier === 'fast'
     const slashOccupiesWholeDraft = Boolean(
@@ -4001,9 +4136,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         setRunError(null)
         setSlash(null)
         void (async () => {
-            const sessionId = await applyModelSettings({
-                serviceTier: fastModeActive ? 'standard' : 'fast',
-            })
+            const sessionId = await applyFastMode(!fastModeActive)
             if (!sessionId) return
             updateDraft(novelId, sessionId, nextDraft.value)
             requestAnimationFrame(() => {
@@ -4173,7 +4306,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         if (!sessionId) return null
         const nextSettings = settings.modelId
             && serviceTier === 'fast'
-            && !modelSupportsFastMode(activeModelCatalog, settings.modelId)
+            && !modelSupportsCodexFastMode(activeModelCatalog, settings.modelId)
             ? { ...settings, serviceTier: 'standard' as const }
             : settings
         await updateModelSettings(novelId, sessionId, nextSettings)
@@ -4188,8 +4321,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         })
     }
 
+    const applyFastMode = async (enabled: boolean) => {
+        const sessionId = await applyModelSettings({ serviceTier: enabled ? 'fast' : 'standard' })
+        if (sessionId) setStickyCodexFastMode(enabled)
+        return sessionId
+    }
+
     const setFastMode = (enabled: boolean) => {
-        void applyModelSettings({ serviceTier: enabled ? 'fast' : 'standard' }).catch((error) => {
+        void applyFastMode(enabled).catch((error) => {
             setRunError(error instanceof Error ? error.message : String(error))
         })
     }
@@ -4560,15 +4699,13 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             onSelect={activateSlashItem}
                         />
                     )}
-                    <div className="relative">
+                    <div className="onw-editor-scrollbar grid max-h-48 min-h-10 overflow-auto">
                     <div
-                        ref={composerOverlayRef}
                         aria-hidden
-                        className="pointer-events-none absolute inset-0 z-[2] max-h-48 min-h-10 overflow-hidden"
+                        className="pointer-events-none col-start-1 row-start-1 z-[2] min-w-0 self-start"
                     >
                         <div
-                            ref={composerOverlayTextRef}
-                            className="whitespace-pre-wrap break-words px-1 py-1 text-sm text-transparent will-change-transform"
+                            className="whitespace-pre-wrap break-words px-1 py-1 text-sm text-transparent"
                         >
                             {composerSegments.map((segment, index) =>
                                 segment.type === 'mention' ? (
@@ -4592,8 +4729,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         value={draft}
                         rows={1}
                         placeholder={t('codex.composerPlaceholder')}
-                        className="onw-editor-scrollbar relative z-[1] max-h-48 min-h-10 overflow-auto border-0 bg-transparent px-1 py-1 text-sm text-foreground shadow-none selection:bg-primary/30 focus-visible:ring-0"
-                        onScroll={syncComposerOverlayScroll}
+                        className="relative col-start-1 row-start-1 z-[1] min-h-10 overflow-hidden border-0 bg-transparent px-1 py-1 text-sm text-foreground shadow-none selection:bg-primary/30 focus-visible:ring-0"
                         onChange={(event) => {
                             const { value, selectionStart } = event.target
                             handleComposerChange(value, selectionStart ?? value.length)

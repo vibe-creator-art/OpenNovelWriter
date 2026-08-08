@@ -1,0 +1,4 @@
+interface:
+  display_name: "ONW Pet Studio"
+  short_description: "创建、校验、打包并安装 Codex 兼容的动画宠物"
+  default_prompt: "Use $onw-pet-studio to create or install a Codex-compatible animated pet."

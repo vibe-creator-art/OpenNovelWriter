@@ -2,6 +2,7 @@
 
 import { create, type StoreApi } from 'zustand'
 import {
+    codexApi,
     codexSessionApi,
     type CodexApprovalOption,
     type CodexApprovalRequest,
@@ -16,6 +17,11 @@ import {
     type CodexPromptArtifact,
     type CodexDraftArtifact,
 } from '@/lib/api'
+import { DEFAULT_CODEX_MODEL, canUseCodexFastMode } from '@/lib/codex-config'
+import {
+    getStickyCodexFastMode,
+    resolvePreferredCodexServiceTier,
+} from '@/lib/codex-fast-mode-preference'
 import type { PendingImageAttachment } from '@/components/image/use-image-attachments'
 import { dispatchNovelRefreshRequested } from '@/lib/novel-refresh-events'
 import { emitSceneEditsChanged } from '@/components/editor/scene-edit-events'
@@ -41,6 +47,26 @@ function getStickyReviewLevel(): CodexReviewLevel {
 function setStickyReviewLevel(reviewLevel: CodexReviewLevel) {
     if (typeof window === 'undefined') return
     window.localStorage.setItem(STICKY_REVIEW_LEVEL_KEY, reviewLevel)
+}
+
+async function getPreferredServiceTierForNewSession(): Promise<CodexServiceTier> {
+    if (!getStickyCodexFastMode()) return 'standard'
+
+    try {
+        const connections = await codexApi.listConnections()
+        const activeConnection = connections.find((connection) => connection.isActive) ?? null
+        if (!activeConnection || !canUseCodexFastMode(activeConnection)) return 'standard'
+
+        const { models } = await codexApi.listConnectionModels(activeConnection.id)
+        return resolvePreferredCodexServiceTier({
+            enabled: true,
+            connection: activeConnection,
+            models,
+            modelId: activeConnection.defaultModelId?.trim() || DEFAULT_CODEX_MODEL,
+        })
+    } catch {
+        return 'standard'
+    }
 }
 
 type CodexNovelSessionState = {
@@ -613,10 +639,14 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
 
         const createPromise = (async () => {
             await get().loadSessions(novelKey)
+            const serviceTier = await getPreferredServiceTierForNewSession()
             const reusableDraft = get().sessionsByNovel[novelKey]?.sessions.find(
                 (session) => session.category === 'general' && session.messages.length === 0
             )
             if (reusableDraft) {
+                if (reusableDraft.serviceTier !== serviceTier) {
+                    await get().updateModelSettings(novelKey, reusableDraft.id, { serviceTier })
+                }
                 get().selectSession(novelKey, reusableDraft.id)
                 return reusableDraft.id
             }
@@ -624,6 +654,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             const result = await codexSessionApi.create(novelKey, {
                 category: 'general',
                 reviewLevel: getStickyReviewLevel(),
+                serviceTier,
             })
             set((state) => {
                 const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
@@ -652,6 +683,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     createSceneOperationSkillSession: async (novelId, input) => {
         const novelKey = getNovelKey(novelId)
         if (novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID) return null
+        const serviceTier = await getPreferredServiceTierForNewSession()
 
         const result = await codexSessionApi.create(novelKey, {
             category: 'scene_operation',
@@ -660,6 +692,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             title: input.title ?? null,
             titleManuallyEdited: Boolean(input.title),
             reviewLevel: getStickyReviewLevel(),
+            serviceTier,
         })
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
@@ -688,6 +721,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         // Codex's draft writes via its run-gated refresh.
         const novelKey = getNovelKey(novelId)
         if (novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID) return null
+        const serviceTier = await getPreferredServiceTierForNewSession()
 
         const result = await codexSessionApi.create(novelKey, {
             category: 'scene_continuation',
@@ -699,6 +733,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             title: input.title ?? null,
             titleManuallyEdited: Boolean(input.title),
             reviewLevel: getStickyReviewLevel(),
+            serviceTier,
         })
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()

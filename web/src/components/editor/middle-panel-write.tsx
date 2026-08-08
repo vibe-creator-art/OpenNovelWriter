@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -23,7 +23,16 @@ import {
     X,
 } from 'lucide-react'
 import { ChapterSceneEditor } from '@/components/editor/chapter-scene-editor'
-import { Chapter, ChapterWithScenes, NovelLabel, Scene } from '@/lib/api'
+import {
+    Chapter,
+    ChapterWithScenes,
+    NovelLabel,
+    retrievalApi,
+    Scene,
+    type RetrievalStatusResponse,
+} from '@/lib/api'
+import { NOVEL_SETTINGS_CHANGED_EVENT, type NovelSettingsChangedDetail } from '@/lib/novel-settings-events'
+import { RETRIEVAL_STATUS_CHANGED_EVENT, type RetrievalStatusChangedDetail } from '@/lib/retrieval-events'
 import { useStoredTermEntries } from '@/components/editor/terms/use-stored-term-entries'
 import { buildTermMentionMatcher } from '@/components/editor/terms/term-mentions-utils'
 import { TermMentionsHighlightTextarea } from '@/components/editor/terms/term-mentions-highlight-textarea'
@@ -180,6 +189,76 @@ export function MiddlePanelWrite({
     const labelsById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels])
 
     const [summaryMentionPreview, setSummaryMentionPreview] = useState<{ termId: string; anchorEl: HTMLElement } | null>(null)
+    const [retrievalStatus, setRetrievalStatus] = useState<RetrievalStatusResponse | null>(null)
+    const [embeddingUpdatingSceneId, setEmbeddingUpdatingSceneId] = useState<string | null>(null)
+
+    const refreshRetrievalStatus = useCallback(async () => {
+        if (!novelId) return
+        try {
+            setRetrievalStatus(await retrievalApi.status(novelId))
+        } catch (error) {
+            console.error('Failed to load scene embedding status:', error)
+        }
+    }, [novelId])
+
+    useEffect(() => {
+        void refreshRetrievalStatus()
+        const settingsHandler = (event: Event) => {
+            const detail = (event as CustomEvent<NovelSettingsChangedDetail>).detail
+            if (detail?.novelId && detail.novelId !== novelId) return
+            void refreshRetrievalStatus()
+        }
+        const retrievalHandler = (event: Event) => {
+            const detail = (event as CustomEvent<RetrievalStatusChangedDetail>).detail
+            if (!detail || detail.novelId !== novelId) return
+            setRetrievalStatus(detail.status)
+        }
+        window.addEventListener(NOVEL_SETTINGS_CHANGED_EVENT, settingsHandler)
+        window.addEventListener(RETRIEVAL_STATUS_CHANGED_EVENT, retrievalHandler)
+        return () => {
+            window.removeEventListener(NOVEL_SETTINGS_CHANGED_EVENT, settingsHandler)
+            window.removeEventListener(RETRIEVAL_STATUS_CHANGED_EVENT, retrievalHandler)
+        }
+    }, [novelId, refreshRetrievalStatus])
+
+    const retrievalStatusBySceneId = useMemo(
+        () => new Map(retrievalStatus?.statuses.map((status) => [status.sceneId, status]) ?? []),
+        [retrievalStatus]
+    )
+
+    const handleSceneContentIndexed = useCallback((sceneId: string) => {
+        setRetrievalStatus((current) => {
+            if (!current?.embeddingEnabled) return current
+            return {
+                ...current,
+                statuses: current.statuses.map((status) =>
+                    status.sceneId === sceneId && status.status === 'fresh'
+                        ? { ...status, status: 'stale' as const }
+                        : status
+                ),
+                counts: current.statuses.some((status) => status.sceneId === sceneId && status.status === 'fresh')
+                    ? {
+                        ...current.counts,
+                        fresh: Math.max(0, current.counts.fresh - 1),
+                        stale: current.counts.stale + 1,
+                    }
+                    : current.counts,
+            }
+        })
+    }, [])
+
+    const handleUpdateSceneEmbedding = useCallback(async (sceneId: string) => {
+        if (!novelId || embeddingUpdatingSceneId) return
+        setEmbeddingUpdatingSceneId(sceneId)
+        try {
+            await retrievalApi.updateEmbeddings(novelId, sceneId)
+        } catch (error) {
+            console.error('Failed to update scene embedding:', error)
+        } finally {
+            await refreshRetrievalStatus()
+            setEmbeddingUpdatingSceneId(null)
+        }
+    }, [embeddingUpdatingSceneId, novelId, refreshRetrievalStatus])
     const handleSummaryTermMentionClick = useCallback((termId: string, anchorEl: HTMLElement) => {
         setSummaryMentionPreview((prev) => {
             if (prev?.termId === termId && prev.anchorEl === anchorEl) return null
@@ -298,6 +377,11 @@ export function MiddlePanelWrite({
                         labels={labels}
                         onManageLabels={onManageLabels}
                         onOpenRightSidebar={onOpenRightSidebar}
+                        embeddingEnabled={retrievalStatus?.embeddingEnabled ?? false}
+                        embeddingStatusBySceneId={retrievalStatusBySceneId}
+                        embeddingUpdatingSceneId={embeddingUpdatingSceneId}
+                        onSceneContentIndexed={handleSceneContentIndexed}
+                        onUpdateSceneEmbedding={handleUpdateSceneEmbedding}
                     />
                 </div>
             </div>

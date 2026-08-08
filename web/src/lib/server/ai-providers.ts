@@ -1,7 +1,7 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import type { ImageModel, LanguageModel } from 'ai'
-import { isDedicatedImageGenerationModel, isImageGenerationModel } from '@/lib/cherrystudio-model-config'
+import type { LanguageModel } from 'ai'
+import { isImageGenerationModel } from '@/lib/cherrystudio-model-config'
 import {
     parseOpenAiModelList,
     requireProviderModels,
@@ -11,15 +11,12 @@ import {
 /**
  * Connection formats:
  * - `openai-chat`  — chat completions (`/chat/completions`)
- * - `openai-image` — image generation/editing (`/images/generations`, `/images/edits`)
- * - `gemini`       — Gemini API native `generateContent`; required for Gemini
- *                    image-output models (nano banana), whose generated images
- *                    have no representation in the OpenAI chat format
+ * - `gemini`       — Gemini API native `generateContent`
  */
-export type ProviderType = 'openai-chat' | 'openai-image' | 'gemini'
+export type ProviderType = 'openai-chat' | 'gemini'
 
 export function parseProviderType(value: unknown): ProviderType | null {
-    return value === 'openai-chat' || value === 'openai-image' || value === 'gemini' ? value : null
+    return value === 'openai-chat' || value === 'gemini' ? value : null
 }
 
 export type AiModel = ProviderModel
@@ -88,17 +85,8 @@ export async function fetchModelsForProvider(options: {
             ? await fetchGeminiModels(baseUrl, apiKey)
             : await fetchOpenAiModels(baseUrl, apiKey)
 
-    // Relays list their full catalog on `/models` regardless of endpoint, so trim
-    // each connection's list to what its format can actually serve. Detection-driven;
-    // when the filter would empty a non-empty list (unknown relay naming), keep the
-    // full list instead of locking the user out.
-    const filtered =
-        providerType === 'openai-image'
-            ? models.filter((model) => isImageGenerationModel({ modelId: model.id, baseUrl }))
-            : providerType === 'openai-chat'
-              ? models.filter((model) => !isDedicatedImageGenerationModel({ modelId: model.id, baseUrl }))
-              : models
-    return requireProviderModels(filtered.length > 0 ? filtered : models)
+    const chatModels = models.filter((model) => !isImageGenerationModel({ modelId: model.id, baseUrl }))
+    return requireProviderModels(chatModels)
 }
 
 export function createLanguageModel(options: {
@@ -128,44 +116,4 @@ export function createLanguageModel(options: {
     }
 
     throw new Error('This connection format does not serve chat models.')
-}
-
-/**
- * The SDK hardcodes `response_format: "b64_json"` on `/images/generations`.
- * dall-e-style endpoints require it (their default is `url`), but gpt-image
- * family endpoints reject the parameter outright (they only ever return
- * b64_json). Detection-driven instead of a model-id list: send it, and if the
- * provider rejects specifically that parameter, retry once without it.
- */
-const imageGenerationFetch: typeof fetch = async (input, init) => {
-    const response = await fetch(input, init)
-    if (response.status !== 400 && response.status !== 422) return response
-    if (typeof init?.body !== 'string' || !init.body.includes('"response_format"')) return response
-
-    const errorText = await response
-        .clone()
-        .text()
-        .catch(() => '')
-    if (!errorText.includes('response_format')) return response
-
-    const body = JSON.parse(init.body) as Record<string, unknown>
-    delete body.response_format
-    return fetch(input, { ...init, body: JSON.stringify(body) })
-}
-
-export function createImageModel(options: {
-    providerType: ProviderType
-    apiKey: string
-    baseUrl?: string | null
-    modelId: string
-}): ImageModel {
-    if (options.providerType !== 'openai-image') {
-        throw new Error('This connection format does not serve image models.')
-    }
-    return createOpenAICompatible({
-        apiKey: options.apiKey,
-        baseURL: resolveBaseUrl(options.providerType, options.baseUrl),
-        name: 'openaiChat',
-        fetch: imageGenerationFetch,
-    }).imageModel(options.modelId) as unknown as ImageModel
 }

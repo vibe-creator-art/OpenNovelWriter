@@ -2,7 +2,16 @@
 
 import Image from 'next/image'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { labelApi, Novel, NovelLabel, novelApi, uploadApi } from '@/lib/api'
+import {
+    labelApi,
+    Novel,
+    NovelLabel,
+    novelApi,
+    retrievalApi,
+    type RetrievalModelOption,
+    type RetrievalStatusResponse,
+    uploadApi,
+} from '@/lib/api'
 import {
     Dialog,
     DialogContent,
@@ -38,13 +47,16 @@ import {
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowDownAZ, Ban, Bot, Brain, Check, GripVertical, Info, Plus, Upload, Trash2 } from 'lucide-react'
+import { ArrowDownAZ, Ban, Bot, Brain, Check, Database, GripVertical, Info, Loader2, Plus, RefreshCw, Search, Upload, Trash2 } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 import {
     DEFAULT_CODEX_SESSION_RETENTION_LIMIT,
     MIN_CODEX_SESSION_RETENTION_LIMIT,
 } from '@/lib/codex-session-retention'
 import { dispatchNovelSettingsChanged } from '@/lib/novel-settings-events'
+import { dispatchRetrievalStatusChanged } from '@/lib/retrieval-events'
+import { CodexPetSettings } from '@/components/editor/codex-pet-settings'
+import { DEFAULT_PET_ID } from '@/lib/pets'
 
 interface NovelSettingsDialogProps {
     open: boolean
@@ -238,10 +250,23 @@ export function NovelSettingsDialog({
     const [outlineCollapsesChapters, setOutlineCollapsesChapters] = useState(true)
     const [termContextIncludesRelations, setTermContextIncludesRelations] = useState(true)
     const [termContextIncludesExperiences, setTermContextIncludesExperiences] = useState(true)
+    const [retrievalEmbeddingEnabled, setRetrievalEmbeddingEnabled] = useState(false)
+    const [retrievalEmbeddingAssignmentId, setRetrievalEmbeddingAssignmentId] = useState('')
+    const [retrievalRerankerEnabled, setRetrievalRerankerEnabled] = useState(false)
+    const [retrievalRerankerAssignmentId, setRetrievalRerankerAssignmentId] = useState('')
+    const [retrievalTopK, setRetrievalTopK] = useState('10')
+    const [embeddingModels, setEmbeddingModels] = useState<RetrievalModelOption[]>([])
+    const [rerankerModels, setRerankerModels] = useState<RetrievalModelOption[]>([])
+    const [retrievalStatus, setRetrievalStatus] = useState<RetrievalStatusResponse | null>(null)
+    const [retrievalLoading, setRetrievalLoading] = useState(false)
+    const [embeddingUpdating, setEmbeddingUpdating] = useState(false)
+    const [retrievalError, setRetrievalError] = useState('')
     const [codexSessionAutoCleanup, setCodexSessionAutoCleanup] = useState(false)
     const [codexSessionRetentionLimit, setCodexSessionRetentionLimit] = useState(
         DEFAULT_CODEX_SESSION_RETENTION_LIMIT.toString()
     )
+    const [codexPetEnabled, setCodexPetEnabled] = useState(false)
+    const [codexPetId, setCodexPetId] = useState<string>(DEFAULT_PET_ID)
     const [draftLabels, setDraftLabels] = useState<NovelLabel[]>([])
     const draftLabelsRef = useRef<NovelLabel[]>([])
 
@@ -263,10 +288,47 @@ export function NovelSettingsDialog({
             setOutlineCollapsesChapters(novel.outlineActSummaryCollapsesChapters ?? true)
             setTermContextIncludesRelations(novel.termContextIncludesRelations)
             setTermContextIncludesExperiences(novel.termContextIncludesExperiences)
+            setRetrievalEmbeddingEnabled(novel.retrievalEmbeddingEnabled)
+            setRetrievalEmbeddingAssignmentId(novel.retrievalEmbeddingAssignmentId ?? '')
+            setRetrievalRerankerEnabled(novel.retrievalRerankerEnabled)
+            setRetrievalRerankerAssignmentId(novel.retrievalRerankerAssignmentId ?? '')
+            setRetrievalTopK(novel.retrievalTopK.toString())
             setCodexSessionAutoCleanup(novel.codexSessionAutoCleanup)
             setCodexSessionRetentionLimit(novel.codexSessionRetentionLimit.toString())
+            setCodexPetEnabled(novel.codexPetEnabled)
+            setCodexPetId(novel.codexPetId)
         }
     }, [defaultNovelLanguage, novel])
+
+    const refreshRetrievalStatus = useCallback(async () => {
+        if (!novel) return
+        const status = await retrievalApi.status(novel.id)
+        setRetrievalStatus(status)
+        return status
+    }, [novel])
+
+    useEffect(() => {
+        if (!open || !novel) return
+        let cancelled = false
+        setRetrievalLoading(true)
+        setRetrievalError('')
+        void Promise.all([retrievalApi.options(novel.id), retrievalApi.status(novel.id)])
+            .then(([options, status]) => {
+                if (cancelled) return
+                setEmbeddingModels(options.embeddingModels)
+                setRerankerModels(options.rerankerModels)
+                setRetrievalStatus(status)
+            })
+            .catch((error) => {
+                if (cancelled) return
+                console.error('Failed to load retrieval settings:', error)
+                setRetrievalError(t('memory.retrievalLoadFailed'))
+            })
+            .finally(() => {
+                if (!cancelled) setRetrievalLoading(false)
+            })
+        return () => { cancelled = true }
+    }, [novel, open, t])
 
     useEffect(() => {
         if (!open) return
@@ -426,7 +488,30 @@ export function NovelSettingsDialog({
             : DEFAULT_CODEX_SESSION_RETENTION_LIMIT
         setCodexSessionRetentionLimit(normalizedRetentionLimit.toString())
 
+        const parsedTopK = Number(retrievalTopK)
+        const normalizedTopK = Number.isInteger(parsedTopK)
+            ? Math.max(1, Math.min(50, parsedTopK))
+            : 10
+        setRetrievalTopK(normalizedTopK.toString())
+        if (retrievalEmbeddingEnabled && !retrievalEmbeddingAssignmentId) {
+            setRetrievalError(t('memory.embeddingModelRequired'))
+            return
+        }
+        if (retrievalRerankerEnabled && !retrievalRerankerAssignmentId) {
+            setRetrievalError(t('memory.rerankerModelRequired'))
+            return
+        }
+        const embeddingAssignmentChanged =
+            retrievalEmbeddingAssignmentId !== (novel.retrievalEmbeddingAssignmentId ?? '')
+        const hasCachedEmbeddings = (retrievalStatus?.cachedCount ?? 0) > 0
+        let resetRetrievalEmbeddings = false
+        if (embeddingAssignmentChanged && hasCachedEmbeddings) {
+            if (!window.confirm(t('memory.confirmEmbeddingModelChange'))) return
+            resetRetrievalEmbeddings = true
+        }
+
         setSaving(true)
+        setRetrievalError('')
         try {
             const updated = await novelApi.update(novel.id, {
                 title,
@@ -439,18 +524,45 @@ export function NovelSettingsDialog({
                 outlineActSummaryCollapsesChapters: outlineCollapsesChapters,
                 termContextIncludesRelations,
                 termContextIncludesExperiences,
+                retrievalEmbeddingEnabled,
+                retrievalEmbeddingAssignmentId: retrievalEmbeddingAssignmentId || null,
+                retrievalRerankerEnabled,
+                retrievalRerankerAssignmentId: retrievalRerankerAssignmentId || null,
+                retrievalTopK: normalizedTopK,
+                resetRetrievalEmbeddings,
                 codexSessionAutoCleanup,
                 codexSessionRetentionLimit: normalizedRetentionLimit,
+                codexPetEnabled,
+                codexPetId,
             })
             onUpdate(updated)
             dispatchNovelSettingsChanged({ novelId: updated.id })
             onOpenChange(false) // Close dialog after successful save
         } catch (error) {
             console.error('Failed to save settings:', error)
+            setRetrievalError(error instanceof Error ? error.message : t('memory.retrievalSaveFailed'))
         } finally {
             setSaving(false)
         }
     }
+
+    const handleUpdateAllEmbeddings = useCallback(async () => {
+        if (!novel || embeddingUpdating) return
+        setEmbeddingUpdating(true)
+        setRetrievalError('')
+        try {
+            await retrievalApi.updateEmbeddings(novel.id)
+            const status = await refreshRetrievalStatus()
+            if (status) dispatchRetrievalStatusChanged({ novelId: novel.id, status })
+        } catch (error) {
+            console.error('Failed to update embeddings:', error)
+            setRetrievalError(error instanceof Error ? error.message : t('memory.embeddingUpdateFailed'))
+            const status = await refreshRetrievalStatus().catch(() => undefined)
+            if (status) dispatchRetrievalStatusChanged({ novelId: novel.id, status })
+        } finally {
+            setEmbeddingUpdating(false)
+        }
+    }, [embeddingUpdating, novel, refreshRetrievalStatus, t])
 
     const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
@@ -801,6 +913,183 @@ export function NovelSettingsDialog({
                                     </div>
                                 </div>
                             </div>
+
+                            <div>
+                                <div className="mb-4">
+                                    <h3 className="text-sm font-semibold">{t('memory.retrievalTitle')}</h3>
+                                    <p className="text-xs text-muted-foreground mt-1">{t('memory.retrievalDescription')}</p>
+                                </div>
+
+                                <div className="space-y-4 rounded-lg border p-4">
+                                    <div className="flex items-start gap-3 rounded-md bg-muted/30 p-3">
+                                        <Search className="mt-0.5 h-4 w-4 shrink-0" />
+                                        <div>
+                                            <Label className="text-sm font-medium">{t('memory.bm25Label')}</Label>
+                                            <p className="mt-1 text-xs text-muted-foreground">{t('memory.bm25Description')}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3 border-t pt-4">
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="space-y-1">
+                                                <Label htmlFor="retrieval-embedding-enabled" className="text-sm font-medium">
+                                                    {t('memory.embeddingLabel')}
+                                                </Label>
+                                                <p className="text-xs text-muted-foreground">{t('memory.embeddingDescription')}</p>
+                                            </div>
+                                            <Switch
+                                                id="retrieval-embedding-enabled"
+                                                checked={retrievalEmbeddingEnabled}
+                                                onCheckedChange={setRetrievalEmbeddingEnabled}
+                                                disabled={!retrievalEmbeddingEnabled && embeddingModels.length === 0}
+                                            />
+                                        </div>
+                                        <Select
+                                            value={retrievalEmbeddingAssignmentId || undefined}
+                                            onValueChange={setRetrievalEmbeddingAssignmentId}
+                                            disabled={!retrievalEmbeddingEnabled}
+                                        >
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue placeholder={
+                                                    retrievalLoading
+                                                        ? t('memory.modelsLoading')
+                                                        : t('memory.embeddingModelPlaceholder')
+                                                } />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {retrievalEmbeddingAssignmentId
+                                                    && !embeddingModels.some((model) => model.assignmentId === retrievalEmbeddingAssignmentId)
+                                                    && (
+                                                        <SelectItem value={retrievalEmbeddingAssignmentId} disabled>
+                                                            {t('memory.unavailableModel')}
+                                                        </SelectItem>
+                                                    )}
+                                                {embeddingModels.map((model) => (
+                                                    <SelectItem key={model.assignmentId} value={model.assignmentId}>
+                                                        {model.modelName} · {model.connectionName} / {model.groupName}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {embeddingModels.length === 0 && !retrievalLoading && (
+                                            <p className="text-xs text-muted-foreground">{t('memory.noEmbeddingModels')}</p>
+                                        )}
+
+                                        {retrievalEmbeddingEnabled && (
+                                            <div className="rounded-md border border-dashed p-3">
+                                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                                    <div>
+                                                        <div className="flex items-center gap-2 text-xs font-medium">
+                                                            <Database className="h-3.5 w-3.5" />
+                                                            {t('memory.embeddingCacheTitle')}
+                                                        </div>
+                                                        <p className="mt-1 text-xs text-muted-foreground">
+                                                            {retrievalStatus
+                                                                ? t('memory.embeddingCacheSummary', {
+                                                                    fresh: retrievalStatus.counts.fresh,
+                                                                    stale: retrievalStatus.counts.stale,
+                                                                    missing: retrievalStatus.counts.missing,
+                                                                    error: retrievalStatus.counts.error,
+                                                                })
+                                                                : t('memory.embeddingCacheUnknown')}
+                                                        </p>
+                                                    </div>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => void handleUpdateAllEmbeddings()}
+                                                        disabled={
+                                                            embeddingUpdating
+                                                            || !novel?.retrievalEmbeddingEnabled
+                                                            || novel.retrievalEmbeddingAssignmentId !== retrievalEmbeddingAssignmentId
+                                                        }
+                                                    >
+                                                        {embeddingUpdating
+                                                            ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                                            : <RefreshCw className="mr-2 h-3.5 w-3.5" />}
+                                                        {t('memory.updateAllEmbeddings')}
+                                                    </Button>
+                                                </div>
+                                                {(
+                                                    !novel?.retrievalEmbeddingEnabled
+                                                    || novel.retrievalEmbeddingAssignmentId !== retrievalEmbeddingAssignmentId
+                                                ) && (
+                                                    <p className="mt-2 text-xs text-muted-foreground">{t('memory.saveBeforeEmbeddingUpdate')}</p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="space-y-3 border-t pt-4">
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="space-y-1">
+                                                <Label htmlFor="retrieval-reranker-enabled" className="text-sm font-medium">
+                                                    {t('memory.rerankerLabel')}
+                                                </Label>
+                                                <p className="text-xs text-muted-foreground">{t('memory.rerankerDescription')}</p>
+                                            </div>
+                                            <Switch
+                                                id="retrieval-reranker-enabled"
+                                                checked={retrievalRerankerEnabled}
+                                                onCheckedChange={setRetrievalRerankerEnabled}
+                                                disabled={!retrievalRerankerEnabled && rerankerModels.length === 0}
+                                            />
+                                        </div>
+                                        <Select
+                                            value={retrievalRerankerAssignmentId || undefined}
+                                            onValueChange={setRetrievalRerankerAssignmentId}
+                                            disabled={!retrievalRerankerEnabled}
+                                        >
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue placeholder={
+                                                    retrievalLoading
+                                                        ? t('memory.modelsLoading')
+                                                        : t('memory.rerankerModelPlaceholder')
+                                                } />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {retrievalRerankerAssignmentId
+                                                    && !rerankerModels.some((model) => model.assignmentId === retrievalRerankerAssignmentId)
+                                                    && (
+                                                        <SelectItem value={retrievalRerankerAssignmentId} disabled>
+                                                            {t('memory.unavailableModel')}
+                                                        </SelectItem>
+                                                    )}
+                                                {rerankerModels.map((model) => (
+                                                    <SelectItem key={model.assignmentId} value={model.assignmentId}>
+                                                        {model.modelName} · {model.connectionName} / {model.groupName}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {rerankerModels.length === 0 && !retrievalLoading && (
+                                            <p className="text-xs text-muted-foreground">{t('memory.noRerankerModels')}</p>
+                                        )}
+                                    </div>
+
+                                    <div className="border-t pt-4">
+                                        <Label htmlFor="retrieval-top-k" className="text-sm font-medium">
+                                            {t('memory.topKLabel')}
+                                        </Label>
+                                        <Input
+                                            id="retrieval-top-k"
+                                            type="number"
+                                            min={1}
+                                            max={50}
+                                            step={1}
+                                            value={retrievalTopK}
+                                            onChange={(event) => setRetrievalTopK(event.target.value)}
+                                            className="mt-2 w-32"
+                                        />
+                                        <p className="mt-2 text-xs text-muted-foreground">{t('memory.topKDescription')}</p>
+                                    </div>
+
+                                    {retrievalError && (
+                                        <p className="text-xs text-destructive">{retrievalError}</p>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -852,6 +1141,17 @@ export function NovelSettingsDialog({
                                     </p>
                                 </div>
                             </div>
+                            <CodexPetSettings
+                                enabled={codexPetEnabled}
+                                selectedPetId={codexPetId}
+                                onEnabledChange={setCodexPetEnabled}
+                                onSelectedPetChange={setCodexPetId}
+                                onPetDeleted={(petId) => {
+                                    if (novel?.codexPetId === petId) {
+                                        onUpdate({ ...novel, codexPetId: DEFAULT_PET_ID })
+                                    }
+                                }}
+                            />
                         </div>
                     )}
                 </div>

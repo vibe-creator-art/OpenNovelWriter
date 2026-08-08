@@ -1,3 +1,5 @@
+const { syncSceneRetrievalIndex } = require('./scene-retrieval-index.cjs')
+
 function htmlToPlainText(html) {
     return String(html ?? '')
         .replace(/<br\s*\/?>/gi, '\n')
@@ -77,6 +79,11 @@ async function updateSceneContentWithStats(prisma, sceneId, content, options = {
         const scene = await tx.scene.update({
             where: { id: sceneId },
             data: { content, wordCount },
+        })
+        await syncSceneRetrievalIndex(tx, {
+            sceneId,
+            novelId: existing.chapter.novelId,
+            content,
         })
         await updateChapterWordCount(tx, existing.chapterId)
         const endingWordCount = options.recordStats === false

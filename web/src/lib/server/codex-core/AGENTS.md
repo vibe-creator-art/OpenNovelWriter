@@ -12,9 +12,11 @@
 - 改场景摘要、卷（act）摘要 → `edit-summary`
 - 创建、修改、删除章/卷的细纲（DetailedOutline，章纲/卷纲）→ `edit-outlines`
 - 创建、修改、删除片段（snippet）→ `edit-snippets`
-- 创建、修改、删除词条（角色/地点/物品等设定卡，含经历时间线）→ `edit-terms`
+- 创建、修改、删除词条，或向词条画廊上传图片 → `edit-terms`
 - 创建、修改、删除提示词，或转换外部提示词预设 → `edit-prompts`
 - 创建、迁移、修改、删除用户技能，或把外部 skill 仓库改写为 ONW 格式 → `edit-skills`
+- 生成或编辑图片 → 优先使用原生 `imagegen` skill 和 `image_gen` 工具；当前连接无法使用原生能力时，再回退到 `onw-imagegen`
+- 从全文查找场景、回忆前文或核对连续性 → `story-context-retrieval`
 
 调用工具时使用工作区投影中标注的 `novel_id`、`act_number`、`chapter_id`、`scene_id`、`term_id`。
 
@@ -28,6 +30,7 @@
    - 跳转到卷：`[第二卷 风起](act:ACT_NUMBER)`，会进入卷聚焦模式并滚动到该卷开头。
    - 跳转到场景：`[第123章·场景2](scene:CHAPTER_ID:SCENE_ID)`，会进入该章的章聚焦模式并滚动到这一场景；注意圆括号里依次是 `chapter_id` 和 `scene_id`，用冒号分隔。
    只有在用真实存在的 id 引用章/卷/场景时才使用这种链接；不要用它指向工作区文件，也不要凭空编造 id。如果手头没有可靠的 id，就像以前那样直接说“见第123章”即可。
+4. `generate_images` 返回的 `suggestedLink` 是图片 artifact 的前端引用。原样让它单独占一行；不要改写 `image:` 目标，也不要向用户展示绝对文件路径。
 
 调用外部 LLM（模型组）时使用 `run_llm`：
 

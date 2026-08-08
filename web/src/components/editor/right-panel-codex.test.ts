@@ -15,11 +15,12 @@ describe('stripUserMessageTokens', () => {
             '[卷纲](outlineAct:1)',
             '[第一章](chapter:chapter-1)',
             '[第一卷](act:1)',
+            '[角色立绘](image:images/characters/manifest.json#hero)',
         ].join(' ')
 
         assert.equal(
             stripUserMessageTokens(content),
-            '@模型 /技能 @术语 @片段 @资料 @章纲 @卷纲 @第一章 @第一卷'
+            '@模型 /技能 @术语 @片段 @资料 @章纲 @卷纲 @第一章 @第一卷 @角色立绘'
         )
     })
 

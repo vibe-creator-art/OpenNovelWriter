@@ -198,14 +198,51 @@
             "termsRelationsLabel": "关系",
             "termsRelationsDescription": "在词条上下文中包含当前关系。",
             "termsExperiencesLabel": "经历",
-            "termsExperiencesDescription": "在词条上下文中包含经历时间线。"
+            "termsExperiencesDescription": "在词条上下文中包含经历时间线。",
+            "retrievalTitle": "全文混合检索",
+            "retrievalDescription": "配置 Codex 和后续知识库检索正文场景时使用的召回与重排方式。",
+            "bm25Label": "BM25 关键词检索",
+            "bm25Description": "始终启用，不依赖 AI 连接。场景保存后会自动更新索引。",
+            "embeddingLabel": "Embedding 语义检索",
+            "embeddingDescription": "与 BM25 并行召回语义相近的场景，需要先在 AI 连接中配置 embedding 模型。",
+            "embeddingModelPlaceholder": "选择 embedding 模型",
+            "embeddingModelRequired": "启用 Embedding 前请选择模型。",
+            "rerankerLabel": "Reranker 重排",
+            "rerankerDescription": "对 BM25 与 Embedding 的联合候选重新排序；也可以单独重排 BM25 结果。",
+            "rerankerModelPlaceholder": "选择 reranker 模型",
+            "rerankerModelRequired": "启用 Reranker 前请选择模型。",
+            "modelsLoading": "正在读取模型…",
+            "unavailableModel": "当前选择的模型不可用",
+            "noEmbeddingModels": "AI 连接中没有可用的 embedding 模型。",
+            "noRerankerModels": "AI 连接中没有可用且支持 rerank endpoint 的模型。",
+            "topKLabel": "返回 Top K",
+            "topKDescription": "最终返回的场景数量，可设置为 1–50。内部候选池会自动扩大。",
+            "embeddingCacheTitle": "场景 Embedding 缓存",
+            "embeddingCacheSummary": "已缓存 {fresh} · 待更新 {stale} · 未缓存 {missing} · 失败 {error}",
+            "embeddingCacheUnknown": "尚未读取缓存状态。",
+            "updateAllEmbeddings": "更新全文 Embedding",
+            "saveBeforeEmbeddingUpdate": "先保存当前模型设置，才能更新全文缓存。",
+            "confirmEmbeddingModelChange": "更换 embedding 模型会清除当前小说已缓存的全部向量。确定继续吗？",
+            "retrievalLoadFailed": "读取混合检索设置失败。",
+            "retrievalSaveFailed": "保存混合检索设置失败。",
+            "embeddingUpdateFailed": "更新 Embedding 缓存失败。"
         },
         "codex": {
             "title": "Codex 会话",
             "autoCleanupLabel": "自动清理过多会话",
             "autoCleanupDescription": "启用后，每类新建 Codex 会话时会分别清理该类较早的会话。正在运行、仍绑定续写面板或存在待审核正文修改的会话不会计入数量，也不会被自动删除。",
             "retentionLimitLabel": "每类保留会话数",
-            "retentionLimitDescription": "每个会话类别至少保留 {min} 个。可使用上下按钮调节，也可直接输入。"
+            "retentionLimitDescription": "每个会话类别至少保留 {min} 个。可使用上下按钮调节，也可直接输入。",
+            "pet": {
+                "enabledLabel": "启用 Codex 宠物",
+                "enabledDescription": "在编辑器中显示宠物，并汇总当前小说里正在运行、需要处理和刚完成的 Codex 会话。",
+                "chooseLabel": "选择宠物",
+                "chooseDescription": "社区宠物可通过 Codex 使用 onw-pet-studio 安装。",
+                "builtIn": "内置",
+                "loading": "正在加载宠物…",
+                "delete": "删除宠物",
+                "deleteConfirm": "确定删除宠物“{name}”吗？"
+            }
         },
         "saveChanges": "保存更改",
         "saving": "保存中..."
@@ -215,6 +252,7 @@
         "tabs": {
             "codexConnections": "Codex 连接",
             "aiConnections": "AI 连接",
+            "otherConnections": "其他连接",
             "general": "通用"
         },
         "codex": {
@@ -327,7 +365,6 @@
             "connectionType": "格式",
             "providerTypes": {
                 "openai": "OpenAI-Chat",
-                "openaiImage": "OpenAI-Image",
                 "gemini": "Gemini"
             },
             "connectionName": "连接名称",
@@ -436,6 +473,35 @@
             },
             "defaults": {
                 "openaiName": "OpenAI-Chat"
+            }
+        },
+        "other": {
+            "title": "GPT Image",
+            "description": "配置用于 Codex 图片生成和编辑的 OpenAI Images 兼容服务。凭据将以加密形式保存在服务端本地。",
+            "loading": "正在读取配置...",
+            "baseUrl": "Base URL",
+            "baseUrlHint": "请求将发送到该地址下的 /models、/images/generations 和 /images/edits。",
+            "apiKey": "API Key",
+            "apiKeyPlaceholder": "sk-...",
+            "apiKeySavedPlaceholder": "已保存；留空则保持不变",
+            "apiKeyHint": "填写新 Key 会替换已保存的 Key；留空时继续使用现有 Key。",
+            "showApiKey": "显示 API Key",
+            "hideApiKey": "隐藏 API Key",
+            "fetchModels": "获取模型",
+            "fetchingModels": "获取中...",
+            "model": "图片模型",
+            "modelPlaceholder": "请先获取模型",
+            "modelHint": "仅显示服务返回且被识别为图片生成模型的模型。",
+            "save": "保存配置",
+            "saving": "保存中...",
+            "saved": "GPT Image 配置已保存。",
+            "errors": {
+                "loadFailed": "读取 GPT Image 配置失败。",
+                "missingBaseUrl": "请填写 Base URL。",
+                "missingApiKey": "请填写 API Key。",
+                "missingModel": "请先获取并选择图片模型。",
+                "fetchModelsFailed": "获取图片模型失败。",
+                "saveFailed": "保存 GPT Image 配置失败。"
             }
         },
         "general": {
@@ -1013,6 +1079,22 @@
             "boundCategoryEmpty": "该分类的会话由对应工作流自动创建。",
             "noMessages": "还没有消息",
             "unreadCompletion": "Codex 已完成",
+            "pet": {
+                "untitled": "Codex 会话",
+                "status": {
+                    "needs-input": "需要你的处理",
+                    "blocked": "会话遇到问题",
+                    "ready": "任务已完成",
+                    "running": "正在工作"
+                },
+                "followUp": "Follow up",
+                "followUpPlaceholder": "继续告诉 Codex…",
+                "send": "发送",
+                "stop": "停止",
+                "drag": "拖动宠物",
+                "showSummary": "显示会话摘要",
+                "minimize": "最小化宠物"
+            },
             "startTitle": "让 Codex 帮你创作小说",
             "startDescription": "",
             "composerPlaceholder": "让 Codex 帮你创作小说。输入 @ 提及小说内容,输入 / 发送指令",
@@ -1154,7 +1236,13 @@
             "continueStory": "继续故事",
             "creating": "创建中...",
             "operationRunning": "正在运行：{name}",
-            "operationNeedsInput": "需要你的输入：{name}"
+            "operationNeedsInput": "需要你的输入：{name}",
+            "embeddingFresh": "Embedding 已缓存",
+            "embeddingStale": "Embedding 待更新",
+            "embeddingMissing": "Embedding 未缓存",
+            "embeddingError": "Embedding 更新失败",
+            "embeddingUpdating": "正在更新 Embedding",
+            "updateEmbedding": "更新本场 Embedding"
         },
         "codexSkillTweak": {
             "tweak": "Tweak",

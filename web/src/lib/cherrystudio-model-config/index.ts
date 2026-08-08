@@ -1,17 +1,14 @@
-import { toSharedCompatModel } from './models/bridge'
+import { getLoadedIcon, loadIcon } from './icons/loader'
+import { resolveIconRef } from './icons/registry'
+import { colonVariantTagToHyphen, normalizeModelId } from './models/normalize'
+import { REGISTRY_PROVIDER_BASE_URLS } from './models/provider-base-urls'
+import { REASONING_FAMILY_RULES } from './models/reasoning-families.gen'
+import { matchReasoningMembership } from './models/reasoning-membership'
 import {
-    isEmbeddingModel,
-    isFunctionCallingModel,
-    isGenerateImageModel,
-    isReasoningModel,
-    isRerankModel,
-    isTextToImageModel,
-    isVisionModel,
-} from './models/model'
-import { normalizeModelId } from './models/normalize'
-import { REGISTRY_FLAG, REGISTRY_MODEL_FLAGS } from './models/registry-capabilities'
-
-export { getModelLogoById as getCherryStudioModelLogoById } from './logo'
+    REGISTRY_FLAG,
+    REGISTRY_MODEL_FLAGS,
+    REGISTRY_PROVIDER_MODEL_FLAGS,
+} from './models/registry-capabilities'
 
 export type CherryStudioModelType =
     | 'vision'
@@ -24,8 +21,8 @@ export type CherryStudioDetectionState = Record<CherryStudioModelType, boolean>
 
 export type CherryStudioDetectionInput = {
     modelId: string
-    modelName?: string | null
     providerId?: string | null
+    providerType?: 'openai-chat' | 'gemini' | null
     baseUrl?: string | null
 }
 
@@ -40,108 +37,139 @@ export const CHERRY_STUDIO_MODEL_TYPE_ORDER: CherryStudioModelType[] = [
 export function detectCherryStudioModelTypes(
     input: CherryStudioDetectionInput
 ): CherryStudioDetectionState {
-    const flags = lookupRegistryFlags(input.modelId)
+    const flags = lookupRegistryFlags(input)
     if (flags === undefined) {
-        return inferDetection(input)
+        return {
+            vision: false,
+            reasoning: matchReasoningMembership(input.modelId, REASONING_FAMILY_RULES),
+            tool: false,
+            reranker: false,
+            embedding: false,
+        }
     }
 
+    const reranker = (flags & REGISTRY_FLAG.reranker) !== 0
     return {
         vision: (flags & REGISTRY_FLAG.vision) !== 0,
         reasoning: (flags & REGISTRY_FLAG.reasoning) !== 0,
         tool: (flags & REGISTRY_FLAG.tool) !== 0,
-        reranker: (flags & REGISTRY_FLAG.reranker) !== 0,
-        embedding: (flags & REGISTRY_FLAG.embedding) !== 0,
+        reranker,
+        embedding: !reranker && (flags & REGISTRY_FLAG.embedding) !== 0,
     }
 }
 
-/**
- * Any image-output capable model, per the registry catalog or, for uncataloged
- * ids, the synced upstream inference.
- */
 export function isImageGenerationModel(input: CherryStudioDetectionInput): boolean {
-    const flags = lookupRegistryFlags(input.modelId)
-    if (flags !== undefined) {
-        return (flags & REGISTRY_FLAG.imageGeneration) !== 0
-    }
-
-    return isGenerateImageModel(toDetectionModel(input))
+    const flags = lookupRegistryFlags(input)
+    return flags !== undefined && (flags & REGISTRY_FLAG.imageGeneration) !== 0
 }
 
-/**
- * Dedicated text-to-image model (gpt-image, dall-e, flux, …) that cannot chat —
- * image generation without reasoning, the upstream `isTextToImageModel`
- * semantics. Chat-capable image-output models (gemini image) are excluded.
- */
-export function isDedicatedImageGenerationModel(input: CherryStudioDetectionInput): boolean {
-    const flags = lookupRegistryFlags(input.modelId)
-    if (flags !== undefined) {
-        return (flags & REGISTRY_FLAG.imageGeneration) !== 0 && (flags & REGISTRY_FLAG.reasoning) === 0
-    }
+export function inferCherryStudioProviderId(
+    input: Pick<CherryStudioDetectionInput, 'providerId' | 'providerType' | 'baseUrl'>
+): string {
+    const explicitProviderId = input.providerId?.trim().toLowerCase()
+    if (explicitProviderId) return explicitProviderId
 
-    return isTextToImageModel(toDetectionModel(input))
-}
-
-function toDetectionModel(input: CherryStudioDetectionInput) {
-    return toSharedCompatModel({
-        id: input.modelId,
-        name: input.modelName?.trim() || input.modelId,
-        provider: resolveProviderId(input),
-    })
-}
-
-// CherryStudio registry catalog lookup. Mirrors RegistryLoader semantics:
-// exact id match first, then the normalized-id index.
-function lookupRegistryFlags(modelId: string): number | undefined {
-    return REGISTRY_MODEL_FLAGS[modelId] ?? getNormalizedRegistryIndex().get(normalizeModelId(modelId))
-}
-
-let normalizedRegistryIndex: Map<string, number> | undefined
-
-function getNormalizedRegistryIndex(): Map<string, number> {
-    if (!normalizedRegistryIndex) {
-        normalizedRegistryIndex = new Map()
-        for (const [id, flags] of Object.entries(REGISTRY_MODEL_FLAGS)) {
-            const normalized = normalizeModelId(id)
-            if (!normalizedRegistryIndex.has(normalized)) {
-                normalizedRegistryIndex.set(normalized, flags)
+    const baseUrl = normalizeBaseUrl(input.baseUrl)
+    if (baseUrl) {
+        for (const [registeredBaseUrl, providerId] of REGISTRY_PROVIDER_BASE_URLS) {
+            if (baseUrl === registeredBaseUrl || baseUrl.startsWith(`${registeredBaseUrl}/`)) {
+                return providerId
             }
         }
+
+        const host = getHostname(baseUrl)
+        if (host.endsWith('.openai.azure.com') || host.endsWith('.cognitiveservices.azure.com')) {
+            return 'azure-openai'
+        }
+        if (host.endsWith('.aiplatform.googleapis.com')) return 'vertexai'
     }
-    return normalizedRegistryIndex
+
+    if (input.providerType === 'gemini') return 'gemini'
+    if (!baseUrl && input.providerType === 'openai-chat') {
+        return 'openai'
+    }
+    return ''
 }
 
-// Fallback for models missing from the registry catalog: the synced bridge
-// infers a capability list from the model id, then the synced checks read it.
-function inferDetection(input: CherryStudioDetectionInput): CherryStudioDetectionState {
-    const shared = toDetectionModel(input)
-
-    return {
-        vision: isVisionModel(shared),
-        reasoning: isReasoningModel(shared),
-        tool: isFunctionCallingModel(shared),
-        reranker: isRerankModel(shared),
-        embedding: isEmbeddingModel(shared),
-    }
+export function resolveCherryStudioIcon(modelId: string, providerId: string) {
+    return resolveIconRef(modelId, providerId)
 }
 
-function resolveProviderId(input: CherryStudioDetectionInput) {
-    if (input.providerId?.trim()) {
-        return input.providerId.trim()
+export { getLoadedIcon as getLoadedCherryStudioIcon, loadIcon as loadCherryStudioIcon }
+export type { IconRef as CherryStudioIconRef } from './icons/registry'
+export type { ThemedIcon as CherryStudioIcon } from './icons/types'
+
+function lookupRegistryFlags(input: CherryStudioDetectionInput): number | undefined {
+    const providerId = inferCherryStudioProviderId(input)
+    if (providerId) {
+        const providerFlags = lookupFlagsInTable(
+            REGISTRY_PROVIDER_MODEL_FLAGS,
+            input.modelId,
+            providerId
+        )
+        if (providerFlags !== undefined) return providerFlags
+    }
+    return lookupFlagsInTable(REGISTRY_MODEL_FLAGS, input.modelId)
+}
+
+type NormalizedIndexes = {
+    regular: Map<string, number>
+    sized: Map<string, number>
+}
+
+const normalizedIndexes = new WeakMap<Record<string, number>, Map<string, NormalizedIndexes>>()
+
+function lookupFlagsInTable(
+    table: Record<string, number>,
+    modelId: string,
+    providerId = ''
+): number | undefined {
+    const exactKey = providerId ? `${providerId}::${modelId}` : modelId
+    const exact = table[exactKey]
+    if (exact !== undefined) return exact
+
+    const indexes = getNormalizedIndexes(table, providerId)
+    if (colonVariantTagToHyphen(modelId) !== modelId) {
+        return indexes.sized.get(normalizeModelId(modelId, { keepParameterSize: true }))
+    }
+    return indexes.regular.get(normalizeModelId(modelId))
+}
+
+function getNormalizedIndexes(
+    table: Record<string, number>,
+    providerId: string
+): NormalizedIndexes {
+    let indexesByProvider = normalizedIndexes.get(table)
+    if (!indexesByProvider) {
+        indexesByProvider = new Map()
+        normalizedIndexes.set(table, indexesByProvider)
     }
 
-    const baseUrl = (input.baseUrl ?? '').toLocaleLowerCase()
+    const cached = indexesByProvider.get(providerId)
+    if (cached) return cached
 
-    if (baseUrl.includes('openrouter.ai')) return 'openrouter'
-    if (baseUrl.includes('perplexity.ai')) return 'perplexity'
-    if (baseUrl.includes('anthropic.com')) return 'anthropic'
-    if (baseUrl.includes('x.ai')) return 'grok'
-    if (baseUrl.includes('volces.com') || baseUrl.includes('volcengine.com')) return 'doubao'
-    if (baseUrl.includes('dashscope.aliyuncs.com')) return 'dashscope'
-    if (baseUrl.includes('bigmodel.cn')) return 'zhipu'
-    if (baseUrl.includes('hunyuan.tencentcloudapi.com')) return 'hunyuan'
-    if (baseUrl.includes('generativelanguage.googleapis.com')) return 'gemini'
-    if (baseUrl.includes('aiplatform.googleapis.com')) return 'vertexai'
-    if (baseUrl.includes('azure.com')) return 'openai'
+    const indexes: NormalizedIndexes = { regular: new Map(), sized: new Map() }
+    const providerPrefix = providerId ? `${providerId}::` : ''
+    for (const [key, flags] of Object.entries(table)) {
+        if (providerId && !key.startsWith(providerPrefix)) continue
+        const id = providerId ? key.slice(providerPrefix.length) : key
+        const regularId = normalizeModelId(id)
+        const sizedId = normalizeModelId(id, { keepParameterSize: true })
+        if (!indexes.regular.has(regularId)) indexes.regular.set(regularId, flags)
+        if (!indexes.sized.has(sizedId)) indexes.sized.set(sizedId, flags)
+    }
+    indexesByProvider.set(providerId, indexes)
+    return indexes
+}
 
-    return 'openai'
+function normalizeBaseUrl(value?: string | null) {
+    return value?.trim().toLowerCase().replace(/\/+$/, '') ?? ''
+}
+
+function getHostname(baseUrl: string) {
+    try {
+        return new URL(baseUrl).hostname
+    } catch {
+        return ''
+    }
 }
