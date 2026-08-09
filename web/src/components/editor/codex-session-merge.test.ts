@@ -52,12 +52,14 @@ describe('mergeServerSession', () => {
         })
         const server = createSession({
             status: 'idle',
+            unreadCompletionAt: '2026-08-05T00:00:02.000Z',
             messages: [{ id: 'final', role: 'assistant', content: 'complete', createdAt: '2026-08-05T00:00:02.000Z' }],
         })
 
         const merged = mergeServerSession(local, server, { preserveRunning: false })
 
         assert.equal(merged.status, 'idle')
+        assert.equal(merged.unreadCompletionAt, '2026-08-05T00:00:02.000Z')
         assert.equal(merged.messages[0]?.content, 'complete')
         assert.equal(merged.draftContent, 'unsaved draft')
     })

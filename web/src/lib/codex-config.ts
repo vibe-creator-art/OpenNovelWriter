@@ -3,16 +3,30 @@ import { applyDeepSeekV4ModelDefaults } from '@/lib/codex-deepseek'
 export type CodexConnectionProviderType = 'openai-official' | 'custom'
 export type CodexUpstreamFormat = 'responses' | 'chat-completions' | 'anthropic-messages'
 
-type CodexFastModeConnection = {
+type CodexChatGptAuthConnection = {
     providerType: string
     authStatus: string
     authType: string | null
 }
 
-export function canUseCodexFastMode(connection: CodexFastModeConnection | null | undefined) {
+export function isAuthenticatedChatGptCodexConnection(
+    connection: CodexChatGptAuthConnection | null | undefined
+) {
     return connection?.providerType === 'openai-official'
         && connection.authStatus === 'authenticated'
         && connection.authType === 'chatgpt'
+}
+
+export const CODEX_CUSTOM_FAST_SERVICE_TIER = {
+    id: 'priority',
+    name: 'Fast',
+    description: 'Availability, actual speed, and usage depend on the upstream provider.',
+} as const
+
+export function getCustomCodexServiceTiers(upstreamFormat: string | null | undefined) {
+    return upstreamFormat === 'responses' || upstreamFormat === 'chat-completions'
+        ? [CODEX_CUSTOM_FAST_SERVICE_TIER]
+        : []
 }
 
 export type CodexReasoningEffort =

@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { getPrismaClient } from '@/lib/db'
 import { resolveManagedUploadPath, saveImageBuffer } from '@/lib/server/storage'
-import { canUseCodexFastMode, DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import {
     prependCodexResponseAnnotations,
     type CodexResponseAnnotation,
@@ -1125,8 +1125,7 @@ export async function runNovelCodexTurn(input: {
         normalizeCodexReasoningEffort(input.reasoningEffort) ?? DEFAULT_CODEX_REASONING_EFFORT
     const requestedServiceTier = normalizeCodexServiceTier(input.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
     const serviceTier =
-        requestedServiceTier === 'fast' &&
-        canUseCodexFastMode(connection)
+        requestedServiceTier === 'fast'
             ? await readFastServiceTierId(client, modelId)
             : null
     const collaborationMode = getCodexCollaborationMode({
@@ -1577,8 +1576,7 @@ export async function runNovelCodexCompaction(input: {
         : DEFAULT_CODEX_MODEL
     const requestedServiceTier = normalizeCodexServiceTier(input.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
     const serviceTier =
-        requestedServiceTier === 'fast' &&
-        canUseCodexFastMode(connection)
+        requestedServiceTier === 'fast'
             ? await readFastServiceTierId(client, modelId)
             : null
 

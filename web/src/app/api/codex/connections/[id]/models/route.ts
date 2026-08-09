@@ -3,7 +3,11 @@ import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
 import { listCodexModels } from '@/lib/server/codex-app-server'
-import { expandNativeCodexModels, parseCodexProviderModelsJson } from '@/lib/codex-config'
+import {
+    expandNativeCodexModels,
+    getCustomCodexServiceTiers,
+    parseCodexProviderModelsJson,
+} from '@/lib/codex-config'
 
 const prisma = getPrismaClient({ ensureModel: 'codexConnection' })
 
@@ -26,7 +30,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
                     description: model.displayName,
                     supportedReasoningEfforts: model.supportedReasoningEfforts,
                     defaultReasoningEffort: model.defaultReasoningEffort,
-                    serviceTiers: [],
+                    serviceTiers: getCustomCodexServiceTiers(connection.upstreamFormat),
                 })),
             })
         }

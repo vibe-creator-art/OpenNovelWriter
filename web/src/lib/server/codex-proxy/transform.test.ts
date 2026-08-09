@@ -19,6 +19,7 @@ test('keeps namespace conversion inside the Chat Completions bridge', () => {
     const body = {
         model: model.id,
         stream: false,
+        service_tier: 'priority',
         input: [
             {
                 type: 'additional_tools',
@@ -36,6 +37,7 @@ test('keeps namespace conversion inside the Chat Completions bridge', () => {
 
     assert.equal((chat.tools as Array<{ function: { name: string } }>)[0].function.name, 'workspace__read_file')
     assert.deepEqual(chat.messages, [{ role: 'user', content: 'Read it.' }])
+    assert.equal(chat.service_tier, 'priority')
 
     const response = chatCompletionToResponse({
         id: 'chatcmpl_1',

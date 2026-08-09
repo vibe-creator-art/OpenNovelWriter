@@ -369,6 +369,12 @@ export function ChapterSceneEditor({
             updateScenes((current) => current.map(s =>
                 s.id === sceneId ? { ...s, content, wordCount: updated.wordCount } : s
             ))
+            setLocalEdits((current) => {
+                if (current[sceneId] !== content) return current
+                const next = { ...current }
+                delete next[sceneId]
+                return next
+            })
             onSceneContentIndexed(sceneId)
         } catch (error) {
             console.error('Failed to save scene:', error)
@@ -594,7 +600,6 @@ export function ChapterSceneEditor({
 
         try {
             const newScene = await sceneApi.create(chapterId)
-            setLocalEdits(prev => ({ ...prev, [newScene.id]: '' }))
             updateScenes((current) => [...current, newScene])
         } catch (error) {
             console.error('Failed to create scene:', error)

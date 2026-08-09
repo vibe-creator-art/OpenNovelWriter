@@ -1188,7 +1188,8 @@
             },
             "serviceTierDescriptions": {
                 "standard": "Default speed, normal usage",
-                "fast": "1.5x speed, increased usage"
+                "fast": "1.5x speed, increased usage",
+                "fastCustom": "Availability, actual speed, and usage depend on the upstream provider"
             },
             "high": "High",
             "send": "Send",

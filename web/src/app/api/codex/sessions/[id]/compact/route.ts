@@ -189,13 +189,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                     return
                 }
                 const message = error instanceof Error ? error.message : 'Codex compaction failed.'
+                const failedAt = new Date()
                 const session = await prisma.codexSession.update({
                     where: { id },
                     data: {
                         messagesJson: JSON.stringify(streamedMessages),
                         status: 'error',
                         lastError: message,
-                        updatedAt: new Date(),
+                        unreadCompletionAt: failedAt,
+                        updatedAt: failedAt,
                     },
                 })
 

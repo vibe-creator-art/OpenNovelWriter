@@ -1188,7 +1188,8 @@
             },
             "serviceTierDescriptions": {
                 "standard": "默认速度，正常用量",
-                "fast": "1.5 倍速度，更高用量"
+                "fast": "1.5 倍速度，更高用量",
+                "fastCustom": "是否生效、实际速度和用量由上游决定"
             },
             "high": "High",
             "send": "发送",

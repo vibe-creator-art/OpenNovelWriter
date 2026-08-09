@@ -184,7 +184,9 @@ export function normalizeCodexResponsesTools(body: JsonObject) {
         }
     }
 
-    const normalizedTools = tools.flatMap((tool) => normalizeCompatibleResponseTool(tool))
+    const normalizedTools = dedupeFunctionToolsByName(
+        tools.flatMap((tool) => normalizeCompatibleResponseTool(tool))
+    )
     if (normalizedTools.length !== tools.length || normalizedTools.some((tool, index) => tool !== tools[index])) {
         tools = normalizedTools
         changed = true
@@ -393,6 +395,18 @@ function normalizeCompatibleResponseTool(value: unknown): unknown[] {
                 parameters: normalizeChatFunctionParameters(child.parameters),
             }
         })
+}
+
+function dedupeFunctionToolsByName(tools: unknown[]) {
+    const names = new Set<string>()
+    return tools.filter((tool) => {
+        if (!isObject(tool) || tool.type !== 'function') return true
+        const name = responseToolName(tool)
+        if (!name) return true
+        if (names.has(name)) return false
+        names.add(name)
+        return true
+    })
 }
 
 function normalizeResponseInputItem(value: unknown) {

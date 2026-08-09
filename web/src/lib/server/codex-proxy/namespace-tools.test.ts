@@ -177,3 +177,47 @@ test('bridges deferred tool_search calls, outputs, and loaded namespace tools', 
     assert.equal(restoredLoadedTool.name, 'update_chapter_title')
     assert.equal(restoredLoadedTool.namespace, 'opennovelwriter')
 })
+
+test('deduplicates overlapping tools returned by repeated deferred searches', () => {
+    const functionTool = (name: string, description: string) => ({
+        type: 'function',
+        name,
+        description,
+        defer_loading: true,
+        parameters: { type: 'object' },
+    })
+    const searchOutput = (callId: string, tools: Array<Record<string, unknown>>) => ({
+        type: 'tool_search_output',
+        call_id: callId,
+        status: 'completed',
+        execution: 'client',
+        tools: [{ type: 'namespace', name: 'mcp__opennovelwriter', tools }],
+    })
+    const body = {
+        tools: [{ type: 'tool_search', execution: 'client' }],
+        input: [
+            searchOutput('search_1', [
+                functionTool('delete_chapter', 'Delete a chapter.'),
+                functionTool('run_llm', 'First run_llm definition.'),
+            ]),
+            searchOutput('search_2', [
+                functionTool('run_llm', 'Repeated run_llm definition.'),
+                functionTool('update_chapter_title', 'Rename a chapter.'),
+            ]),
+        ],
+    }
+
+    const normalized = normalizeCodexResponsesTools(body)
+    const tools = normalized.tools as Array<Record<string, unknown>>
+
+    assert.deepEqual(tools.map((tool) => tool.name), [
+        'tool_search',
+        'mcp__opennovelwriter__delete_chapter',
+        'mcp__opennovelwriter__run_llm',
+        'mcp__opennovelwriter__update_chapter_title',
+    ])
+    assert.equal(
+        tools.find((tool) => tool.name === 'mcp__opennovelwriter__run_llm')?.description,
+        'First run_llm definition.'
+    )
+})

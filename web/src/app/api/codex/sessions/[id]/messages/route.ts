@@ -566,6 +566,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                         return
                     }
                     const message = error instanceof Error ? error.message : 'Codex run failed.'
+                    const failedAt = new Date()
                     const failedMessages: CodexSessionMessage[] = [
                         ...optimisticMessages,
                         {
@@ -573,7 +574,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                             role: 'event',
                             kind: 'error',
                             content: message,
-                            createdAt: new Date().toISOString(),
+                            createdAt: failedAt.toISOString(),
                         },
                     ]
                     const session = await prisma.codexSession.update({
@@ -582,7 +583,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                             messagesJson: JSON.stringify(failedMessages),
                             status: 'error',
                             lastError: message,
-                            updatedAt: new Date(),
+                            unreadCompletionAt: failedAt,
+                            updatedAt: failedAt,
                         },
                     })
 

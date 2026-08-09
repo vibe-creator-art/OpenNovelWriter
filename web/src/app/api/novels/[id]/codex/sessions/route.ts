@@ -15,7 +15,7 @@ import {
     parseCodexDraftAttachments,
     serializeCodexSession,
 } from '@/lib/server/codex-session'
-import { canUseCodexFastMode, DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import { getActiveCodexRun } from '@/lib/server/codex-app-server'
 import { seedSkillSessionArtifact } from '@/lib/server/codex-skill-session'
 import { pruneCodexSessionsForCategory } from '@/lib/server/codex-session-pruning'
@@ -107,19 +107,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             select: {
                 id: true,
                 defaultModelId: true,
-                providerType: true,
-                authStatus: true,
-                authType: true,
             },
         })
         const activeConnectionModel = activeConnection?.defaultModelId?.trim() || DEFAULT_CODEX_MODEL
         const serviceTier = normalizeCodexServiceTier(body?.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
-        if (serviceTier === 'fast' && !canUseCodexFastMode(activeConnection)) {
-            return NextResponse.json(
-                { detail: 'Fast mode requires an authenticated ChatGPT Codex connection' },
-                { status: 400 }
-            )
-        }
 
         const now = new Date()
         const session = await prisma.codexSession.create({

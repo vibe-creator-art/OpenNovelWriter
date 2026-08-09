@@ -21,7 +21,7 @@ export function responsesToChatRequest(
         stream: body.stream === true,
     }
 
-    for (const key of ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'seed', 'stop']) {
+    for (const key of ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'seed', 'stop', 'service_tier']) {
         if (body[key] !== undefined) result[key] = body[key]
     }
     if (body.max_output_tokens !== undefined) result.max_tokens = body.max_output_tokens

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Bot, Check, ChevronDown, ChevronRight, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Bot, Check, ChevronDown, ChevronRight, CircleAlert, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -16,6 +16,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useEditorCodexStore } from '@/components/editor/editor-codex-store'
+import { getCodexSessionPreviewText, getCodexSessionPreviewTitle } from '@/lib/codex-message-preview'
 import { cn } from '@/lib/utils'
 import type { CodexSession, CodexSessionCategory } from '@/lib/api'
 
@@ -34,12 +35,6 @@ function formatSessionTime(updatedAt: string) {
     const now = new Date()
     const sameDay = date.toDateString() === now.toDateString()
     return new Intl.DateTimeFormat(undefined, sameDay ? { hour: '2-digit', minute: '2-digit' } : { month: 'numeric', day: 'numeric' }).format(date)
-}
-
-function getSessionPreview(session: CodexSession, fallback: string) {
-    const lastMessage = [...session.messages].reverse().find((message) => message.role !== 'event' && message.content.trim())
-    const content = lastMessage?.content.trim() || session.draftContent.trim()
-    return content ? content.replace(/\s+/g, ' ') : fallback
 }
 
 export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCodexProps) {
@@ -150,6 +145,7 @@ export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCod
                                             ) : (
                                                 categorySessions.map((session) => {
                                                     const selected = session.id === selectedSessionId
+                                                    const title = getCodexSessionPreviewTitle(session, t('codex.untitled'))
                                                     return (
                                                         <div
                                                             key={session.id}
@@ -173,10 +169,12 @@ export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCod
                                                                 <div className="min-w-0">
                                                                     <div className="flex min-w-0 items-center gap-2">
                                                                         <span className="block min-w-0 flex-1 truncate text-sm font-medium">
-                                                                            {session.title || t('codex.untitled')}
+                                                                            {title}
                                                                         </span>
                                                                         {session.status === 'running' ? (
                                                                             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+                                                                        ) : session.status === 'error' ? (
+                                                                            <CircleAlert className="h-4 w-4 shrink-0 text-destructive" />
                                                                         ) : session.status === 'idle' && session.messages.length > 0 ? (
                                                                             session.unreadCompletionAt ? (
                                                                                 <span
@@ -213,7 +211,7 @@ export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCod
                                                                 {!isCompact && (
                                                                     <div className="col-span-2 mt-0.5 flex min-w-0 items-center gap-2 text-xs leading-4 text-muted-foreground">
                                                                         <span className="min-w-0 flex-1 truncate">
-                                                                            {getSessionPreview(session, t('codex.noMessages'))}
+                                                                            {getCodexSessionPreviewText(session, t('codex.noMessages'))}
                                                                         </span>
                                                                         <span className="shrink-0">{formatSessionTime(session.updatedAt)}</span>
                                                                     </div>
@@ -248,7 +246,9 @@ export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCod
                         <AlertDialogTitle>{t('codex.deleteConfirmTitle')}</AlertDialogTitle>
                         <AlertDialogDescription>
                             {t('codex.deleteConfirmDescription', {
-                                title: deletingSession?.title?.trim() || t('codex.untitled'),
+                                title: deletingSession
+                                    ? getCodexSessionPreviewTitle(deletingSession, t('codex.untitled'))
+                                    : t('codex.untitled'),
                             })}
                         </AlertDialogDescription>
                     </AlertDialogHeader>

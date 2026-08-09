@@ -17,7 +17,7 @@ import {
     type CodexPromptArtifact,
     type CodexDraftArtifact,
 } from '@/lib/api'
-import { DEFAULT_CODEX_MODEL, canUseCodexFastMode } from '@/lib/codex-config'
+import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import {
     getStickyCodexFastMode,
     resolvePreferredCodexServiceTier,
@@ -27,6 +27,10 @@ import { dispatchNovelRefreshRequested } from '@/lib/novel-refresh-events'
 import { emitSceneEditsChanged } from '@/components/editor/scene-edit-events'
 import { emitContinuationPanelRemoved } from '@/lib/continuation-panel-events'
 import { mergeServerSession } from '@/components/editor/codex-session-merge'
+import {
+    completionReadAtOnDraftChange,
+    completionReadAtOnInteraction,
+} from '@/components/editor/codex-completion-read'
 import type { CodexResponseAnnotation } from '@/lib/codex-response-annotations'
 
 export const EDITOR_CODEX_FALLBACK_NOVEL_ID = '__default__'
@@ -55,12 +59,11 @@ async function getPreferredServiceTierForNewSession(): Promise<CodexServiceTier>
     try {
         const connections = await codexApi.listConnections()
         const activeConnection = connections.find((connection) => connection.isActive) ?? null
-        if (!activeConnection || !canUseCodexFastMode(activeConnection)) return 'standard'
+        if (!activeConnection) return 'standard'
 
         const { models } = await codexApi.listConnectionModels(activeConnection.id)
         return resolvePreferredCodexServiceTier({
             enabled: true,
-            connection: activeConnection,
             models,
             modelId: activeConnection.defaultModelId?.trim() || DEFAULT_CODEX_MODEL,
         })
@@ -116,6 +119,7 @@ type CodexStoreState = {
         }
     ) => Promise<string | null>
     selectSession: (novelId: string | null | undefined, sessionId: string) => void
+    markSessionRead: (novelId: string | null | undefined, sessionId: string) => void
     updateDraft: (novelId: string | null | undefined, sessionId: string, draftContent: string) => void
     updateImageAttachments: (
         novelId: string | null | undefined,
@@ -424,7 +428,6 @@ function persistCompletionRead(sessionId: string, completedAt: string) {
  */
 function applyCodexStreamEvent(
     set: StoreApi<CodexStoreState>['setState'],
-    get: StoreApi<CodexStoreState>['getState'],
     novelKey: string,
     sessionId: string,
     event: CodexSessionStreamEvent
@@ -432,14 +435,9 @@ function applyCodexStreamEvent(
     if (deletedSessionIds.has(sessionId)) return null
 
     if (event.type === 'done') {
-        const completedAt = event.session.unreadCompletionAt
-        const selected = get().sessionsByNovel[novelKey]?.selectedSessionId === sessionId
-        const completedSession = selected && completedAt
-            ? { ...event.session, unreadCompletionAt: null }
-            : event.session
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
-            const session = mergeSessionPreservingComposer(current, completedSession, { preserveRunning: false })
+            const session = mergeSessionPreservingComposer(current, event.session, { preserveRunning: false })
             return {
                 pendingApprovalsBySession: {
                     ...state.pendingApprovalsBySession,
@@ -451,7 +449,6 @@ function applyCodexStreamEvent(
                 },
             }
         })
-        if (selected && completedAt) persistCompletionRead(sessionId, completedAt)
         return null
     }
 
@@ -758,9 +755,6 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     },
     selectSession: (novelId, sessionId) => {
         const novelKey = getNovelKey(novelId)
-        const completedAt = get().sessionsByNovel[novelKey]?.sessions.find(
-            (session) => session.id === sessionId
-        )?.unreadCompletionAt ?? null
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             return {
@@ -769,19 +763,19 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                     [novelKey]: {
                         ...current,
                         selectedSessionId: sessionId,
-                        sessions: completedAt
-                            ? current.sessions.map((session) =>
-                                session.id === sessionId ? { ...session, unreadCompletionAt: null } : session
-                            )
-                            : current.sessions,
                     },
                 },
             }
         })
-        if (completedAt) persistCompletionRead(sessionId, completedAt)
+        get().markSessionRead(novelId, sessionId)
     },
-    updateDraft: (novelId, sessionId, draftContent) => {
+    markSessionRead: (novelId, sessionId) => {
         const novelKey = getNovelKey(novelId)
+        const completedAt = completionReadAtOnInteraction(
+            get().sessionsByNovel[novelKey] ?? getEmptySession(),
+            sessionId
+        )
+        if (!completedAt) return
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             return {
@@ -790,12 +784,41 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                     [novelKey]: {
                         ...current,
                         sessions: current.sessions.map((session) =>
-                            session.id === sessionId ? { ...session, draftContent } : session
+                            session.id === sessionId ? { ...session, unreadCompletionAt: null } : session
                         ),
                     },
                 },
             }
         })
+        persistCompletionRead(sessionId, completedAt)
+    },
+    updateDraft: (novelId, sessionId, draftContent) => {
+        const novelKey = getNovelKey(novelId)
+        const completedAt = completionReadAtOnDraftChange(
+            get().sessionsByNovel[novelKey] ?? getEmptySession(),
+            sessionId,
+            draftContent
+        )
+        set((state) => {
+            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            return {
+                sessionsByNovel: {
+                    ...state.sessionsByNovel,
+                    [novelKey]: {
+                        ...current,
+                        sessions: current.sessions.map((session) =>
+                            session.id === sessionId
+                                ? {
+                                    ...session,
+                                    draftContent,
+                                }
+                                : session
+                        ),
+                    },
+                },
+            }
+        })
+        if (completedAt) get().markSessionRead(novelId, sessionId)
         if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) {
             scheduleDraftSave(sessionId, { draftContent })
         }
@@ -1149,7 +1172,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                     if (event.type === 'done' || event.type === 'error') {
                         finishClientRun(sessionId, controller)
                     }
-                    const detail = applyCodexStreamEvent(set, get, novelKey, sessionId, event)
+                    const detail = applyCodexStreamEvent(set, novelKey, sessionId, event)
                     if (detail) streamError = detail
                 },
             })
@@ -1199,7 +1222,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                     if (event.type === 'done' || event.type === 'error') {
                         finishClientRun(sessionId, controller)
                     }
-                    const detail = applyCodexStreamEvent(set, get, novelKey, sessionId, event)
+                    const detail = applyCodexStreamEvent(set, novelKey, sessionId, event)
                     if (detail) streamError = detail
                 },
             })

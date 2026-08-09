@@ -23,6 +23,7 @@ import { useEditorCodexStore } from '@/components/editor/editor-codex-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { codexSessionApi, petApi, type CodexSession } from '@/lib/api'
+import { getCodexSessionPreviewText, getCodexSessionPreviewTitle } from '@/lib/codex-message-preview'
 import type { PetAnimationName, PetSummary } from '@/lib/pets'
 import { cn } from '@/lib/utils'
 
@@ -44,9 +45,9 @@ const PET_POSITION_STORAGE_KEY = 'onw.codexPet.position'
 const VIEWPORT_MARGIN = 8
 const STATUS_PRIORITY: Record<ActivityStatus, number> = {
     'needs-input': 0,
-    blocked: 1,
-    ready: 2,
-    running: 3,
+    ready: 1,
+    running: 2,
+    blocked: 3,
 }
 
 type CodexPetProps = {
@@ -94,7 +95,9 @@ export function CodexPet({ novelId, petId, onOpenSession }: CodexPetProps) {
     const activities = useMemo(() => sessions
         .map((session): PetActivity | null => {
             if (pendingApprovals[session.id]) return { session, status: 'needs-input' }
-            if (session.status === 'error') return { session, status: 'blocked' }
+            if (session.status === 'error') {
+                return session.unreadCompletionAt ? { session, status: 'blocked' } : null
+            }
             if (session.unreadCompletionAt) return { session, status: 'ready' }
             if (session.status === 'running') return { session, status: 'running' }
             return null
@@ -336,8 +339,8 @@ function ActivityCard({
     onSubmit: () => void
     onStop: () => void
 }) {
-    const title = getSessionTitle(activity.session, t('untitled'))
-    const preview = getSessionPreview(activity.session, t(`status.${activity.status}`))
+    const title = getCodexSessionPreviewTitle(activity.session, t('untitled'))
+    const preview = getCodexSessionPreviewText(activity.session, t(`status.${activity.status}`))
     const StatusIcon = activity.status === 'running'
         ? Loader2
         : activity.status === 'blocked'
@@ -441,17 +444,6 @@ function ActivityCard({
             </div>
         </div>
     )
-}
-
-function getSessionTitle(session: CodexSession, fallback: string) {
-    if (session.title?.trim()) return session.title.trim()
-    const latestUser = [...session.messages].reverse().find((message) => message.role === 'user' && message.content.trim())
-    return latestUser?.content.trim().replace(/\s+/g, ' ').slice(0, 60) || fallback
-}
-
-function getSessionPreview(session: CodexSession, fallback: string) {
-    const message = [...session.messages].reverse().find((item) => item.role !== 'event' && item.content.trim())
-    return message?.content.trim().replace(/\s+/g, ' ') || fallback
 }
 
 function activityAnimation(status: ActivityStatus | undefined): PetAnimationName {

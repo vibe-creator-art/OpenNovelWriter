@@ -76,6 +76,7 @@ type CodexModelPickerProps = {
     models: CodexModelCatalogEntry[]
     includeBuiltinModels: boolean
     showServiceTier: boolean
+    fastModeDescription: string
     disabled?: boolean
     onChange: (settings: Partial<{
         modelId: string
@@ -91,6 +92,7 @@ export function CodexModelPicker({
     models,
     includeBuiltinModels,
     showServiceTier,
+    fastModeDescription,
     disabled,
     onChange,
 }: CodexModelPickerProps) {
@@ -241,11 +243,22 @@ export function CodexModelPicker({
                                 <span>{t('codex.speed')}</span>
                                 <span className="ml-auto text-muted-foreground">{t(`codex.serviceTiers.${serviceTier}`)}</span>
                             </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="w-52">
+                            <DropdownMenuSubContent className="w-64">
                                 {(['standard', 'fast'] as CodexServiceTier[]).map((tier) => (
-                                    <DropdownMenuItem key={tier} onSelect={() => onChange({ serviceTier: tier })}>
-                                        <span>{t(`codex.serviceTiers.${tier}`)}</span>
-                                        {serviceTier === tier && <Check className="ml-auto" />}
+                                    <DropdownMenuItem
+                                        key={tier}
+                                        className="items-start"
+                                        onSelect={() => onChange({ serviceTier: tier })}
+                                    >
+                                        <div>
+                                            <div>{t(`codex.serviceTiers.${tier}`)}</div>
+                                            <div className="text-xs leading-5 text-muted-foreground">
+                                                {tier === 'fast'
+                                                    ? fastModeDescription
+                                                    : t('codex.serviceTierDescriptions.standard')}
+                                            </div>
+                                        </div>
+                                        {serviceTier === tier && <Check className="ml-auto mt-0.5" />}
                                     </DropdownMenuItem>
                                 ))}
                             </DropdownMenuSubContent>

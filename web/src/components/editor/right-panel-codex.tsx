@@ -68,7 +68,11 @@ import { useEditorCodexStore } from '@/components/editor/editor-codex-store'
 import { ModelGroupLogoIcon } from '@/components/ai/model-group-logo-icon'
 import { type ModelGroup } from '@/lib/ai-store'
 import { useAuthStore } from '@/lib/store'
-import { canUseCodexFastMode, DEFAULT_CODEX_MODEL, isNativeCodexModelId } from '@/lib/codex-config'
+import {
+    DEFAULT_CODEX_MODEL,
+    isAuthenticatedChatGptCodexConnection,
+    isNativeCodexModelId,
+} from '@/lib/codex-config'
 import {
     modelSupportsCodexFastMode,
     setStickyCodexFastMode,
@@ -2994,6 +2998,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const invalidateSessions = useEditorCodexStore((state) => state.invalidateSessions)
     const createSession = useEditorCodexStore((state) => state.createSession)
     const selectSession = useEditorCodexStore((state) => state.selectSession)
+    const markSessionRead = useEditorCodexStore((state) => state.markSessionRead)
     const updateDraft = useEditorCodexStore((state) => state.updateDraft)
     const updateReviewLevel = useEditorCodexStore((state) => state.updateReviewLevel)
     const updateModelSettings = useEditorCodexStore((state) => state.updateModelSettings)
@@ -3782,10 +3787,13 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         () => connections.find((connection) => connection.id === selectedSession?.codexConnectionId) ?? activeConnection,
         [activeConnection, connections, selectedSession?.codexConnectionId]
     )
-    const hasCodexFastModeAuth = canUseCodexFastMode(sessionConnection)
+    const hasChatGptAuth = isAuthenticatedChatGptCodexConnection(sessionConnection)
     const currentModelSupportsFastMode = modelSupportsCodexFastMode(activeModelCatalog, modelId)
-    const showServiceTier = hasCodexFastModeAuth && currentModelSupportsFastMode
+    const showServiceTier = currentModelSupportsFastMode
     const fastModeActive = showServiceTier && serviceTier === 'fast'
+    const fastModeDescription = sessionConnection?.providerType === 'custom'
+        ? t('codex.serviceTierDescriptions.fastCustom')
+        : t('codex.serviceTierDescriptions.fast')
     const slashOccupiesWholeDraft = Boolean(
         slash
         && !draft.slice(0, slash.start).trim()
@@ -3851,7 +3859,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         [activeConnectionRateLimits, t]
     )
     const quotaSummaryText = quotaSummary.join(', ')
-    const showQuotaSummary = hasCodexFastModeAuth && hasMeaningfulCodexRateLimits(activeConnectionRateLimits) && quotaSummary.length > 0
+    const showQuotaSummary = hasChatGptAuth && hasMeaningfulCodexRateLimits(activeConnectionRateLimits) && quotaSummary.length > 0
     const showPlanHint = !planMode && !planHintDismissed && !running && !slashMenuOpen && /\bplan\b/iu.test(draft)
     const approvalOptions = pendingApproval ? getApprovalComposerOptions(pendingApproval, t) : []
     const selectedApprovalOptionId =
@@ -4452,7 +4460,13 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                 </Button>
             </div>
 
-            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+            <div
+                ref={scrollRef}
+                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+                onWheel={() => {
+                    if (selectedSession) markSessionRead(novelId, selectedSession.id)
+                }}
+            >
                 <div className="flex min-h-full w-full min-w-0 flex-col px-4 py-4">
                     {!selectedSession || timelineMessages.length === 0 ? (
                         <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center text-muted-foreground">
@@ -4730,6 +4744,12 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         rows={1}
                         placeholder={t('codex.composerPlaceholder')}
                         className="relative col-start-1 row-start-1 z-[1] min-h-10 overflow-hidden border-0 bg-transparent px-1 py-1 text-sm text-foreground shadow-none selection:bg-primary/30 focus-visible:ring-0"
+                        onPointerDown={() => {
+                            if (selectedSession) markSessionRead(novelId, selectedSession.id)
+                        }}
+                        onFocus={() => {
+                            if (selectedSession) markSessionRead(novelId, selectedSession.id)
+                        }}
                         onChange={(event) => {
                             const { value, selectionStart } = event.target
                             handleComposerChange(value, selectionStart ?? value.length)
@@ -4880,7 +4900,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                     </span>
                                 </DropdownMenuItem>
                                 {showServiceTier && (
-                                    <DropdownMenuItem disabled={running} onSelect={() => setFastMode(!fastModeActive)}>
+                                    <DropdownMenuItem
+                                        disabled={running}
+                                        title={fastModeDescription}
+                                        onSelect={() => setFastMode(!fastModeActive)}
+                                    >
                                         <Zap className="h-4 w-4" />
                                         <span>{t('codex.serviceTiers.fast')}</span>
                                         <span
@@ -5030,6 +5054,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                         sessionConnection?.providerType !== 'custom' || isNativeCodexModelId(modelId)
                                     }
                                     showServiceTier={showServiceTier}
+                                    fastModeDescription={fastModeDescription}
                                     disabled={running}
                                     onChange={selectModelSetting}
                                 />

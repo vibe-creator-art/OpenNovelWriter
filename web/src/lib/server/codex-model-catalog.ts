@@ -2,7 +2,11 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 
-import type { CodexProviderModel, CodexUpstreamFormat } from '@/lib/codex-config'
+import {
+    getCustomCodexServiceTiers,
+    type CodexProviderModel,
+    type CodexUpstreamFormat,
+} from '@/lib/codex-config'
 import {
     applyCodexUpstreamModelCapabilities,
     buildOfficialDeepSeekCatalogEntry,
@@ -11,6 +15,9 @@ import {
 import { writeFileAtomicallyIfChanged } from '@/lib/server/atomic-file-write'
 
 export const CODEX_MODEL_CATALOG_FILE = 'opennovelwriter-model-catalog.json'
+
+const CUSTOM_MODEL_BASE_INSTRUCTIONS =
+    'You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user\'s goals.'
 
 type JsonObject = Record<string, unknown>
 
@@ -51,13 +58,14 @@ function buildCatalogEntry(
 ) {
     model = applyCodexUpstreamModelCapabilities(model, upstreamFormat, baseUrl)
     if (shouldUseOfficialDeepSeekCatalog(upstreamFormat, baseUrl, model.id)) {
-        return buildOfficialDeepSeekCatalogEntry(model, index)
+        return applyCustomServiceTiers(buildOfficialDeepSeekCatalogEntry(model, index), upstreamFormat)
     }
 
     const entry: JsonObject = structuredClone(template)
     entry.slug = model.id
     entry.display_name = model.displayName
     entry.description = model.displayName
+    entry.base_instructions = CUSTOM_MODEL_BASE_INSTRUCTIONS
     entry.context_window = model.contextWindow
     entry.max_context_window = model.contextWindow
     entry.effective_context_window_percent = 95
@@ -65,7 +73,7 @@ function buildCatalogEntry(
     entry.visibility = 'list'
     entry.supported_in_api = true
     entry.additional_speed_tiers = []
-    entry.service_tiers = []
+    entry.service_tiers = getCustomCodexServiceTiers(upstreamFormat)
     entry.availability_nux = null
     entry.upgrade = null
     entry.supported_reasoning_levels = model.supportedReasoningEfforts.map((effort) => ({
@@ -88,10 +96,14 @@ function buildCatalogEntry(
         delete entry.model_messages
         entry.shell_type = 'shell_command'
         entry.experimental_supported_tools = []
-        entry.base_instructions =
-            'You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user\'s goals.'
     }
 
+    return entry
+}
+
+function applyCustomServiceTiers(entry: JsonObject, upstreamFormat: CodexUpstreamFormat) {
+    entry.additional_speed_tiers = []
+    entry.service_tiers = getCustomCodexServiceTiers(upstreamFormat)
     return entry
 }
 

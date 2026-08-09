@@ -42,7 +42,7 @@ export async function rebindDraftCodexSessionsToConnection(connection: RebindCon
             codexConnectionId: connection.id,
             modelId,
             reasoningEffort,
-            // Fast mode is ChatGPT-only; always reset when rebinding.
+            // Service tiers are provider-specific, so reset when rebinding.
             serviceTier: DEFAULT_CODEX_SERVICE_TIER,
             updatedAt: new Date(),
         },

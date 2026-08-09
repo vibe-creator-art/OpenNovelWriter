@@ -7,6 +7,7 @@ import { normalizeCodexResponsesTools } from './tool-context'
 test('drops an unbridged private tool_search and normalizes parameter schemas', () => {
     const body = {
         model: 'z-ai/glm-5.2',
+        service_tier: 'priority',
         prompt_cache_retention: 'in_memory',
         safety_identifier: 'secret',
         tools: [
@@ -29,6 +30,7 @@ test('drops an unbridged private tool_search and normalizes parameter schemas', 
 
     assert.equal('prompt_cache_retention' in result, false)
     assert.equal('safety_identifier' in result, false)
+    assert.equal(result.service_tier, 'priority')
     const tools = result.tools as Array<Record<string, unknown>>
     assert.equal(tools.some((tool) => tool.type === 'tool_search'), false)
     assert.deepEqual(tools.find((tool) => tool.name === 'shell')?.parameters, {

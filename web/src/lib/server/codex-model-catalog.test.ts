@@ -46,6 +46,11 @@ test('uses the official DeepSeek tool surface only on the official native Respon
         assert.equal(entry.context_window, 1_048_576)
         assert.deepEqual(entry.supported_reasoning_levels.map((level: { effort: string }) => level.effort), ['low', 'high', 'max'])
         assert.deepEqual(entry.input_modalities, ['text'])
+        assert.deepEqual(entry.service_tiers, [{
+            id: 'priority',
+            name: 'Fast',
+            description: 'Availability, actual speed, and usage depend on the upstream provider.',
+        }])
     } finally {
         await fs.rm(directory, { recursive: true, force: true })
     }
@@ -78,18 +83,18 @@ test('suppresses unsupported custom and hosted tools for Anthropic Messages', as
         assert.equal(entry.supports_search_tool, true)
         assert.equal(entry.tool_mode, undefined)
         assert.equal(entry.use_responses_lite, false)
+        assert.deepEqual(entry.service_tiers, [])
     } finally {
         await fs.rm(directory, { recursive: true, force: true })
     }
 })
 
-test('uses direct deferred tools for Chat Completions providers too', async () => {
+test('uses direct deferred tools for Chat Completions providers with instruction-template catalogs', async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'opennovelwriter-catalog-'))
     try {
         await fs.writeFile(path.join(directory, 'models_cache.json'), JSON.stringify({ models: [{
             slug: 'gpt-5.6-sol',
-            base_instructions: 'Codex harness',
-            model_messages: { instructions_template: '{base_instructions}' },
+            model_messages: { instructions_template: 'Codex harness' },
             apply_patch_tool_type: 'freeform',
             tool_mode: 'code_mode_only',
             use_responses_lite: true,
@@ -106,6 +111,12 @@ test('uses direct deferred tools for Chat Completions providers too', async () =
         assert.equal(entry.supports_search_tool, true)
         assert.equal(entry.tool_mode, undefined)
         assert.equal(entry.use_responses_lite, false)
+        assert.equal(typeof entry.base_instructions, 'string')
+        assert.deepEqual(entry.service_tiers, [{
+            id: 'priority',
+            name: 'Fast',
+            description: 'Availability, actual speed, and usage depend on the upstream provider.',
+        }])
     } finally {
         await fs.rm(directory, { recursive: true, force: true })
     }
