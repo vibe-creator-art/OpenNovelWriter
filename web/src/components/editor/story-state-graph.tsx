@@ -127,7 +127,7 @@ function readThemeColor(name: string, fallback: string) {
 function useStoryStateGraphPaint() {
     const colorTheme = useAppThemeStore((state) => state.colorTheme)
     return useMemo(() => ({
-        colorMode: (colorTheme === 'dark' ? 'dark' : 'light') as const,
+        colorMode: colorTheme === 'dark' ? ('dark' as const) : ('light' as const),
         factActive: readThemeColor('--ss-fact-active', '#818cf8'),
         factStarts: readThemeColor('--ss-fact-starts', '#34d399'),
         factEnds: readThemeColor('--ss-fact-ends', '#fb7185'),
