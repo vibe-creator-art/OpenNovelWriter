@@ -5,9 +5,9 @@
     "presetId": "skill-1aaphsb",
     "name": "预设-总结场景+更新经历/关系+同步故事状态",
     "description": "总结场景并更新对应词条经历和关系，并同步story state",
-    "revision": 1,
+    "revision": 1.1,
     "enabled": true,
-    "exportedAt": "2026-08-13T12:48:03.777Z"
+    "exportedAt": "2026-08-13T13:57:18.795Z"
   },
   "entrySkill": "skill",
   "skills": [

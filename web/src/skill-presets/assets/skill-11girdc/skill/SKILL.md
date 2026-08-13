@@ -37,7 +37,7 @@ description: "对已有正文或摘要的小说，从缺失处按章补全 Story
 入图规则（每场都遵守）：
 1. 用带 `query` / `entityId` 的 `query_story_state` 按本场出现的名字查已有实体和相关 Fact，复用，不要因措辞变化新建。
 2. 本场需要入账但还没有实体的，用 `upsert_story_entity`。称谓、简称用 `add_story_entity_alias`（抽取用 `EXTRACTED`）。
-3. 只在摘要里有明确时间锚点、状态转折、或必须表达先后时才创建 Moment。一场可以是 0、1 或多个。只传自然语言 `label` 和可选 `afterMomentId`，不要提交整数顺序。
+3. 只在摘要里有明确时间锚点、状态转折、或必须表达先后时才创建 Moment。一场可以是 0、1 或多个。只传自然语言 `label` 和可选 `afterMomentId`，不要提交整数顺序。 `label`是故事的时间表，比如奥瑞利亚纪年1902年，请尽量和已有的保持一致，若没有已有的moment label，请询问作者纪年怎么处理。
 4. 调用 `sync_scene_story_episode`。`predicateKey` 用稳定大写键（如 `LOCATED_AT`、`OWNS`、`STATUS`、`KNOWS`）。新 Fact 必须能从摘要直接读出；实体宾语优先 `objectEntityId`。已存在的命题只传 `factId`。故事世界里状态真的变了，才用 `closeFacts`。
 5. 不要对场景来源使用 `retract_story_episode` 或 `assert_story_facts`。
 

@@ -5,9 +5,9 @@
     "presetId": "skill-11girdc",
     "name": "预设-按卷回填故事状态",
     "description": "对已有正文或摘要的小说，从缺失处按章补全 Story State。每完成一卷后询问是否继续。",
-    "revision": 1,
+    "revision": 1.1,
     "enabled": true,
-    "exportedAt": "2026-08-13T12:54:26.172Z"
+    "exportedAt": "2026-08-13T13:57:28.173Z"
   },
   "entrySkill": "skill",
   "skills": [

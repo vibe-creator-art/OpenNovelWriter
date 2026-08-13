@@ -51,7 +51,7 @@ description: "总结场景并更新对应词条经历和关系，并同步story 
 
 1. 从 `novel/outline.md` 取 `novel_id`。用带 `query` / `entityId` 的 `query_story_state` 按本场出现的名字查已有实体和相关 Fact。不要只传 `novelId` 拉全图。
 2. 复用已有 Entity / Alias / Fact。同名先查再写，不要因措辞变化新建。称谓、简称用 `add_story_entity_alias`（抽取用 `EXTRACTED`）。本场需要入账但还没有实体的，用 `upsert_story_entity` 创建；不要因此 `create_term`。
-3. 只在摘要里有明确时间锚点、状态转折、或必须表达先后时才创建 Moment。一场可以是 0、1 或多个。创建时只传自然语言 `label` 和可选 `afterMomentId`，不要提交整数顺序。
+3. 只在摘要里有明确时间锚点、状态转折、或必须表达先后时才创建 Moment。一场可以是 0、1 或多个。创建时只传自然语言 `label` 和可选 `afterMomentId`，不要提交整数顺序。`label`是故事的时间表，比如奥瑞利亚纪年1902年，请尽量和已有的保持一致，若没有已有的moment label，请询问作者纪年怎么处理。
 4. 从已保存的场景摘要抽取 Fact，调用 `sync_scene_story_episode`。`predicateKey` 用稳定大写键（如 `LOCATED_AT`、`OWNS`、`STATUS`、`KNOWS`）。新 Fact 必须能从摘要直接读出，不要把推测写成确定事实；实体宾语优先 `objectEntityId`。含义已存在的 Fact 只传 `factId` 续挂。故事世界里状态真的变了，才用 `closeFacts` 关掉旧 Fact，并写从该 Moment 生效的新 Fact。
 5. 若本场已有来源：摘要刚被本技能重写则按新摘要抽取，仍成立的旧命题传 `factId`，新摘要不再支持的不要 copy-forward。hash 未变则工具会跳过，不要强行再写。不要对场景来源使用 `retract_story_episode` 或 `assert_story_facts`。
 
