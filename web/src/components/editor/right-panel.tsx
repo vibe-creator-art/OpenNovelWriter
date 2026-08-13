@@ -9,6 +9,7 @@ import {
     FolderOpen,
     MessageSquare,
     PanelRightClose,
+    Waypoints,
 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useInfoPanelStore } from '@/components/editor/info-panel-store'
@@ -16,6 +17,7 @@ import { RightPanelPreview } from '@/components/editor/right-panel-preview'
 import { RightPanelChat } from '@/components/editor/right-panel-chat'
 import { RightPanelCodex } from '@/components/editor/right-panel-codex'
 import { RightPanelMaterials } from '@/components/editor/right-panel-materials'
+import { RightPanelStoryState } from '@/components/editor/right-panel-story-state'
 import { type WriteNavTarget } from '@/components/editor/plan-view'
 
 interface RightPanelProps {
@@ -147,7 +149,19 @@ export function RightPanel({
 
 	                        <div className="h-8 w-full" />
 	                        <div className="h-8 w-full" />
-	                        <div className="h-8 w-full" />
+	                        <Button
+	                            variant="ghost"
+	                            size="sm"
+	                            className={cn(
+	                                'h-8 w-full rounded-none text-xs gap-1 px-1 border-b-2',
+	                                activeTab === 'storyState' ? 'border-primary' : 'border-transparent'
+	                            )}
+	                            onClick={() => setActiveTab('storyState')}
+	                            title={t('infoPanel.tabs.storyState')}
+	                        >
+	                            <Waypoints className="h-4 w-4" />
+	                            {!isCompact && <span className="truncate">{t('infoPanel.tabs.storyState')}</span>}
+	                        </Button>
 	                    </div>
                 </div>
 
@@ -158,6 +172,8 @@ export function RightPanel({
                         <RightPanelCodex novelId={novelId} onNavigateToWrite={onNavigateToWrite} />
                     ) : activeTab === 'materials' ? (
                         <RightPanelMaterials novelId={novelId} />
+                    ) : activeTab === 'storyState' ? (
+                        <RightPanelStoryState novelId={novelId} />
                     ) : (
                         <RightPanelChat
                             novelId={novelId}

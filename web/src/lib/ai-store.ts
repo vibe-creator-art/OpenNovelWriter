@@ -166,6 +166,10 @@ export const useAiStore = create<AiState>()((set) => ({
     removeGroup: (id) =>
         set((state) => ({
             groups: (Array.isArray(state.groups) ? state.groups : []).filter((group) => group.id !== id),
+            sets: (Array.isArray(state.sets) ? state.sets : []).map((setItem) => ({
+                ...setItem,
+                members: setItem.members.filter((member) => member.groupId !== id),
+            })),
         })),
     setGroupAssignments: (groupId, assignments) =>
         set((state) => ({

@@ -7,11 +7,15 @@ import {
     type RankedItem,
 } from '@/lib/server/retrieval-algorithms'
 import {
-    createEmbeddings,
-    loadRetrievalAssignment,
-    rerankDocuments,
+    createEmbeddingsWithGroup,
+    loadRetrievalGroup,
+    rerankDocumentsWithGroup,
 } from '@/lib/server/retrieval-models'
 import { syncNovelSceneRetrievalIndexes } from '@/lib/server/scene-retrieval-index'
+import {
+    syncNovelStoryRetrievalIndexes,
+    type StoryRetrievalSourceKind,
+} from '@/lib/server/story-retrieval-index'
 
 const DEFAULT_TOP_K = 10
 const MIN_TOP_K = 1
@@ -70,22 +74,20 @@ function getEmbeddingStatus(
         contentHash: string
         embeddingHash: string | null
         embeddingJson: string | null
-        embeddingAssignmentId: string | null
-        embeddingModelId: string | null
+        embeddingGroupId: string | null
         embeddingError: string | null
     },
-    expected: { assignmentId: string | null; modelId: string | null }
+    expectedGroupId: string | null
 ): SceneEmbeddingStatus {
     if (
-        index.embeddingError
-        && index.embeddingAssignmentId === expected.assignmentId
-        && index.embeddingModelId === expected.modelId
+        expectedGroupId
+        && index.embeddingError
+        && index.embeddingGroupId === expectedGroupId
     ) return 'error'
     if (
-        !expected.assignmentId
+        !expectedGroupId
         || !index.embeddingJson
-        || index.embeddingAssignmentId !== expected.assignmentId
-        || index.embeddingModelId !== expected.modelId
+        || index.embeddingGroupId !== expectedGroupId
     ) {
         return 'missing'
     }
@@ -123,40 +125,43 @@ export async function getNovelRetrievalStatus(
         select: {
             id: true,
             retrievalEmbeddingEnabled: true,
-            retrievalEmbeddingAssignmentId: true,
+            retrievalEmbeddingGroupId: true,
         },
     })
     if (!novel) throw new Error('Novel not found.')
 
-    await syncNovelSceneRetrievalIndexes(prisma, novel.id)
-    let expectedModelId: string | null = null
-    if (novel.retrievalEmbeddingEnabled && novel.retrievalEmbeddingAssignmentId) {
-        const assignment = await prisma.aiModelAssignment.findFirst({
-            where: { id: novel.retrievalEmbeddingAssignmentId, ownerId: input.ownerId },
-            select: { modelId: true },
-        })
-        expectedModelId = assignment?.modelId ?? null
-    }
-
-    const indexes = await prisma.sceneRetrievalIndex.findMany({
-        where: { novelId: novel.id },
-        select: {
-            sceneId: true,
-            contentHash: true,
-            embeddingHash: true,
-            embeddingJson: true,
-            embeddingAssignmentId: true,
-            embeddingModelId: true,
-            embeddingError: true,
-            embeddingUpdatedAt: true,
-        },
-    })
-    const expected = {
-        assignmentId: novel.retrievalEmbeddingEnabled ? novel.retrievalEmbeddingAssignmentId : null,
-        modelId: expectedModelId,
-    }
+    await Promise.all([
+        syncNovelSceneRetrievalIndexes(prisma, novel.id),
+        syncNovelStoryRetrievalIndexes(prisma, novel.id),
+    ])
+    const [indexes, storyIndexes] = await Promise.all([
+        prisma.sceneRetrievalIndex.findMany({
+            where: { novelId: novel.id },
+            select: {
+                sceneId: true,
+                contentHash: true,
+                embeddingHash: true,
+                embeddingJson: true,
+                embeddingGroupId: true,
+                embeddingError: true,
+                embeddingUpdatedAt: true,
+            },
+        }),
+        prisma.storyRetrievalIndex.findMany({
+            where: { novelId: novel.id },
+            select: {
+                sourceKind: true,
+                contentHash: true,
+                embeddingHash: true,
+                embeddingJson: true,
+                embeddingGroupId: true,
+                embeddingError: true,
+            },
+        }),
+    ])
+    const expectedGroupId = novel.retrievalEmbeddingEnabled ? novel.retrievalEmbeddingGroupId : null
     const statuses: SceneRetrievalStatus[] = indexes.map((index) => {
-        const status = getEmbeddingStatus(index, expected)
+        const status = getEmbeddingStatus(index, expectedGroupId)
         return {
             sceneId: index.sceneId,
             status,
@@ -166,12 +171,24 @@ export async function getNovelRetrievalStatus(
     })
     const counts: Record<SceneEmbeddingStatus, number> = { fresh: 0, stale: 0, missing: 0, error: 0 }
     statuses.forEach((item) => { counts[item.status] += 1 })
+    const emptyCounts = (): Record<SceneEmbeddingStatus, number> => ({ fresh: 0, stale: 0, missing: 0, error: 0 })
+    const storyStateCounts: Record<StoryRetrievalSourceKind, Record<SceneEmbeddingStatus, number>> = {
+        ENTITY: emptyCounts(),
+        FACT: emptyCounts(),
+        EPISODE: emptyCounts(),
+    }
+    storyIndexes.forEach((index) => {
+        const sourceCounts = storyStateCounts[index.sourceKind as StoryRetrievalSourceKind]
+        if (!sourceCounts) return
+        sourceCounts[getEmbeddingStatus(index, expectedGroupId)] += 1
+    })
 
     return {
         embeddingEnabled: novel.retrievalEmbeddingEnabled,
         cachedCount: indexes.filter((index) => Boolean(index.embeddingJson)).length,
         statuses,
         counts,
+        storyStateCounts,
     }
 }
 
@@ -184,17 +201,17 @@ export async function updateNovelSceneEmbeddings(
         select: {
             id: true,
             retrievalEmbeddingEnabled: true,
-            retrievalEmbeddingAssignmentId: true,
+            retrievalEmbeddingGroupId: true,
         },
     })
     if (!novel) throw new Error('Novel not found.')
-    if (!novel.retrievalEmbeddingEnabled || !novel.retrievalEmbeddingAssignmentId) {
+    if (!novel.retrievalEmbeddingEnabled || !novel.retrievalEmbeddingGroupId) {
         throw new Error('Embedding retrieval is not enabled for this novel.')
     }
 
-    const assignment = await loadRetrievalAssignment(prisma, {
+    const group = await loadRetrievalGroup(prisma, {
         ownerId: input.ownerId,
-        assignmentId: novel.retrievalEmbeddingAssignmentId,
+        groupId: novel.retrievalEmbeddingGroupId,
         capability: 'embedding',
     })
     await syncNovelSceneRetrievalIndexes(prisma, novel.id)
@@ -204,7 +221,15 @@ export async function updateNovelSceneEmbeddings(
             novelId: novel.id,
             ...(input.sceneId ? { sceneId: input.sceneId } : {}),
         },
-        select: { sceneId: true, searchText: true, contentHash: true },
+        select: {
+            sceneId: true,
+            searchText: true,
+            contentHash: true,
+            embeddingJson: true,
+            embeddingHash: true,
+            embeddingGroupId: true,
+            embeddingError: true,
+        },
         orderBy: { sceneId: 'asc' },
     })
     if (input.sceneId && indexes.length === 0) {
@@ -213,18 +238,30 @@ export async function updateNovelSceneEmbeddings(
             select: { id: true },
         })
         if (!scene) throw new Error('Scene not found.')
-        return { updated: 0, skipped: 1, assignmentId: assignment.assignmentId, modelId: assignment.modelId }
+        return { updated: 0, skipped: 1, groupId: group.groupId, assignmentId: null, modelId: null }
     }
 
+    const indexesToUpdate = input.sceneId
+        ? indexes
+        : indexes.filter((index) =>
+            !index.embeddingJson
+            || index.embeddingHash !== index.contentHash
+            || index.embeddingGroupId !== group.groupId
+            || Boolean(index.embeddingError)
+        )
+
     let updated = 0
-    for (let offset = 0; offset < indexes.length; offset += EMBEDDING_BATCH_SIZE) {
-        const batch = indexes.slice(offset, offset + EMBEDDING_BATCH_SIZE)
+    let lastAssignment: { assignmentId: string; modelId: string } | null = null
+    for (let offset = 0; offset < indexesToUpdate.length; offset += EMBEDDING_BATCH_SIZE) {
+        const batch = indexesToUpdate.slice(offset, offset + EMBEDDING_BATCH_SIZE)
         try {
-            const vectors = await createEmbeddings(
-                assignment,
+            const { vectors, assignment } = await createEmbeddingsWithGroup(
+                prisma,
+                group,
                 batch.map((index) => prepareModelText(index.searchText, MAX_EMBEDDING_CHARACTERS)),
                 input.signal
             )
+            lastAssignment = assignment
             await prisma.$transaction(
                 batch.map((index, batchIndex) => {
                     const vector = vectors[batchIndex]
@@ -233,6 +270,7 @@ export async function updateNovelSceneEmbeddings(
                         data: {
                             embeddingJson: JSON.stringify(vector),
                             embeddingHash: index.contentHash,
+                            embeddingGroupId: group.groupId,
                             embeddingAssignmentId: assignment.assignmentId,
                             embeddingModelId: assignment.modelId,
                             embeddingDimensions: vector.length,
@@ -247,11 +285,7 @@ export async function updateNovelSceneEmbeddings(
             const message = error instanceof Error ? error.message : 'Embedding update failed.'
             await prisma.sceneRetrievalIndex.updateMany({
                 where: { sceneId: { in: batch.map((index) => index.sceneId) } },
-                data: {
-                    embeddingAssignmentId: assignment.assignmentId,
-                    embeddingModelId: assignment.modelId,
-                    embeddingError: message,
-                },
+                data: { embeddingError: message },
             })
             throw error
         }
@@ -259,9 +293,10 @@ export async function updateNovelSceneEmbeddings(
 
     return {
         updated,
-        skipped: 0,
-        assignmentId: assignment.assignmentId,
-        modelId: assignment.modelId,
+        skipped: indexes.length - indexesToUpdate.length,
+        groupId: group.groupId,
+        assignmentId: lastAssignment?.assignmentId ?? null,
+        modelId: lastAssignment?.modelId ?? null,
     }
 }
 
@@ -282,9 +317,9 @@ export async function searchNovelScenes(
             id: true,
             retrievalTopK: true,
             retrievalEmbeddingEnabled: true,
-            retrievalEmbeddingAssignmentId: true,
+            retrievalEmbeddingGroupId: true,
             retrievalRerankerEnabled: true,
-            retrievalRerankerAssignmentId: true,
+            retrievalRerankerGroupId: true,
         },
     })
     if (!novel) throw new Error('Novel not found.')
@@ -314,31 +349,28 @@ export async function searchNovelScenes(
         candidateLimit
     )
     let vectorRanking: RankedItem[] = []
-    let embeddingModelId: string | null = null
     const warnings: string[] = []
 
-    if (novel.retrievalEmbeddingEnabled && novel.retrievalEmbeddingAssignmentId) {
+    if (novel.retrievalEmbeddingEnabled && novel.retrievalEmbeddingGroupId) {
         try {
-            const assignment = await loadRetrievalAssignment(prisma, {
+            const group = await loadRetrievalGroup(prisma, {
                 ownerId: input.ownerId,
-                assignmentId: novel.retrievalEmbeddingAssignmentId,
+                groupId: novel.retrievalEmbeddingGroupId,
                 capability: 'embedding',
             })
-            embeddingModelId = assignment.modelId
             const vectorDocuments = indexes.flatMap((index) => {
-                if (
-                    index.embeddingAssignmentId !== assignment.assignmentId
-                    || index.embeddingModelId !== assignment.modelId
-                ) return []
+                if (index.embeddingGroupId !== group.groupId) return []
                 const vector = parseVector(index.embeddingJson)
                 return vector ? [{ id: index.sceneId, vector }] : []
             })
             if (vectorDocuments.length > 0) {
-                const [queryVector] = await createEmbeddings(
-                    assignment,
+                const { vectors } = await createEmbeddingsWithGroup(
+                    prisma,
+                    group,
                     [prepareModelText(query, MAX_EMBEDDING_CHARACTERS)],
                     input.signal
                 )
+                const [queryVector] = vectors
                 vectorRanking = rankVectors(queryVector, vectorDocuments, candidateLimit)
             }
         } catch (error) {
@@ -356,19 +388,19 @@ export async function searchNovelScenes(
 
     if (
         novel.retrievalRerankerEnabled
-        && novel.retrievalRerankerAssignmentId
+        && novel.retrievalRerankerGroupId
         && fusedRanking.length > 0
     ) {
         try {
-            const assignment = await loadRetrievalAssignment(prisma, {
+            const group = await loadRetrievalGroup(prisma, {
                 ownerId: input.ownerId,
-                assignmentId: novel.retrievalRerankerAssignmentId,
+                groupId: novel.retrievalRerankerGroupId,
                 capability: 'reranker',
             })
             const candidates = fusedRanking
                 .map((item) => indexesBySceneId.get(item.id))
                 .filter((index): index is NonNullable<typeof index> => Boolean(index))
-            const reranked = await rerankDocuments(assignment, {
+            const { results: reranked } = await rerankDocumentsWithGroup(prisma, group, {
                 query,
                 documents: candidates.map((index) => prepareModelText(index.searchText, MAX_RERANK_CHARACTERS)),
                 topN: candidates.length,
@@ -395,10 +427,7 @@ export async function searchNovelScenes(
     const bm25Scores = scoreById(bm25Ranking)
     const vectorScores = scoreById(vectorRanking)
     const fusionScores = scoreById(fusedRanking)
-    const expected = {
-        assignmentId: novel.retrievalEmbeddingEnabled ? novel.retrievalEmbeddingAssignmentId : null,
-        modelId: embeddingModelId,
-    }
+    const expectedGroupId = novel.retrievalEmbeddingEnabled ? novel.retrievalEmbeddingGroupId : null
     const results: HybridSceneSearchResult[] = finalRanking.slice(0, topK).flatMap((item) => {
         const index = indexesBySceneId.get(item.id)
         if (!index) return []
@@ -410,7 +439,7 @@ export async function searchNovelScenes(
             actNumber: index.scene.chapter.actNumber,
             sceneOrder: index.scene.order,
             excerpt: buildExcerpt(index.searchText, query),
-            embeddingStatus: getEmbeddingStatus(index, expected),
+            embeddingStatus: getEmbeddingStatus(index, expectedGroupId),
             scores: {
                 bm25: bm25Scores.get(index.sceneId) ?? null,
                 vector: vectorScores.get(index.sceneId) ?? null,

@@ -29,6 +29,7 @@ const {
 const { applyHunk, diffRegions } = require('../src/lib/server/manuscript-edit.cjs')
 const { updateSceneContentWithStats } = require('../src/lib/server/manuscript-word-count.cjs')
 const { parseLlmConversation, buildLlmRequestPayload, getAssistantBlock } = require('../src/lib/server/llm-conversation.cjs')
+const { deactivateStoryEpisodesForScene } = require('../src/lib/server/story-state-lifecycle.cjs')
 
 const prisma = new PrismaClient({
     adapter: createPrismaSqliteAdapter(process.env.DATABASE_URL, path.join(__dirname, '..')),
@@ -639,15 +640,253 @@ const tools = [
         },
     },
     {
+        name: 'query_story_state',
+        description:
+            'Read Story State moments, entities, aliases, and credible facts. Use after reading the built-in story-state skill. Prefer a filter: entityId, query (name/alias), predicateKey, or targetMomentId. Calling with only novelId returns the full current graph and is for a true overview, not routine repair or lookup. query filters entities only; entityId and predicateKey filter facts; moments and outdatedEpisodes are always included. outdatedEpisodes are active SCENE_SUMMARY sources whose saved Scene summary has drifted or been cleared. This tool is read-only.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                query: { type: 'string', description: 'Preferred when locating an entity by name or alias. Filters the entity list only, not facts or moments.' },
+                entityId: { type: 'string', description: 'Preferred when the entity id is known. Returns facts where it is subject or object.' },
+                predicateKey: { type: 'string', description: 'Preferred when checking one kind of fact, such as STATUS or LOCATED_AT. Filters facts.' },
+                targetMomentId: { type: 'string', description: 'Preferred when asking what is true at a story time. Facts use half-open validity intervals at this Moment.' },
+                includeHistory: { type: 'boolean', description: 'Include facts without current credible evidence. Defaults to false. Use only when tracing old states or evidence.' },
+            },
+            required: ['novelId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'create_story_moment',
+        description:
+            'Insert an explicit Story Moment after an existing Moment. Use only after reading the built-in story-state skill. Pass afterMomentId to insert immediately after it; omit afterMomentId to insert at the beginning. The service generates and shifts the internal integer storyOrder. There is no nextMomentId and no raw order input. Do not create one automatically for every scene.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                label: { type: 'string', description: 'Natural-language display label, for example 奥西利亚历312年冬 or 公元前221年.' },
+                afterMomentId: { type: 'string', description: 'Existing Moment id to insert after. Omit to insert first.' },
+                sourceSceneId: { type: 'string', description: 'Optional Scene that introduced this Moment; this is provenance, not a one-to-one binding.' },
+            },
+            required: ['novelId', 'label'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'upsert_story_entity',
+        description:
+            'Create or update a Story Entity after reading the built-in story-state skill. When entityId is omitted, one exact normalized-name match is reused; ambiguous matches require entityId. termId is optional and must name an active Term in this novel.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                entityId: { type: 'string', description: 'Existing entity id when updating or resolving an ambiguous name.' },
+                name: { type: 'string', description: 'Canonical display name.' },
+                kind: {
+                    type: 'string',
+                    enum: ['CHARACTER', 'LOCATION', 'ITEM', 'ORGANIZATION', 'EVENT', 'INFORMATION', 'CONCEPT', 'OTHER'],
+                },
+                summary: { type: 'string', description: 'Optional short disambiguation and retrieval summary. Empty clears it.' },
+                termId: { type: 'string', description: 'Optional active Term id to align this entity with.' },
+            },
+            required: ['novelId', 'name', 'kind'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'add_story_entity_alias',
+        description:
+            'Add or update a formal alias, title, former name, or abbreviation for a Story Entity. Use after reading the built-in story-state skill. Aliases support entity resolution but do not become Term mentions in the manuscript.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                entityId: { type: 'string', description: 'The owning Story Entity id.' },
+                alias: { type: 'string', description: 'Alias as it appears in the story.' },
+                sourceKind: { type: 'string', enum: ['TERM', 'MANUAL', 'EXTRACTED'] },
+            },
+            required: ['novelId', 'entityId', 'alias', 'sourceKind'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'merge_story_entities',
+        description:
+            'Merge a duplicate Story Entity into a survivor after reading the built-in story-state skill. Aliases and facts retarget to intoEntityId. The survivor keeps its termId; the duplicate binding is dropped. Identical facts after retargeting are collapsed. Then the duplicate entity is deleted.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                fromEntityId: { type: 'string', description: 'Duplicate entity id to absorb and delete.' },
+                intoEntityId: { type: 'string', description: 'Survivor entity id that remains.' },
+            },
+            required: ['novelId', 'fromEntityId', 'intoEntityId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'delete_story_entity',
+        description:
+            'Delete an unused Story Entity after reading the built-in story-state skill. Refuses if any Fact points at it or if it is still bound to a Term. Aliases cascade with the entity.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                entityId: { type: 'string', description: 'Entity id to delete.' },
+            },
+            required: ['novelId', 'entityId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'delete_story_entity_alias',
+        description:
+            'Delete one Story Entity alias after reading the built-in story-state skill. Use for a wrong extracted name; do not delete aliases just because an Episode became outdated.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                aliasId: { type: 'string', description: 'Alias id to delete.' },
+            },
+            required: ['novelId', 'aliasId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'delete_story_moment',
+        description:
+            'Delete an unreferenced Story Moment after reading the built-in story-state skill. Refuses if any Episode (including inactive) or Fact validFrom/validTo still points at it. Compacts later storyOrder values.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string', description: 'The novel id from outline.md.' },
+                momentId: { type: 'string', description: 'Moment id to delete.' },
+            },
+            required: ['novelId', 'momentId'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'sync_scene_story_episode',
+        description:
+            'Synchronize the current saved Scene summary into an immutable Story Episode and attach structured facts. Use only after reading the built-in story-state skill and after update_scene_summary succeeds. An unchanged summary hash is skipped. A changed summary atomically creates a revision and deactivates the prior source. Existing facts can be referenced by factId; new facts must provide exactly one object. closeFacts records world-state evolution, while invalidateFactIds records source correction.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string' },
+                sceneId: { type: 'string', description: 'Scene whose saved summary is the Episode content.' },
+                referenceMomentId: { type: 'string', description: 'Default story-time Moment described by this summary.' },
+                facts: { type: 'array', items: { $ref: '#/$defs/fact' } },
+                closeFacts: { type: 'array', items: { $ref: '#/$defs/closure' } },
+                invalidateFactIds: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['novelId', 'sceneId', 'facts'],
+            additionalProperties: false,
+            $defs: {
+                fact: {
+                    oneOf: [
+                        { type: 'object', properties: { factId: { type: 'string' } }, required: ['factId'], additionalProperties: false },
+                        {
+                            type: 'object',
+                            properties: {
+                                subjectEntityId: { type: 'string' },
+                                predicateKey: { type: 'string' },
+                                objectEntityId: { type: 'string' },
+                                objectValue: { type: 'string' },
+                                factText: { type: 'string' },
+                                validFromMomentId: { type: 'string' },
+                                validToMomentId: { type: 'string' },
+                            },
+                            required: ['subjectEntityId', 'predicateKey', 'factText'],
+                            additionalProperties: false,
+                            oneOf: [{ required: ['objectEntityId'] }, { required: ['objectValue'] }],
+                        },
+                    ],
+                },
+                closure: {
+                    type: 'object',
+                    properties: { factId: { type: 'string' }, validToMomentId: { type: 'string' } },
+                    required: ['factId', 'validToMomentId'],
+                    additionalProperties: false,
+                },
+            },
+        },
+    },
+    {
+        name: 'assert_story_facts',
+        description:
+            'Create a MANUAL Story Episode for facts the author explicitly confirmed. Use only after reading the built-in story-state skill. Do not store brainstorming, tentative suggestions, or ordinary chat claims. Fact, closure, and invalidation semantics match sync_scene_story_episode.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string' },
+                content: { type: 'string', description: 'Concise author-confirmed source statement.' },
+                referenceMomentId: { type: 'string' },
+                facts: { type: 'array', items: { $ref: '#/$defs/fact' } },
+                closeFacts: { type: 'array', items: { $ref: '#/$defs/closure' } },
+                invalidateFactIds: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['novelId', 'content', 'facts'],
+            additionalProperties: false,
+            $defs: {
+                fact: {
+                    oneOf: [
+                        { type: 'object', properties: { factId: { type: 'string' } }, required: ['factId'], additionalProperties: false },
+                        {
+                            type: 'object',
+                            properties: {
+                                subjectEntityId: { type: 'string' },
+                                predicateKey: { type: 'string' },
+                                objectEntityId: { type: 'string' },
+                                objectValue: { type: 'string' },
+                                factText: { type: 'string' },
+                                validFromMomentId: { type: 'string' },
+                                validToMomentId: { type: 'string' },
+                            },
+                            required: ['subjectEntityId', 'predicateKey', 'factText'],
+                            additionalProperties: false,
+                            oneOf: [{ required: ['objectEntityId'] }, { required: ['objectValue'] }],
+                        },
+                    ],
+                },
+                closure: {
+                    type: 'object',
+                    properties: { factId: { type: 'string' }, validToMomentId: { type: 'string' } },
+                    required: ['factId', 'validToMomentId'],
+                    additionalProperties: false,
+                },
+            },
+        },
+    },
+    {
+        name: 'retract_story_episode',
+        description:
+            'Retract an active MANUAL Story Episode after reading the built-in story-state skill. Its evidence stops contributing to credible facts; the historical Episode remains visible.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                novelId: { type: 'string' },
+                episodeId: { type: 'string' },
+            },
+            required: ['novelId', 'episodeId'],
+            additionalProperties: false,
+        },
+    },
+    {
         name: 'retrieve_story_context',
         description:
-            'Search the current OpenNovelWriter manuscript for scenes relevant to a natural-language query. BM25 is always used; embedding and reranking follow the novel\'s Memory Recall settings. This tool is read-only and returns scene/chapter ids, excerpts, and component scores. Use the returned ids to open the exact projected chapter file when full scene context is needed.',
+            'Search the current OpenNovelWriter manuscript for scenes relevant to a natural-language query. BM25 is always used; embedding and reranking follow the novel\'s Memory Recall settings. Set includeKnowledgeGraph to also search Story Entities, Facts, and Episodes with structured time/evidence filtering and one-hop graph expansion. This tool is read-only.',
         inputSchema: {
             type: 'object',
             properties: {
                 novelId: { type: 'string', description: 'The novel id from outline.md.' },
                 query: { type: 'string', description: 'A concise natural-language description of the event, character detail, location, object, or prior scene to find.' },
                 topK: { type: 'integer', minimum: 1, maximum: 50, description: 'Optional result limit. Omit to use the novel setting.' },
+                includeKnowledgeGraph: { type: 'boolean', description: 'Also search the Story State knowledge graph. Defaults to false.' },
+                targetMomentId: { type: 'string', description: 'Optional target Moment for Fact validity filtering. Used only for knowledge-graph results.' },
+                afterMomentId: { type: 'string', description: 'Only return Facts/Episodes whose story-time start/reference is after this Moment. Used only for knowledge-graph results.' },
+                includeHistory: { type: 'boolean', description: 'Include inactive Episodes and Facts without current credible evidence. Defaults to false.' },
             },
             required: ['novelId', 'query'],
             additionalProperties: false,
@@ -881,6 +1120,28 @@ async function callTool(params) {
                 return toolResult(await exportSkillLibrary(args))
             case 'apply_skill_changes':
                 return toolResult(await applySkillChanges(args))
+            case 'query_story_state':
+                return toolResult(await callStoryStateTool('query', args))
+            case 'create_story_moment':
+                return toolResult(await callStoryStateTool('create_moment', args))
+            case 'delete_story_moment':
+                return toolResult(await callStoryStateTool('delete_moment', args))
+            case 'upsert_story_entity':
+                return toolResult(await callStoryStateTool('upsert_entity', args))
+            case 'merge_story_entities':
+                return toolResult(await callStoryStateTool('merge_entities', args))
+            case 'delete_story_entity':
+                return toolResult(await callStoryStateTool('delete_entity', args))
+            case 'add_story_entity_alias':
+                return toolResult(await callStoryStateTool('add_alias', args))
+            case 'delete_story_entity_alias':
+                return toolResult(await callStoryStateTool('delete_alias', args))
+            case 'sync_scene_story_episode':
+                return toolResult(await callStoryStateTool('sync_scene_episode', args))
+            case 'assert_story_facts':
+                return toolResult(await callStoryStateTool('assert_manual', args))
+            case 'retract_story_episode':
+                return toolResult(await callStoryStateTool('retract_manual', args))
             case 'retrieve_story_context':
                 return toolResult(await retrieveStoryContext(args))
             case 'compose_scene_continuation':
@@ -1403,7 +1664,10 @@ async function deleteChapter(args) {
     await requireStructureDeletionApproval('delete_chapter', `run tool "delete_chapter"：永久删除空章「${chapter.title || '未命名章节'}」（id ${chapterId}）？此操作不可撤销。`)
 
     // Scenes and the chapter outline (章纲) cascade-delete with the chapter row.
-    await prisma.chapter.delete({ where: { id: chapterId } })
+    await prisma.$transaction(async (tx) => {
+        for (const sceneId of sceneIds) await deactivateStoryEpisodesForScene(tx, sceneId)
+        await tx.chapter.delete({ where: { id: chapterId } })
+    })
     await removeNovelWorkspaceChapterProjection(novelId, chapterId)
 
     // Renumber the placeholder "章 N" titles the deletion shifted, like the app's manual delete.
@@ -1413,6 +1677,7 @@ async function deleteChapter(args) {
         syncNovelWorkspaceOutline(novelId),
         ...changedIds.map((id) => syncNovelWorkspaceChapter(novelId, id)),
         syncNovelWorkspaceDetailedOutlines(novelId),
+        refreshStoryStateProjection(novelId),
     ])
     return { ok: true, deleted: { chapterId, novelId } }
 }
@@ -1442,7 +1707,10 @@ async function deleteScene(args) {
 
     await requireStructureDeletionApproval('delete_scene', `run tool "delete_scene"：永久删除空场景（id ${sceneId}）？此操作不可撤销。`)
 
-    await prisma.scene.delete({ where: { id: sceneId } })
+    await prisma.$transaction(async (tx) => {
+        await deactivateStoryEpisodesForScene(tx, sceneId)
+        await tx.scene.delete({ where: { id: sceneId } })
+    })
 
     // Re-pack the surviving scenes' order and recompute the chapter word count.
     const remaining = await prisma.scene.findMany({
@@ -1462,6 +1730,7 @@ async function deleteScene(args) {
     await Promise.all([
         syncNovelWorkspaceOutline(novelId),
         syncNovelWorkspaceChapter(novelId, scene.chapterId),
+        refreshStoryStateProjection(novelId),
     ])
     return { ok: true, deleted: { sceneId, chapterId: scene.chapterId, novelId } }
 }
@@ -2376,12 +2645,19 @@ async function retrieveStoryContext(args) {
     const query = requireNonEmptyString(args.query, 'query')
     const topK = args.topK === undefined ? undefined : requirePositiveInteger(args.topK, 'topK')
     if (topK !== undefined && topK > 50) throw new Error('topK must not exceed 50.')
+    const includeKnowledgeGraph = args.includeKnowledgeGraph === true
+    const targetMomentId = args.targetMomentId === undefined ? undefined : requireNonEmptyString(args.targetMomentId, 'targetMomentId')
+    const afterMomentId = args.afterMomentId === undefined ? undefined : requireNonEmptyString(args.afterMomentId, 'afterMomentId')
     await requireOwnedNovel(novelId)
     const payload = await callInternalCodexEndpoint('/api/internal/codex/retrieve-story-context', {
         ownerId,
         novelId,
         query,
         topK,
+        includeKnowledgeGraph,
+        targetMomentId,
+        afterMomentId,
+        includeHistory: args.includeHistory === true,
     }, 175_000)
     return {
         ok: true,
@@ -2390,7 +2666,21 @@ async function retrieveStoryContext(args) {
         modes: payload.modes,
         warnings: payload.warnings,
         results: payload.results,
+        storyStateModes: payload.storyStateModes,
+        storyStateFilters: payload.storyStateFilters,
+        storyStateResults: payload.storyStateResults,
     }
+}
+
+async function callStoryStateTool(action, args) {
+    const novelId = requireNonEmptyString(args.novelId, 'novelId')
+    await requireOwnedNovel(novelId)
+    return callInternalCodexEndpoint('/api/internal/codex/story-state', {
+        action,
+        ownerId,
+        ...args,
+        novelId,
+    }, 120_000)
 }
 
 async function generateImages(args) {
@@ -2491,6 +2781,14 @@ async function callInternalCodexEndpoint(pathName, body, timeoutMs) {
     } finally {
         clearTimeout(timeout)
     }
+}
+
+async function refreshStoryStateProjection(novelId) {
+    return callInternalCodexEndpoint('/api/internal/codex/story-state', {
+        action: 'refresh_projection',
+        ownerId,
+        novelId,
+    }, 30_000)
 }
 
 async function describePrompt(args) {

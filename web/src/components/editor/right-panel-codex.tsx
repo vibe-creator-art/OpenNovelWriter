@@ -25,8 +25,10 @@ import {
     ListTree,
     MessageSquareQuote,
     Paperclip,
+    Pause,
     Pin,
     Plus,
+    Play,
     Pencil,
     Save,
     Undo2,
@@ -37,6 +39,7 @@ import {
     SlidersHorizontal,
     Sparkles,
     StickyNote,
+    Target,
     ToggleLeft,
     ToggleRight,
     Trash2,
@@ -56,6 +59,7 @@ import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -101,12 +105,14 @@ import {
     type CodexApprovalRequest,
     type CodexConnectionSummary,
     type CodexContextWindow,
+    type CodexComposerMode,
     type CodexRateLimits,
     type CodexModelCatalogEntry,
     type CodexReasoningEffort,
     type CodexReviewLevel,
     type CodexServiceTier,
     type CodexSessionMessage,
+    type CodexThreadGoal,
     type CodexPromptArtifact,
 } from '@/lib/api'
 
@@ -1437,7 +1443,7 @@ function CodexMentionMenu({
     )
 }
 
-type BuiltinSlashCommandName = 'plan' | 'compact' | 'fast'
+type BuiltinSlashCommandName = 'plan' | 'goal' | 'compact' | 'fast'
 
 type BuiltinSlashCommandItem = {
     kind: 'builtin'
@@ -1933,6 +1939,146 @@ function PlanProgressCard({
                 </div>
             )}
         </div>
+    )
+}
+
+function formatGoalDuration(goal: CodexThreadGoal, now: number) {
+    const updatedAt = goal.updatedAt < 1_000_000_000_000 ? goal.updatedAt * 1000 : goal.updatedAt
+    const activeSeconds = goal.status === 'active' ? Math.max(0, Math.floor((now - updatedAt) / 1000)) : 0
+    return formatDuration((goal.timeUsedSeconds + activeSeconds) * 1000)
+}
+
+function GoalProgressCard({
+    goal,
+    running,
+    busy,
+    onEdit,
+    onPause,
+    onResume,
+    onClear,
+}: {
+    goal: CodexThreadGoal
+    running: boolean
+    busy: boolean
+    onEdit: (objective: string) => void
+    onPause: () => void
+    onResume: () => void
+    onClear: () => void
+}) {
+    const t = useTranslations('editor')
+    const [expanded, setExpanded] = useState(false)
+    const [editing, setEditing] = useState(false)
+    const [objective, setObjective] = useState(goal.objective)
+    const [now, setNow] = useState(() => Date.now())
+
+    useEffect(() => {
+        if (goal.status !== 'active') return
+        const timer = window.setInterval(() => setNow(Date.now()), 1000)
+        return () => window.clearInterval(timer)
+    }, [goal.status])
+
+    const resumable = goal.status !== 'complete' && (goal.status !== 'active' || !running)
+    const statusLabel = goal.status === 'paused'
+        ? t('codex.goal.paused')
+        : goal.status === 'blocked'
+            ? t('codex.goal.blocked')
+            : goal.status === 'usageLimited' || goal.status === 'budgetLimited'
+                ? t('codex.goal.limited')
+                : goal.status === 'complete'
+                    ? t('codex.goal.complete')
+                    : t('codex.goal.pursuing')
+    const canSave = objective.trim().length > 0 && objective.trim().length <= 4000 && objective.trim() !== goal.objective
+
+    return (
+        <>
+            <div className="rounded-[1.4rem] border border-border/70 bg-background/95 px-4 py-3 text-sm shadow-[0_12px_32px_-20px_rgba(15,23,42,0.45)] backdrop-blur">
+                <div className="flex min-w-0 items-center gap-2">
+                    <Target className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="shrink-0 font-medium">{statusLabel}</span>
+                    <span className="shrink-0 text-muted-foreground">{formatGoalDuration(goal, now)}</span>
+                    {!expanded && <span className="min-w-0 flex-1 truncate text-muted-foreground">{goal.objective}</span>}
+                    {expanded && <span className="min-w-0 flex-1" />}
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="h-7 w-7 shrink-0"
+                        disabled={busy}
+                        onClick={() => {
+                            setObjective(goal.objective)
+                            setEditing(true)
+                        }}
+                        title={t('codex.goal.edit')}
+                        aria-label={t('codex.goal.edit')}
+                    >
+                        <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="h-7 w-7 shrink-0"
+                        disabled={busy || (resumable ? running : !running)}
+                        onClick={resumable ? onResume : onPause}
+                        title={resumable ? t('codex.goal.resume') : t('codex.goal.pause')}
+                        aria-label={resumable ? t('codex.goal.resume') : t('codex.goal.pause')}
+                    >
+                        {resumable ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="h-7 w-7 shrink-0"
+                        disabled={busy}
+                        onClick={onClear}
+                        title={t('codex.goal.clear')}
+                        aria-label={t('codex.goal.clear')}
+                    >
+                        <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="h-7 w-7 shrink-0"
+                        onClick={() => setExpanded((current) => !current)}
+                        title={expanded ? t('codex.goal.collapse') : t('codex.goal.expand')}
+                        aria-label={expanded ? t('codex.goal.collapse') : t('codex.goal.expand')}
+                    >
+                        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </Button>
+                </div>
+                {expanded && <div className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{goal.objective}</div>}
+            </div>
+            <Dialog open={editing} onOpenChange={setEditing}>
+                <DialogContent className="sm:max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle>{t('codex.goal.editTitle')}</DialogTitle>
+                    </DialogHeader>
+                    <textarea
+                        value={objective}
+                        maxLength={4000}
+                        rows={10}
+                        className="min-h-56 w-full resize-y rounded-xl border bg-background px-3 py-2 text-sm leading-6 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onChange={(event) => setObjective(event.target.value)}
+                    />
+                    <DialogFooter>
+                        <Button type="button" variant="secondary" onClick={() => setEditing(false)}>{t('codex.goal.cancel')}</Button>
+                        <Button
+                            type="button"
+                            disabled={!canSave || busy}
+                            onClick={() => {
+                                onEdit(objective.trim())
+                                setEditing(false)
+                            }}
+                        >
+                            {t('codex.goal.save')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     )
 }
 
@@ -2488,7 +2634,15 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
                         <SelectableAssistantMessage content={message.content} />
                     )}
                 </div>
-                <MessageActions message={message} />
+                <div className="flex items-center gap-2">
+                    <MessageActions message={message} />
+                    {isUser && message.sentAsGoal && (
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Target className="h-3.5 w-3.5" />
+                            {t('codex.goal.sentAsGoal')}
+                        </span>
+                    )}
+                </div>
             </div>
         </div>
     )
@@ -3002,7 +3156,9 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const updateDraft = useEditorCodexStore((state) => state.updateDraft)
     const updateReviewLevel = useEditorCodexStore((state) => state.updateReviewLevel)
     const updateModelSettings = useEditorCodexStore((state) => state.updateModelSettings)
-    const updatePlanMode = useEditorCodexStore((state) => state.updatePlanMode)
+    const updateComposerMode = useEditorCodexStore((state) => state.updateComposerMode)
+    const controlGoal = useEditorCodexStore((state) => state.controlGoal)
+    const resumeGoal = useEditorCodexStore((state) => state.resumeGoal)
     const updateImageAttachments = useEditorCodexStore((state) => state.updateImageAttachments)
     const updateDraftArtifacts = useEditorCodexStore((state) => state.updateDraftArtifacts)
     const imageAttachmentsBySession = useEditorCodexStore((state) => state.imageAttachmentsBySession)
@@ -3031,6 +3187,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const [approvalActionInput, setApprovalActionInput] = useState('')
     const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null)
     const [dismissedPlanUpdateId, setDismissedPlanUpdateId] = useState<string | null>(null)
+    const [goalActionBusy, setGoalActionBusy] = useState<'control' | null>(null)
     const [responseAnnotationsBySession, setResponseAnnotationsBySession] = useState<Record<string, CodexResponseAnnotation[]>>({})
     const [sceneEditStatusRevision, setSceneEditStatusRevision] = useState(0)
     const [sceneEditStatusSnapshot, setSceneEditStatusSnapshot] = useState<{
@@ -3593,7 +3750,10 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const modelId = selectedSession?.modelId ?? DEFAULT_CODEX_MODEL
     const reasoningEffort = selectedSession?.reasoningEffort ?? 'high'
     const serviceTier = selectedSession?.serviceTier ?? 'standard'
-    const planMode = selectedSession?.planMode ?? false
+    const composerMode = selectedSession?.composerMode ?? 'default'
+    const planMode = composerMode === 'plan'
+    const goalMode = composerMode === 'goal'
+    const goal = selectedSession?.goal ?? null
     const running = selectedSession?.status === 'running'
     const pendingApproval = selectedSession ? pendingApprovalsBySession[selectedSession.id] ?? null : null
     const queuedMessages = selectedSession ? queuedMessagesBySession[selectedSession.id] ?? [] : []
@@ -3806,7 +3966,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                 name: 'plan',
                 title: t('codex.slashPlan.title'),
                 description: planMode ? t('codex.slashPlan.turnOff') : t('codex.slashPlan.turnOn'),
-                disabled: running,
+                disabled: running && !goal,
+            },
+            {
+                kind: 'builtin',
+                name: 'goal',
+                title: t('codex.slashGoal.title'),
+                description: goalMode ? t('codex.slashGoal.turnOff') : t('codex.slashGoal.turnOn'),
+                disabled: running && !goalMode,
             },
             {
                 kind: 'builtin',
@@ -3826,7 +3993,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             })
         }
         return items
-    }, [fastModeActive, planMode, running, selectedSession?.codexThreadId, showServiceTier, slashOccupiesWholeDraft, t])
+    }, [fastModeActive, goal, goalMode, planMode, running, selectedSession?.codexThreadId, showServiceTier, slashOccupiesWholeDraft, t])
     const slashMatches = useMemo<SlashCommandItem[]>(() => {
         if (!slashMenuOpen || !slash) return []
         const query = slash.query.toLocaleLowerCase()
@@ -3859,7 +4026,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         [activeConnectionRateLimits, t]
     )
     const quotaSummaryText = quotaSummary.join(', ')
-    const showQuotaSummary = hasChatGptAuth && hasMeaningfulCodexRateLimits(activeConnectionRateLimits) && quotaSummary.length > 0
+    const showQuotaSummary = composerMode === 'default' && hasChatGptAuth && hasMeaningfulCodexRateLimits(activeConnectionRateLimits) && quotaSummary.length > 0
     const showPlanHint = !planMode && !planHintDismissed && !running && !slashMenuOpen && /\bplan\b/iu.test(draft)
     const approvalOptions = pendingApproval ? getApprovalComposerOptions(pendingApproval, t) : []
     const selectedApprovalOptionId =
@@ -3869,7 +4036,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const composerButtonTitle = running
         ? draftIsEmpty
             ? 'Stop Codex'
-            : queueingEnabled
+            : queueingEnabled && !goalMode
                 ? 'Queue message'
                 : 'Steer message'
         : 'Send message'
@@ -4119,12 +4286,32 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     // Built-in slash commands toggle local/session state and remove only their command token. They
     // never become user messages.
     const runPlanSlash = (token: { start: number; query: string }) => {
-        if (running) return
+        if (running && !goal) return
         const nextDraft = removeSlashToken(token)
         setRunError(null)
         setSlash(null)
         void (async () => {
             const sessionId = await applyPlanMode(!planMode)
+            if (!sessionId) return
+            updateDraft(novelId, sessionId, nextDraft.value)
+            requestAnimationFrame(() => {
+                const textarea = composerRef.current
+                if (!textarea) return
+                textarea.focus()
+                textarea.setSelectionRange(nextDraft.caret, nextDraft.caret)
+            })
+        })().catch((error) => {
+            setRunError(error instanceof Error ? error.message : String(error))
+        })
+    }
+
+    const runGoalSlash = (token: { start: number; query: string }) => {
+        if (running && !goalMode) return
+        const nextDraft = removeSlashToken(token)
+        setRunError(null)
+        setSlash(null)
+        void (async () => {
+            const sessionId = await applyGoalMode(!goalMode)
             if (!sessionId) return
             updateDraft(novelId, sessionId, nextDraft.value)
             requestAnimationFrame(() => {
@@ -4163,6 +4350,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         if (item.kind === 'builtin') {
             if (item.name === 'compact') runCompaction()
             else if (item.name === 'fast') runFastSlash(slash)
+            else if (item.name === 'goal') runGoalSlash(slash)
             else runPlanSlash(slash)
             return
         }
@@ -4226,12 +4414,16 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             const expandedText = expandChapterMentions(expandedActs, hasMention ? buildChapterMentionList(chapterList) : [])
             const content = expandedText.trim()
             if (!content) return
+            if (goalMode && !goal && content.length > 4000) {
+                setRunError(t('codex.goal.tooLong'))
+                return
+            }
             const attachments = imageAttachments.readyUrls
             const artifactFiles = jsonArtifacts.map((artifact) => artifact.fileName)
             const annotations = responseAnnotationsBySession[targetSessionId] ?? []
 
             if (running) {
-                if (queueingEnabled) {
+                if (queueingEnabled && !goalMode) {
                     // This becomes a normal turn after the active one finishes, so retain the
                     // structured token for the messages route to resolve into a skill input item.
                     enqueueQueuedMessage(targetSessionId, content, attachments, annotations)
@@ -4345,17 +4537,48 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         setPlanHintDismissed(true)
     }
 
-    const applyPlanMode = async (nextPlanMode: boolean) => {
+    const applyComposerMode = async (nextMode: CodexComposerMode) => {
         const sessionId = selectedSession?.id ?? await ensureSession()
         if (!sessionId) return null
-        await updatePlanMode(novelId, sessionId, nextPlanMode)
+        if (goal && nextMode !== 'goal') {
+            await controlGoal(novelId, sessionId, { action: 'clear' })
+            if (nextMode === 'default') return sessionId
+        }
+        await updateComposerMode(novelId, sessionId, nextMode)
         return sessionId
     }
+
+    const applyPlanMode = (nextPlanMode: boolean) => applyComposerMode(nextPlanMode ? 'plan' : 'default')
+    const applyGoalMode = (nextGoalMode: boolean) => applyComposerMode(nextGoalMode ? 'goal' : 'default')
 
     const setPlanMode = (nextPlanMode: boolean) => {
         void applyPlanMode(nextPlanMode).catch((error) => {
             setRunError(error instanceof Error ? error.message : String(error))
         })
+    }
+
+    const setGoalMode = (nextGoalMode: boolean) => {
+        void applyGoalMode(nextGoalMode).catch((error) => {
+            setRunError(error instanceof Error ? error.message : String(error))
+        })
+    }
+
+    const runGoalAction = (action: { action: 'edit'; objective: string } | { action: 'pause' } | { action: 'clear' }) => {
+        const sessionId = selectedSession?.id
+        if (!sessionId || goalActionBusy === 'control') return
+        setGoalActionBusy('control')
+        setRunError(null)
+        void controlGoal(novelId, sessionId, action)
+            .catch((error) => setRunError(error instanceof Error ? error.message : String(error)))
+            .finally(() => setGoalActionBusy(null))
+    }
+
+    const resumeCurrentGoal = () => {
+        const sessionId = selectedSession?.id
+        if (!sessionId || goalActionBusy === 'control' || running) return
+        setRunError(null)
+        void resumeGoal(novelId, sessionId)
+            .catch((error) => setRunError(error instanceof Error ? error.message : String(error)))
     }
 
     const dismissComposerAction = (actionId: string | null) => {
@@ -4551,6 +4774,19 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             title="Progress"
                             hideLabel="Hide progress"
                             onHide={() => setDismissedPlanUpdateId(latestPlanUpdateMessage.id)}
+                        />
+                    </div>
+                )}
+                {goal && (
+                    <div className="mb-3">
+                        <GoalProgressCard
+                            goal={goal}
+                            running={running}
+                            busy={goalActionBusy === 'control'}
+                            onEdit={(objective) => runGoalAction({ action: 'edit', objective })}
+                            onPause={() => runGoalAction({ action: 'pause' })}
+                            onResume={resumeCurrentGoal}
+                            onClear={() => runGoalAction({ action: 'clear' })}
                         />
                     </div>
                 )}
@@ -4866,7 +5102,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         }}
                     />
                     </div>
-                    <div className="mt-2 flex min-w-0 items-center gap-2 pr-11">
+                    <div className="mt-2 flex min-w-0 items-center gap-0 pr-11">
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button
@@ -4880,7 +5116,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="start" className="w-52">
-                                <DropdownMenuItem disabled={running} onSelect={() => setPlanMode(!planMode)}>
+                                <DropdownMenuItem disabled={running && !goal} onSelect={() => setPlanMode(!planMode)}>
                                     <ListChecks className="h-4 w-4" />
                                     <span>{t('codex.plan')}</span>
                                     <span
@@ -4895,6 +5131,25 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                             className={cn(
                                                 'h-4 w-4 rounded-full bg-background shadow-sm transition-transform',
                                                 planMode && 'translate-x-4'
+                                            )}
+                                        />
+                                    </span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem disabled={running && !goalMode} onSelect={() => setGoalMode(!goalMode)}>
+                                    <Target className="h-4 w-4" />
+                                    <span>{t('codex.goal.label')}</span>
+                                    <span
+                                        role="switch"
+                                        aria-checked={goalMode}
+                                        className={cn(
+                                            'ml-auto flex h-5 w-9 items-center rounded-full p-0.5 transition-colors',
+                                            goalMode ? 'bg-primary' : 'bg-muted'
+                                        )}
+                                    >
+                                        <span
+                                            className={cn(
+                                                'h-4 w-4 rounded-full bg-background shadow-sm transition-transform',
+                                                goalMode && 'translate-x-4'
                                             )}
                                         />
                                     </span>
@@ -4962,7 +5217,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                 type="button"
                                 size="sm"
                                 variant="ghost"
-                                className="group h-8 gap-2 rounded-full bg-muted/70 px-3 text-muted-foreground hover:bg-sky-100 hover:text-foreground dark:hover:bg-sky-950/40"
+                                className="group h-8 gap-1 rounded-full bg-muted/70 px-2 text-muted-foreground hover:bg-sky-100 hover:text-foreground dark:hover:bg-sky-950/40"
                                 disabled={running}
                                 onClick={() => setPlanMode(false)}
                                 title={t('codex.disablePlan')}
@@ -4976,6 +5231,24 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                 <span>{t('codex.plan')}</span>
                             </Button>
                         )}
+                        {goalMode && (
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="group h-8 gap-1 rounded-full bg-muted/70 px-2 text-muted-foreground hover:bg-sky-100 hover:text-foreground dark:hover:bg-sky-950/40"
+                                onClick={() => setGoalMode(false)}
+                                title={t('codex.goal.disable')}
+                            >
+                                <span className="flex h-4 w-4 items-center justify-center">
+                                    <Target className="h-4 w-4 group-hover:hidden" />
+                                    <span className="hidden h-4 w-4 items-center justify-center rounded-full bg-muted-foreground text-background group-hover:flex">
+                                        <X className="h-3 w-3" />
+                                    </span>
+                                </span>
+                                <span>{t('codex.goal.label')}</span>
+                            </Button>
+                        )}
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button
@@ -4983,7 +5256,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                     size="sm"
                                     variant="ghost"
                                     className={cn(
-                                        'min-w-0 gap-1',
+                                        'min-w-0 gap-0.5 px-1.5 has-[>svg]:px-1.5',
                                         reviewLevel === 'full_access'
                                             ? 'text-red-600 dark:text-red-400'
                                             : reviewLevel === 'no_review'
@@ -5017,14 +5290,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             </DropdownMenuContent>
                         </DropdownMenu>
                         {showQuotaSummary && (
-                            <div className="min-w-0 flex-1 px-1">
+                            <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-center">
                                     <div
                                         className="group relative min-w-0 max-w-full focus-visible:outline-none"
                                         tabIndex={0}
                                         aria-label={`${t('codex.remainingQuota')}: ${quotaSummaryText}`}
                                     >
-                                        <div className="max-w-full truncate rounded-full bg-muted px-3 py-1 text-[11px] leading-none text-muted-foreground">
+                                        <div className="max-w-full truncate rounded-full bg-muted px-2 py-1 text-[11px] leading-none text-muted-foreground">
                                             {quotaSummaryText}
                                         </div>
                                         <div
@@ -5042,7 +5315,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                 </div>
                             </div>
                         )}
-                        <div className="ml-auto flex min-w-0 max-w-[55%] items-center gap-1">
+                        <div className="ml-auto flex min-w-0 max-w-[55%] items-center gap-0">
                             <ContextWindowIndicator contextWindow={latestContextWindow} />
                             <div className="min-w-0 flex-1 overflow-hidden">
                                 <CodexModelPicker

@@ -8,7 +8,7 @@ import {
     NovelLabel,
     novelApi,
     retrievalApi,
-    type RetrievalModelOption,
+    type RetrievalModelGroupOption,
     type RetrievalStatusResponse,
     uploadApi,
 } from '@/lib/api'
@@ -251,12 +251,12 @@ export function NovelSettingsDialog({
     const [termContextIncludesRelations, setTermContextIncludesRelations] = useState(true)
     const [termContextIncludesExperiences, setTermContextIncludesExperiences] = useState(true)
     const [retrievalEmbeddingEnabled, setRetrievalEmbeddingEnabled] = useState(false)
-    const [retrievalEmbeddingAssignmentId, setRetrievalEmbeddingAssignmentId] = useState('')
+    const [retrievalEmbeddingGroupId, setRetrievalEmbeddingGroupId] = useState('')
     const [retrievalRerankerEnabled, setRetrievalRerankerEnabled] = useState(false)
-    const [retrievalRerankerAssignmentId, setRetrievalRerankerAssignmentId] = useState('')
+    const [retrievalRerankerGroupId, setRetrievalRerankerGroupId] = useState('')
     const [retrievalTopK, setRetrievalTopK] = useState('10')
-    const [embeddingModels, setEmbeddingModels] = useState<RetrievalModelOption[]>([])
-    const [rerankerModels, setRerankerModels] = useState<RetrievalModelOption[]>([])
+    const [embeddingGroups, setEmbeddingGroups] = useState<RetrievalModelGroupOption[]>([])
+    const [rerankerGroups, setRerankerGroups] = useState<RetrievalModelGroupOption[]>([])
     const [retrievalStatus, setRetrievalStatus] = useState<RetrievalStatusResponse | null>(null)
     const [retrievalLoading, setRetrievalLoading] = useState(false)
     const [embeddingUpdating, setEmbeddingUpdating] = useState(false)
@@ -289,9 +289,9 @@ export function NovelSettingsDialog({
             setTermContextIncludesRelations(novel.termContextIncludesRelations)
             setTermContextIncludesExperiences(novel.termContextIncludesExperiences)
             setRetrievalEmbeddingEnabled(novel.retrievalEmbeddingEnabled)
-            setRetrievalEmbeddingAssignmentId(novel.retrievalEmbeddingAssignmentId ?? '')
+            setRetrievalEmbeddingGroupId(novel.retrievalEmbeddingGroupId ?? '')
             setRetrievalRerankerEnabled(novel.retrievalRerankerEnabled)
-            setRetrievalRerankerAssignmentId(novel.retrievalRerankerAssignmentId ?? '')
+            setRetrievalRerankerGroupId(novel.retrievalRerankerGroupId ?? '')
             setRetrievalTopK(novel.retrievalTopK.toString())
             setCodexSessionAutoCleanup(novel.codexSessionAutoCleanup)
             setCodexSessionRetentionLimit(novel.codexSessionRetentionLimit.toString())
@@ -315,8 +315,8 @@ export function NovelSettingsDialog({
         void Promise.all([retrievalApi.options(novel.id), retrievalApi.status(novel.id)])
             .then(([options, status]) => {
                 if (cancelled) return
-                setEmbeddingModels(options.embeddingModels)
-                setRerankerModels(options.rerankerModels)
+                setEmbeddingGroups(options.embeddingGroups)
+                setRerankerGroups(options.rerankerGroups)
                 setRetrievalStatus(status)
             })
             .catch((error) => {
@@ -493,21 +493,13 @@ export function NovelSettingsDialog({
             ? Math.max(1, Math.min(50, parsedTopK))
             : 10
         setRetrievalTopK(normalizedTopK.toString())
-        if (retrievalEmbeddingEnabled && !retrievalEmbeddingAssignmentId) {
+        if (retrievalEmbeddingEnabled && !retrievalEmbeddingGroupId) {
             setRetrievalError(t('memory.embeddingModelRequired'))
             return
         }
-        if (retrievalRerankerEnabled && !retrievalRerankerAssignmentId) {
+        if (retrievalRerankerEnabled && !retrievalRerankerGroupId) {
             setRetrievalError(t('memory.rerankerModelRequired'))
             return
-        }
-        const embeddingAssignmentChanged =
-            retrievalEmbeddingAssignmentId !== (novel.retrievalEmbeddingAssignmentId ?? '')
-        const hasCachedEmbeddings = (retrievalStatus?.cachedCount ?? 0) > 0
-        let resetRetrievalEmbeddings = false
-        if (embeddingAssignmentChanged && hasCachedEmbeddings) {
-            if (!window.confirm(t('memory.confirmEmbeddingModelChange'))) return
-            resetRetrievalEmbeddings = true
         }
 
         setSaving(true)
@@ -525,11 +517,10 @@ export function NovelSettingsDialog({
                 termContextIncludesRelations,
                 termContextIncludesExperiences,
                 retrievalEmbeddingEnabled,
-                retrievalEmbeddingAssignmentId: retrievalEmbeddingAssignmentId || null,
+                retrievalEmbeddingGroupId: retrievalEmbeddingGroupId || null,
                 retrievalRerankerEnabled,
-                retrievalRerankerAssignmentId: retrievalRerankerAssignmentId || null,
+                retrievalRerankerGroupId: retrievalRerankerGroupId || null,
                 retrievalTopK: normalizedTopK,
-                resetRetrievalEmbeddings,
                 codexSessionAutoCleanup,
                 codexSessionRetentionLimit: normalizedRetentionLimit,
                 codexPetEnabled,
@@ -578,6 +569,18 @@ export function NovelSettingsDialog({
             setUploading(false)
         }
     }
+
+    const embeddingCacheSummary = (scope: string, counts: RetrievalStatusResponse['counts']) => t(
+        'memory.embeddingCacheSummary',
+        {
+            scope,
+            total: counts.fresh + counts.stale + counts.missing + counts.error,
+            fresh: counts.fresh,
+            stale: counts.stale,
+            missing: counts.missing,
+            error: counts.error,
+        }
+    )
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -941,12 +944,12 @@ export function NovelSettingsDialog({
                                                 id="retrieval-embedding-enabled"
                                                 checked={retrievalEmbeddingEnabled}
                                                 onCheckedChange={setRetrievalEmbeddingEnabled}
-                                                disabled={!retrievalEmbeddingEnabled && embeddingModels.length === 0}
+                                                disabled={!retrievalEmbeddingEnabled && embeddingGroups.length === 0}
                                             />
                                         </div>
                                         <Select
-                                            value={retrievalEmbeddingAssignmentId || undefined}
-                                            onValueChange={setRetrievalEmbeddingAssignmentId}
+                                            value={retrievalEmbeddingGroupId || undefined}
+                                            onValueChange={setRetrievalEmbeddingGroupId}
                                             disabled={!retrievalEmbeddingEnabled}
                                         >
                                             <SelectTrigger className="w-full">
@@ -957,21 +960,21 @@ export function NovelSettingsDialog({
                                                 } />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {retrievalEmbeddingAssignmentId
-                                                    && !embeddingModels.some((model) => model.assignmentId === retrievalEmbeddingAssignmentId)
+                                                {retrievalEmbeddingGroupId
+                                                    && !embeddingGroups.some((group) => group.groupId === retrievalEmbeddingGroupId)
                                                     && (
-                                                        <SelectItem value={retrievalEmbeddingAssignmentId} disabled>
+                                                        <SelectItem value={retrievalEmbeddingGroupId} disabled>
                                                             {t('memory.unavailableModel')}
                                                         </SelectItem>
                                                     )}
-                                                {embeddingModels.map((model) => (
-                                                    <SelectItem key={model.assignmentId} value={model.assignmentId}>
-                                                        {model.modelName} · {model.connectionName} / {model.groupName}
+                                                {embeddingGroups.map((group) => (
+                                                    <SelectItem key={group.groupId} value={group.groupId}>
+                                                        {group.groupName} · {group.models.map((model) => model.connectionName).join(' / ')}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
-                                        {embeddingModels.length === 0 && !retrievalLoading && (
+                                        {embeddingGroups.length === 0 && !retrievalLoading && (
                                             <p className="text-xs text-muted-foreground">{t('memory.noEmbeddingModels')}</p>
                                         )}
 
@@ -983,16 +986,16 @@ export function NovelSettingsDialog({
                                                             <Database className="h-3.5 w-3.5" />
                                                             {t('memory.embeddingCacheTitle')}
                                                         </div>
-                                                        <p className="mt-1 text-xs text-muted-foreground">
-                                                            {retrievalStatus
-                                                                ? t('memory.embeddingCacheSummary', {
-                                                                    fresh: retrievalStatus.counts.fresh,
-                                                                    stale: retrievalStatus.counts.stale,
-                                                                    missing: retrievalStatus.counts.missing,
-                                                                    error: retrievalStatus.counts.error,
-                                                                })
-                                                                : t('memory.embeddingCacheUnknown')}
-                                                        </p>
+                                                        {retrievalStatus ? (
+                                                            <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                                                                <p>{embeddingCacheSummary(t('memory.embeddingCacheScene'), retrievalStatus.counts)}</p>
+                                                                <p>{embeddingCacheSummary(t('memory.embeddingCacheEntity'), retrievalStatus.storyStateCounts.ENTITY)}</p>
+                                                                <p>{embeddingCacheSummary(t('memory.embeddingCacheFact'), retrievalStatus.storyStateCounts.FACT)}</p>
+                                                                <p>{embeddingCacheSummary(t('memory.embeddingCacheEpisode'), retrievalStatus.storyStateCounts.EPISODE)}</p>
+                                                            </div>
+                                                        ) : (
+                                                            <p className="mt-1 text-xs text-muted-foreground">{t('memory.embeddingCacheUnknown')}</p>
+                                                        )}
                                                     </div>
                                                     <Button
                                                         type="button"
@@ -1002,7 +1005,7 @@ export function NovelSettingsDialog({
                                                         disabled={
                                                             embeddingUpdating
                                                             || !novel?.retrievalEmbeddingEnabled
-                                                            || novel.retrievalEmbeddingAssignmentId !== retrievalEmbeddingAssignmentId
+                                                            || novel.retrievalEmbeddingGroupId !== retrievalEmbeddingGroupId
                                                         }
                                                     >
                                                         {embeddingUpdating
@@ -1013,7 +1016,7 @@ export function NovelSettingsDialog({
                                                 </div>
                                                 {(
                                                     !novel?.retrievalEmbeddingEnabled
-                                                    || novel.retrievalEmbeddingAssignmentId !== retrievalEmbeddingAssignmentId
+                                                    || novel.retrievalEmbeddingGroupId !== retrievalEmbeddingGroupId
                                                 ) && (
                                                     <p className="mt-2 text-xs text-muted-foreground">{t('memory.saveBeforeEmbeddingUpdate')}</p>
                                                 )}
@@ -1033,12 +1036,12 @@ export function NovelSettingsDialog({
                                                 id="retrieval-reranker-enabled"
                                                 checked={retrievalRerankerEnabled}
                                                 onCheckedChange={setRetrievalRerankerEnabled}
-                                                disabled={!retrievalRerankerEnabled && rerankerModels.length === 0}
+                                                disabled={!retrievalRerankerEnabled && rerankerGroups.length === 0}
                                             />
                                         </div>
                                         <Select
-                                            value={retrievalRerankerAssignmentId || undefined}
-                                            onValueChange={setRetrievalRerankerAssignmentId}
+                                            value={retrievalRerankerGroupId || undefined}
+                                            onValueChange={setRetrievalRerankerGroupId}
                                             disabled={!retrievalRerankerEnabled}
                                         >
                                             <SelectTrigger className="w-full">
@@ -1049,21 +1052,21 @@ export function NovelSettingsDialog({
                                                 } />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {retrievalRerankerAssignmentId
-                                                    && !rerankerModels.some((model) => model.assignmentId === retrievalRerankerAssignmentId)
+                                                {retrievalRerankerGroupId
+                                                    && !rerankerGroups.some((group) => group.groupId === retrievalRerankerGroupId)
                                                     && (
-                                                        <SelectItem value={retrievalRerankerAssignmentId} disabled>
+                                                        <SelectItem value={retrievalRerankerGroupId} disabled>
                                                             {t('memory.unavailableModel')}
                                                         </SelectItem>
                                                     )}
-                                                {rerankerModels.map((model) => (
-                                                    <SelectItem key={model.assignmentId} value={model.assignmentId}>
-                                                        {model.modelName} · {model.connectionName} / {model.groupName}
+                                                {rerankerGroups.map((group) => (
+                                                    <SelectItem key={group.groupId} value={group.groupId}>
+                                                        {group.groupName} · {group.models.map((model) => model.connectionName).join(' / ')}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
-                                        {rerankerModels.length === 0 && !retrievalLoading && (
+                                        {rerankerGroups.length === 0 && !retrievalLoading && (
                                             <p className="text-xs text-muted-foreground">{t('memory.noRerankerModels')}</p>
                                         )}
                                     </div>

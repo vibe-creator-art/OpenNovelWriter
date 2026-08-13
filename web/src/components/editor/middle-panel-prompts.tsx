@@ -71,8 +71,8 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
     const [defaultSelectionsSaving, setDefaultSelectionsSaving] = useState<DefaultPromptSelectionCategory | null>(null)
     const [modelGroups, setModelGroups] = useState<ModelGroup[]>([])
     const [modelSets, setModelSets] = useState<ModelSet[]>([])
-    const [modelGroupsLoading, setModelGroupsLoading] = useState(false)
-    const [modelSetsLoading, setModelSetsLoading] = useState(false)
+    const [modelGroupsLoading, setModelGroupsLoading] = useState(true)
+    const [modelSetsLoading, setModelSetsLoading] = useState(true)
     const [modelGroupsError, setModelGroupsError] = useState<string | null>(null)
     const [modelSetsError, setModelSetsError] = useState<string | null>(null)
     const [builtinPresets, setBuiltinPresets] = useState<BuiltinPromptPreset[]>([])
@@ -282,6 +282,8 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
         prompts,
         modelGroups,
         modelSets,
+        modelGroupsLoading,
+        modelSetsLoading,
         selectedPromptId,
         setPrompts,
         setError,
@@ -580,18 +582,24 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
         if (!draft) return
 
         const promptName = (draft.name ?? '').trim() || t('actions.newPromptName')
-        const matchingPreset = builtinPresets.find((preset) => {
-            const key = normalizeKey(promptName)
-            return normalizeKey(preset.entryPromptName) === key || normalizeKey(preset.name) === key
-        }) ?? builtinPresets[0] ?? null
+        const matchingPreset =
+            (selectedPrompt?.sourcePresetId
+                ? builtinPresets.find((preset) => preset.presetId === selectedPrompt.sourcePresetId)
+                : null)
+            ?? builtinPresets.find((preset) => {
+                const key = normalizeKey(promptName)
+                return normalizeKey(preset.entryPromptName) === key || normalizeKey(preset.name) === key
+            })
+            ?? builtinPresets[0]
+            ?? null
 
         setPublishDialogMode(mode)
-        setPublishPresetName(mode === 'overwrite' ? matchingPreset?.name ?? promptName : promptName)
-        setPublishDescription(mode === 'overwrite' ? matchingPreset?.description ?? draft.description ?? '' : draft.description ?? '')
-        setPublishOverwritePresetId(matchingPreset?.presetId ?? builtinPresets[0]?.presetId ?? '')
+        setPublishPresetName(promptName)
+        setPublishDescription(draft.description ?? '')
+        setPublishOverwritePresetId(matchingPreset?.presetId ?? '')
         setPublishError(null)
         setPublishDialogOpen(true)
-    }, [builtinPresets, draft, t])
+    }, [builtinPresets, draft, selectedPrompt?.sourcePresetId, t])
 
     const handlePublishDialogOpenChange = useCallback((open: boolean) => {
         setPublishDialogOpen(open)
@@ -983,14 +991,7 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
                 onOpenChange={handlePublishDialogOpenChange}
                 onPresetNameChange={setPublishPresetName}
                 onDescriptionChange={setPublishDescription}
-                onOverwritePresetIdChange={(presetId) => {
-                    const preset = builtinPresets.find((item) => item.presetId === presetId) ?? null
-                    setPublishOverwritePresetId(presetId)
-                    if (preset) {
-                        setPublishPresetName(preset.name)
-                        setPublishDescription(preset.description ?? '')
-                    }
-                }}
+                onOverwritePresetIdChange={setPublishOverwritePresetId}
                 onSubmit={() => void handleSubmitPublishDialog()}
             />
         </>

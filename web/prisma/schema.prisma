@@ -48,9 +48,9 @@ model Novel {
   termContextIncludesRelations Boolean @default(true)
   termContextIncludesExperiences Boolean @default(true)
   retrievalEmbeddingEnabled Boolean @default(false)
-  retrievalEmbeddingAssignmentId String?
+  retrievalEmbeddingGroupId String?
   retrievalRerankerEnabled Boolean @default(false)
-  retrievalRerankerAssignmentId String?
+  retrievalRerankerGroupId String?
   retrievalTopK Int @default(10)
   codexSessionAutoCleanup Boolean @default(false)
   codexSessionRetentionLimit Int @default(10)
@@ -70,6 +70,12 @@ model Novel {
   sceneEdits  SceneEdit[]
   continuationDrafts SceneContinuationDraft[]
   sceneRetrievalIndexes SceneRetrievalIndex[]
+  storyMoments StoryMoment[]
+  storyEpisodes StoryEpisode[]
+  storyEntities StoryEntity[]
+  storyEntityAliases StoryEntityAlias[]
+  storyFacts StoryFact[]
+  storyRetrievalIndexes StoryRetrievalIndex[]
   writingDays NovelWritingDay[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -181,6 +187,8 @@ model Scene {
   chapterId String
   chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   retrievalIndex SceneRetrievalIndex?
+  storyMoments StoryMoment[]
+  storyEpisodes StoryEpisode[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -196,6 +204,7 @@ model SceneRetrievalIndex {
   contentHash           String
   embeddingJson         String?
   embeddingHash         String?
+  embeddingGroupId      String?
   embeddingAssignmentId String?
   embeddingModelId      String?
   embeddingDimensions   Int?
@@ -205,7 +214,144 @@ model SceneRetrievalIndex {
   updatedAt             DateTime @updatedAt
 
   @@index([novelId])
-  @@index([novelId, embeddingAssignmentId])
+  @@index([novelId, embeddingGroupId])
+}
+
+model StoryMoment {
+  id            String         @id @default(cuid())
+  novelId       String
+  novel         Novel          @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  sourceSceneId String?
+  sourceScene   Scene?         @relation(fields: [sourceSceneId], references: [id], onDelete: SetNull)
+  label         String
+  storyOrder    Int
+  createdAt     DateTime       @default(now())
+  episodes      StoryEpisode[]
+  factsStarting StoryFact[]    @relation("StoryFactValidFrom")
+  factsEnding   StoryFact[]    @relation("StoryFactValidTo")
+
+  @@unique([novelId, storyOrder])
+  @@index([novelId])
+  @@index([sourceSceneId])
+}
+
+model StoryEpisode {
+  id                 String              @id @default(cuid())
+  novelId            String
+  novel              Novel               @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  sourceKind         String
+  sourceSceneId      String?
+  sourceScene        Scene?              @relation(fields: [sourceSceneId], references: [id], onDelete: SetNull)
+  content            String
+  contentHash        String
+  referenceMomentId  String?
+  referenceMoment    StoryMoment?        @relation(fields: [referenceMomentId], references: [id], onDelete: SetNull)
+  replacesEpisodeId  String?             @unique
+  replacesEpisode    StoryEpisode?       @relation("StoryEpisodeRevision", fields: [replacesEpisodeId], references: [id], onDelete: SetNull)
+  replacementEpisode StoryEpisode?       @relation("StoryEpisodeRevision")
+  inactiveAt         DateTime?
+  inactiveReason     String?
+  createdAt          DateTime            @default(now())
+  evidence           StoryFactEvidence[]
+
+  @@index([novelId, sourceKind, inactiveAt])
+  @@index([sourceSceneId, inactiveAt])
+  @@index([referenceMomentId])
+}
+
+model StoryEntity {
+  id             String             @id @default(cuid())
+  novelId        String
+  novel          Novel              @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  termId         String?
+  name           String
+  normalizedName String
+  kind           String
+  summary        String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  aliases        StoryEntityAlias[]
+  subjectFacts   StoryFact[]        @relation("StoryFactSubject")
+  objectFacts    StoryFact[]        @relation("StoryFactObject")
+
+  @@index([novelId, normalizedName])
+  @@index([novelId, termId])
+  @@index([novelId, kind])
+}
+
+model StoryEntityAlias {
+  id              String      @id @default(cuid())
+  novelId         String
+  novel           Novel       @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  entityId        String
+  entity          StoryEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  alias           String
+  normalizedAlias String
+  sourceKind      String
+  createdAt       DateTime    @default(now())
+
+  @@unique([entityId, normalizedAlias])
+  @@index([novelId, normalizedAlias])
+  @@index([novelId, entityId])
+}
+
+model StoryFact {
+  id                String              @id @default(cuid())
+  novelId           String
+  novel             Novel               @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  subjectEntityId   String
+  subjectEntity     StoryEntity         @relation("StoryFactSubject", fields: [subjectEntityId], references: [id], onDelete: Cascade)
+  predicateKey      String
+  objectEntityId    String?
+  objectEntity      StoryEntity?        @relation("StoryFactObject", fields: [objectEntityId], references: [id], onDelete: Cascade)
+  objectValue       String?
+  factText          String
+  validFromMomentId String?
+  validFromMoment   StoryMoment?        @relation("StoryFactValidFrom", fields: [validFromMomentId], references: [id], onDelete: SetNull)
+  validToMomentId   String?
+  validToMoment     StoryMoment?        @relation("StoryFactValidTo", fields: [validToMomentId], references: [id], onDelete: SetNull)
+  createdAt         DateTime            @default(now())
+  evidence          StoryFactEvidence[]
+
+  @@index([novelId, subjectEntityId, predicateKey])
+  @@index([novelId, objectEntityId])
+  @@index([novelId, validFromMomentId, validToMomentId])
+}
+
+model StoryFactEvidence {
+  factId    String
+  fact      StoryFact    @relation(fields: [factId], references: [id], onDelete: Cascade)
+  episodeId String
+  episode   StoryEpisode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  role      String
+  createdAt DateTime     @default(now())
+
+  @@id([factId, episodeId])
+  @@index([episodeId, role])
+}
+
+model StoryRetrievalIndex {
+  id                    String    @id @default(cuid())
+  novelId               String
+  novel                 Novel     @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  sourceKind            String
+  sourceId              String
+  searchText            String    @default("")
+  contentHash           String
+  embeddingJson         String?
+  embeddingHash         String?
+  embeddingGroupId      String?
+  embeddingAssignmentId String?
+  embeddingModelId      String?
+  embeddingDimensions   Int?
+  embeddingError        String?
+  embeddingUpdatedAt    DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([novelId, sourceKind, sourceId])
+  @@index([novelId, sourceKind])
+  @@index([novelId, embeddingGroupId])
 }
 
 model Label {
@@ -509,7 +655,8 @@ model CodexSession {
   modelId             String   @default("gpt-5.6-sol")
   reasoningEffort     String   @default("high")
   serviceTier         String   @default("standard")
-  planMode            Boolean  @default(false)
+  composerMode        String   @default("default")
+  goalJson            String?
   codexThreadId       String?
   codexConnectionId   String?
   draftContent        String   @default("")

@@ -45,6 +45,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                   skillId?: unknown
                   name?: unknown
                   description?: unknown
+                  enabled?: unknown
               }
             | null
 
@@ -57,6 +58,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                 : typeof body.description === 'string'
                     ? body.description.trim() || null
                     : entry.summary.description
+        const enabled = typeof body?.enabled === 'boolean' ? body.enabled : undefined
 
         if (!skillId) {
             return NextResponse.json({ detail: 'skillId is required.' }, { status: 400 })
@@ -72,6 +74,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             name,
             description,
             revision: getNextSkillPresetRevision(entry.summary.revision),
+            enabled,
         })
         if (!built.ok) {
             return NextResponse.json({ detail: built.detail }, { status: built.status })

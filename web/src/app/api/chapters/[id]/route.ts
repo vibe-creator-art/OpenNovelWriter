@@ -6,9 +6,11 @@ import {
     syncNovelWorkspaceChapter,
     syncNovelWorkspaceOutline,
     syncNovelWorkspaceDetailedOutlines,
+    syncNovelWorkspaceStoryState,
 } from '@/lib/server/novel-workspace'
 import { cascadeDeleteContinuationDraftsForScenes } from '@/lib/server/continuation-draft'
 import { recordNovelWritingDelta } from '@/lib/server/manuscript-word-count'
+import { deactivateStoryEpisodesForScene } from '@/lib/server/story-state'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -136,6 +138,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
         const deletedWordCount = chapterScenes.reduce((sum, scene) => sum + scene.wordCount, 0)
         await prisma.$transaction(async (tx) => {
+            for (const scene of chapterScenes) {
+                await deactivateStoryEpisodesForScene(tx, scene.id)
+            }
             await tx.chapter.delete({ where: { id } })
             await recordNovelWritingDelta(tx, existing.novelId, -deletedWordCount)
         })
@@ -143,6 +148,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
             syncNovelWorkspaceOutline(user.userId, existing.novelId),
             removeNovelWorkspaceChapter(user.userId, existing.novelId, existing.id),
             syncNovelWorkspaceDetailedOutlines(user.userId, existing.novelId),
+            syncNovelWorkspaceStoryState(user.userId, existing.novelId),
         ])
 
         return NextResponse.json({ message: 'Chapter deleted successfully', deletedCodexSessionIds })

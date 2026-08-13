@@ -1,0 +1,96 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentUser } from '@/lib/auth'
+import { isPresetAuthoringEnabled } from '@/lib/preset-authoring'
+import { getNextAgentPresetRevision } from '@/lib/agent-preset'
+import { buildAgentPresetAssetFromOwnedAgent, writeAgentPresetDirectory } from '@/lib/server/agent-preset-helpers'
+import { loadBuiltinAgentPresetRegistryEntry } from '@/agent-presets'
+
+interface RouteParams {
+    params: Promise<{ id: string }>
+}
+
+export async function GET(request: NextRequest, { params }: RouteParams) {
+    const user = await getCurrentUser(request)
+    if (!user) {
+        return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 })
+    }
+
+    const { id } = await params
+    const entry = loadBuiltinAgentPresetRegistryEntry(id)
+    if (!entry) {
+        return NextResponse.json({ detail: 'Preset not found.' }, { status: 404 })
+    }
+
+    return NextResponse.json({ preset: entry.preset })
+}
+
+export async function PUT(request: NextRequest, { params }: RouteParams) {
+    try {
+        const user = await getCurrentUser(request)
+        if (!user) {
+            return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 })
+        }
+        if (!isPresetAuthoringEnabled()) {
+            return NextResponse.json({ detail: 'Preset authoring is disabled.' }, { status: 403 })
+        }
+
+        const { id } = await params
+        const entry = loadBuiltinAgentPresetRegistryEntry(id)
+        if (!entry) {
+            return NextResponse.json({ detail: 'Preset not found.' }, { status: 404 })
+        }
+
+        const body = (await request.json().catch(() => null)) as
+            | {
+                  agentId?: unknown
+                  name?: unknown
+                  description?: unknown
+              }
+            | null
+
+        const agentId = typeof body?.agentId === 'string' ? body.agentId.trim() : ''
+        const name = typeof body?.name === 'string' ? body.name.trim() : entry.summary.name
+        const description = body?.description === undefined
+            ? entry.summary.description
+            : body.description === null
+                ? null
+                : typeof body.description === 'string'
+                    ? body.description.trim() || null
+                    : entry.summary.description
+
+        if (!agentId) {
+            return NextResponse.json({ detail: 'agentId is required.' }, { status: 400 })
+        }
+        if (!name) {
+            return NextResponse.json({ detail: 'Preset name is required.' }, { status: 400 })
+        }
+
+        const built = await buildAgentPresetAssetFromOwnedAgent({
+            ownerId: user.userId,
+            agentId,
+            presetId: entry.summary.presetId,
+            name,
+            description,
+            revision: getNextAgentPresetRevision(entry.summary.revision),
+        })
+        if (!built.ok) {
+            return NextResponse.json({ detail: built.detail }, { status: built.status })
+        }
+
+        await writeAgentPresetDirectory({
+            assetDirectoryPath: entry.assetDirectoryPath,
+            built: built.built,
+            replaceExisting: true,
+        })
+
+        return NextResponse.json({
+            presetId: built.built.preset.metadata.presetId,
+            revision: built.built.preset.metadata.revision,
+            preset: built.built.preset,
+        })
+    } catch (error) {
+        console.error('Update agent preset error:', error)
+        const detail = error instanceof Error ? error.message : 'Internal server error'
+        return NextResponse.json({ detail }, { status: 500 })
+    }
+}

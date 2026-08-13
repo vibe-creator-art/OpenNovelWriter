@@ -6,7 +6,7 @@ import { deleteCodexSessionWorkspace } from '@/lib/server/codex-session-workspac
 import { deleteNovelWorkspace, ensureNovelWorkspace } from '@/lib/server/novel-workspace'
 import { parseCodexSessionRetentionLimit } from '@/lib/codex-session-retention'
 import { petExists } from '@/lib/server/pet-storage'
-import { loadRetrievalAssignment } from '@/lib/server/retrieval-models'
+import { loadRetrievalGroup } from '@/lib/server/retrieval-models'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -79,11 +79,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             termContextIncludesRelations,
             termContextIncludesExperiences,
             retrievalEmbeddingEnabled,
-            retrievalEmbeddingAssignmentId,
+            retrievalEmbeddingGroupId,
             retrievalRerankerEnabled,
-            retrievalRerankerAssignmentId,
+            retrievalRerankerGroupId,
             retrievalTopK,
-            resetRetrievalEmbeddings,
             codexSessionAutoCleanup,
             codexSessionRetentionLimit,
             codexPetEnabled,
@@ -100,9 +99,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             'termContextIncludesExperiences'
         )
         const shouldUpdateRetrievalEmbeddingEnabled = Object.prototype.hasOwnProperty.call(body, 'retrievalEmbeddingEnabled')
-        const shouldUpdateRetrievalEmbeddingAssignmentId = Object.prototype.hasOwnProperty.call(body, 'retrievalEmbeddingAssignmentId')
+        const shouldUpdateRetrievalEmbeddingGroupId = Object.prototype.hasOwnProperty.call(body, 'retrievalEmbeddingGroupId')
         const shouldUpdateRetrievalRerankerEnabled = Object.prototype.hasOwnProperty.call(body, 'retrievalRerankerEnabled')
-        const shouldUpdateRetrievalRerankerAssignmentId = Object.prototype.hasOwnProperty.call(body, 'retrievalRerankerAssignmentId')
+        const shouldUpdateRetrievalRerankerGroupId = Object.prototype.hasOwnProperty.call(body, 'retrievalRerankerGroupId')
         const shouldUpdateRetrievalTopK = Object.prototype.hasOwnProperty.call(body, 'retrievalTopK')
         const shouldUpdateCodexSessionAutoCleanup = Object.prototype.hasOwnProperty.call(body, 'codexSessionAutoCleanup')
         const shouldUpdateCodexSessionRetentionLimit = Object.prototype.hasOwnProperty.call(body, 'codexSessionRetentionLimit')
@@ -158,44 +157,44 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         const nextEmbeddingEnabled = shouldUpdateRetrievalEmbeddingEnabled
             ? retrievalEmbeddingEnabled
             : existing.retrievalEmbeddingEnabled
-        const nextEmbeddingAssignmentId = shouldUpdateRetrievalEmbeddingAssignmentId
-            ? (typeof retrievalEmbeddingAssignmentId === 'string' && retrievalEmbeddingAssignmentId.trim()
-                ? retrievalEmbeddingAssignmentId.trim()
+        const nextEmbeddingGroupId = shouldUpdateRetrievalEmbeddingGroupId
+            ? (typeof retrievalEmbeddingGroupId === 'string' && retrievalEmbeddingGroupId.trim()
+                ? retrievalEmbeddingGroupId.trim()
                 : null)
-            : existing.retrievalEmbeddingAssignmentId
+            : existing.retrievalEmbeddingGroupId
         const nextRerankerEnabled = shouldUpdateRetrievalRerankerEnabled
             ? retrievalRerankerEnabled
             : existing.retrievalRerankerEnabled
-        const nextRerankerAssignmentId = shouldUpdateRetrievalRerankerAssignmentId
-            ? (typeof retrievalRerankerAssignmentId === 'string' && retrievalRerankerAssignmentId.trim()
-                ? retrievalRerankerAssignmentId.trim()
+        const nextRerankerGroupId = shouldUpdateRetrievalRerankerGroupId
+            ? (typeof retrievalRerankerGroupId === 'string' && retrievalRerankerGroupId.trim()
+                ? retrievalRerankerGroupId.trim()
                 : null)
-            : existing.retrievalRerankerAssignmentId
+            : existing.retrievalRerankerGroupId
 
-        if (nextEmbeddingEnabled && !nextEmbeddingAssignmentId) {
-            return NextResponse.json({ detail: 'Select an embedding model before enabling embedding retrieval' }, { status: 400 })
+        if (nextEmbeddingEnabled && !nextEmbeddingGroupId) {
+            return NextResponse.json({ detail: 'Select an embedding model group before enabling embedding retrieval' }, { status: 400 })
         }
-        if (nextRerankerEnabled && !nextRerankerAssignmentId) {
-            return NextResponse.json({ detail: 'Select a reranker model before enabling reranking' }, { status: 400 })
+        if (nextRerankerEnabled && !nextRerankerGroupId) {
+            return NextResponse.json({ detail: 'Select a reranker model group before enabling reranking' }, { status: 400 })
         }
         const embeddingConfigChanged =
             nextEmbeddingEnabled !== existing.retrievalEmbeddingEnabled
-            || nextEmbeddingAssignmentId !== existing.retrievalEmbeddingAssignmentId
+            || nextEmbeddingGroupId !== existing.retrievalEmbeddingGroupId
         const rerankerConfigChanged =
             nextRerankerEnabled !== existing.retrievalRerankerEnabled
-            || nextRerankerAssignmentId !== existing.retrievalRerankerAssignmentId
+            || nextRerankerGroupId !== existing.retrievalRerankerGroupId
         try {
-            if (embeddingConfigChanged && nextEmbeddingEnabled && nextEmbeddingAssignmentId) {
-                await loadRetrievalAssignment(prisma, {
+            if (embeddingConfigChanged && nextEmbeddingEnabled && nextEmbeddingGroupId) {
+                await loadRetrievalGroup(prisma, {
                     ownerId: user.userId,
-                    assignmentId: nextEmbeddingAssignmentId,
+                    groupId: nextEmbeddingGroupId,
                     capability: 'embedding',
                 })
             }
-            if (rerankerConfigChanged && nextRerankerEnabled && nextRerankerAssignmentId) {
-                await loadRetrievalAssignment(prisma, {
+            if (rerankerConfigChanged && nextRerankerEnabled && nextRerankerGroupId) {
+                await loadRetrievalGroup(prisma, {
                     ownerId: user.userId,
-                    assignmentId: nextRerankerAssignmentId,
+                    groupId: nextRerankerGroupId,
                     capability: 'reranker',
                 })
             }
@@ -203,21 +202,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             return NextResponse.json({
                 detail: error instanceof Error ? error.message : 'Selected retrieval model is unavailable.',
             }, { status: 400 })
-        }
-
-        const embeddingAssignmentChanged =
-            shouldUpdateRetrievalEmbeddingAssignmentId
-            && nextEmbeddingAssignmentId !== existing.retrievalEmbeddingAssignmentId
-        if (embeddingAssignmentChanged && resetRetrievalEmbeddings !== true) {
-            const cachedEmbeddingCount = await prisma.sceneRetrievalIndex.count({
-                where: { novelId: id, embeddingJson: { not: null } },
-            })
-            if (cachedEmbeddingCount > 0) {
-                return NextResponse.json({
-                    detail: 'Changing the embedding model requires explicit cache reset confirmation.',
-                    code: 'RETRIEVAL_EMBEDDING_RESET_REQUIRED',
-                }, { status: 409 })
-            }
         }
 
         const nextCoverImage = shouldUpdateCoverImage ? (coverImage || null) : existing.coverImage
@@ -250,9 +234,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                     ? termContextIncludesExperiences
                     : existing.termContextIncludesExperiences,
                 retrievalEmbeddingEnabled: nextEmbeddingEnabled,
-                retrievalEmbeddingAssignmentId: nextEmbeddingAssignmentId,
+                retrievalEmbeddingGroupId: nextEmbeddingGroupId,
                 retrievalRerankerEnabled: nextRerankerEnabled,
-                retrievalRerankerAssignmentId: nextRerankerAssignmentId,
+                retrievalRerankerGroupId: nextRerankerGroupId,
                 retrievalTopK: shouldUpdateRetrievalTopK ? retrievalTopK : existing.retrievalTopK,
                 codexSessionAutoCleanup: shouldUpdateCodexSessionAutoCleanup
                     ? codexSessionAutoCleanup
@@ -262,20 +246,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                 codexPetId: shouldUpdateCodexPetId ? codexPetId : existing.codexPetId,
                 },
             }),
-            ...(embeddingAssignmentChanged && resetRetrievalEmbeddings === true
-                ? [prisma.sceneRetrievalIndex.updateMany({
-                    where: { novelId: id },
-                    data: {
-                        embeddingJson: null,
-                        embeddingHash: null,
-                        embeddingAssignmentId: null,
-                        embeddingModelId: null,
-                        embeddingDimensions: null,
-                        embeddingError: null,
-                        embeddingUpdatedAt: null,
-                    },
-                })]
-                : []),
         ])
 
         // Orphaned cover files (replaced or cleared here) are reclaimed by the

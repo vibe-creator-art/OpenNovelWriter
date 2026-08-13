@@ -25,12 +25,14 @@ export async function POST(request: NextRequest) {
                   skillId?: unknown
                   name?: unknown
                   description?: unknown
+                  enabled?: unknown
               }
             | null
 
         const skillId = typeof body?.skillId === 'string' ? body.skillId.trim() : ''
         const name = typeof body?.name === 'string' ? body.name.trim() : ''
         const description = body?.description === null ? null : typeof body?.description === 'string' ? body.description.trim() || null : null
+        const enabled = typeof body?.enabled === 'boolean' ? body.enabled : undefined
 
         if (!skillId) {
             return NextResponse.json({ detail: 'skillId is required.' }, { status: 400 })
@@ -51,6 +53,7 @@ export async function POST(request: NextRequest) {
             name,
             description,
             revision: 1,
+            enabled,
         })
         if (!built.ok) {
             return NextResponse.json({ detail: built.detail }, { status: built.status })

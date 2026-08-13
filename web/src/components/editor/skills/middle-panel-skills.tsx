@@ -38,7 +38,6 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import { SkillPresetLibrarySection } from '@/components/editor/skills/skill-preset-library-section'
@@ -213,6 +212,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
     const [publishDialogMode, setPublishDialogMode] = useState<'create' | 'overwrite'>('create')
     const [publishPresetName, setPublishPresetName] = useState('')
     const [publishDescription, setPublishDescription] = useState('')
+    const [publishEnabled, setPublishEnabled] = useState(true)
     const [publishOverwritePresetId, setPublishOverwritePresetId] = useState('')
     const [publishBusy, setPublishBusy] = useState(false)
     const [publishError, setPublishError] = useState<string | null>(null)
@@ -788,19 +788,26 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
     const handleOpenPublishDialog = useCallback((mode: 'create' | 'overwrite') => {
         if (!selectedSkill) return
 
-        const skillName = (selectedSkill.name ?? '').trim() || t('actions.newSkillName')
+        const skillName = draftSkillName.trim() || t('actions.newSkillName')
         const key = skillName.trim().toLowerCase()
-        const matchingPreset = builtinPresets.find(
-            (preset) => preset.entrySkillName.trim().toLowerCase() === key || preset.name.trim().toLowerCase() === key
-        ) ?? builtinPresets[0] ?? null
+        const matchingPreset =
+            (selectedSkill.sourcePresetId
+                ? builtinPresets.find((preset) => preset.presetId === selectedSkill.sourcePresetId)
+                : null)
+            ?? builtinPresets.find(
+                (preset) => preset.entrySkillName.trim().toLowerCase() === key || preset.name.trim().toLowerCase() === key
+            )
+            ?? builtinPresets[0]
+            ?? null
 
         setPublishDialogMode(mode)
-        setPublishPresetName(mode === 'overwrite' ? matchingPreset?.name ?? skillName : skillName)
-        setPublishDescription(mode === 'overwrite' ? matchingPreset?.description ?? selectedSkill.description ?? '' : selectedSkill.description ?? '')
-        setPublishOverwritePresetId(matchingPreset?.presetId ?? builtinPresets[0]?.presetId ?? '')
+        setPublishPresetName(skillName)
+        setPublishDescription(draftSkillDescription)
+        setPublishEnabled(selectedSkill.enabled)
+        setPublishOverwritePresetId(matchingPreset?.presetId ?? '')
         setPublishError(null)
         setPublishDialogOpen(true)
-    }, [builtinPresets, selectedSkill, t])
+    }, [builtinPresets, draftSkillDescription, draftSkillName, selectedSkill, t])
 
     const handlePublishDialogOpenChange = useCallback((open: boolean) => {
         setPublishDialogOpen(open)
@@ -819,6 +826,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                     skillId: selectedSkill.id,
                     name: publishPresetName,
                     description,
+                    enabled: publishEnabled,
                 })
             } else {
                 if (!publishOverwritePresetId) {
@@ -828,6 +836,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                     skillId: selectedSkill.id,
                     name: publishPresetName,
                     description,
+                    enabled: publishEnabled,
                 })
             }
 
@@ -840,7 +849,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
         } finally {
             setPublishBusy(false)
         }
-    }, [loadBuiltinPresets, publishDescription, publishDialogMode, publishOverwritePresetId, publishPresetName, selectedSkill, t])
+    }, [loadBuiltinPresets, publishDescription, publishDialogMode, publishEnabled, publishOverwritePresetId, publishPresetName, selectedSkill, t])
 
     const saveLabel = useMemo(() => {
         if (saveState === 'saving') return t('status.saving')
@@ -859,8 +868,8 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
 
     return (
         <>
-        <div className="flex h-full min-h-0">
-            <section className="w-[340px] shrink-0 border-r bg-card flex flex-col">
+        <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
+            <section className="flex w-[340px] max-w-[340px] min-w-0 shrink-0 flex-col overflow-hidden border-r bg-card">
                 <div className="border-b p-3">
                     <div className="flex items-center gap-2">
                         <div className="relative flex-1">
@@ -913,14 +922,14 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
 
                 {error && <div className="border-b px-3 py-2 text-sm text-destructive">{error}</div>}
 
-                <ScrollArea className="flex-1">
-                    <div className="py-2">
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden onw-editor-scrollbar">
+                    <div className="min-w-0 max-w-full py-2">
                         {categories.map((category) => {
                             const expanded = expandedCategories[category.id]
                             const items = skillsByCategory[category.id]
 
                             return (
-                                <div key={category.id} className="mb-1">
+                                <div key={category.id} className="mb-1 min-w-0 max-w-full">
                                     <div
                                         className={cn(
                                             'w-full flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors',
@@ -935,7 +944,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                                 handleToggleCategory(category.id)
                                             }}
                                         >
-                                            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                            {expanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
                                             <category.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                                             <span className="truncate">{category.label}</span>
                                             <span className="ml-auto text-xs text-muted-foreground">
@@ -954,7 +963,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                     </div>
 
                                     {expanded && (
-                                        <div className="px-2 pb-2">
+                                        <div className="min-w-0 max-w-full px-2 pb-2">
                                             {items.length === 0 ? (
                                                 <div className="px-2 py-2 text-xs text-muted-foreground">{t('library.empty')}</div>
                                             ) : (
@@ -966,7 +975,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                                             role="button"
                                                             tabIndex={0}
                                                             className={cn(
-                                                                'group mb-1 w-full rounded-xl border px-3 py-2 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/70 focus-visible:ring-offset-1',
+                                                                'group mb-1 box-border w-full max-w-full min-w-0 overflow-hidden rounded-xl border px-3 py-2 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/70 focus-visible:ring-offset-1',
                                                                 isActive
                                                                     ? 'border-primary/40 bg-muted'
                                                                     : skill.enabled
@@ -981,18 +990,19 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                                                 }
                                                             }}
                                                         >
-                                                            <div className="flex items-center gap-2">
+                                                            <div className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-2 overflow-hidden">
                                                                 <category.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                                                                 <span
+                                                                    title={skill.name}
                                                                     className={cn(
-                                                                        'truncate text-sm font-medium',
+                                                                        'block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium',
                                                                         !skill.enabled && 'text-muted-foreground',
                                                                         skill.sourcePresetId && 'italic text-muted-foreground'
                                                                     )}
                                                                 >
                                                                     {skill.name}
                                                                 </span>
-                                                                <div className="ml-auto flex items-center gap-1">
+                                                                <div className="flex shrink-0 items-center gap-1">
                                                                     <button
                                                                         type="button"
                                                                         className={cn(
@@ -1030,7 +1040,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                                                                 </div>
                                                             </div>
                                                             {skill.description ? (
-                                                                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                                                                <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">
                                                                     {skill.description}
                                                                 </p>
                                                             ) : null}
@@ -1044,7 +1054,7 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
                             )
                         })}
                     </div>
-                </ScrollArea>
+                </div>
             </section>
 
             <section className="flex-1 min-w-0 flex flex-col">
@@ -1263,20 +1273,15 @@ export function MiddlePanelSkills({ novelId }: MiddlePanelSkillsProps) {
             presets={builtinPresets}
             presetName={publishPresetName}
             description={publishDescription}
+            enabled={publishEnabled}
             overwritePresetId={publishOverwritePresetId}
             busy={publishBusy}
             error={publishError}
             onOpenChange={handlePublishDialogOpenChange}
             onPresetNameChange={setPublishPresetName}
             onDescriptionChange={setPublishDescription}
-            onOverwritePresetIdChange={(presetId) => {
-                const preset = builtinPresets.find((item) => item.presetId === presetId) ?? null
-                setPublishOverwritePresetId(presetId)
-                if (preset) {
-                    setPublishPresetName(preset.name)
-                    setPublishDescription(preset.description ?? '')
-                }
-            }}
+            onEnabledChange={setPublishEnabled}
+            onOverwritePresetIdChange={setPublishOverwritePresetId}
             onSubmit={() => void handleSubmitPublishDialog()}
         />
         </>

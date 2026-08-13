@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getCurrentUser } from '@/lib/auth'
+import { isPresetAuthoringEnabled } from '@/lib/preset-authoring'
 import {
     AgentNotFoundError,
     deleteAgent,
@@ -47,6 +48,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
         if (name === undefined && content === undefined && enabled === undefined) {
             return NextResponse.json({ detail: 'No updates provided' }, { status: 400 })
+        }
+
+        // Agents cloned from an official preset are read-only unless preset authoring is enabled.
+        // Enabling/disabling is still allowed so a cloned agent can be used without editing it.
+        const existing = await readAgent(user.userId, id)
+        if (
+            existing.sourcePresetId
+            && !isPresetAuthoringEnabled()
+            && (name !== undefined || content !== undefined)
+        ) {
+            return NextResponse.json(
+                { detail: 'This agent is from an official preset. Clone it before editing.', code: 'PRESET_SOURCED_READ_ONLY' },
+                { status: 403 }
+            )
         }
 
         const agent = await updateAgent({

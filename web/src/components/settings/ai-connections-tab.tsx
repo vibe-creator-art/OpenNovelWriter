@@ -59,6 +59,7 @@ import {
     type CherryStudioModelType,
 } from '@/lib/cherrystudio-model-config'
 import { dispatchModelGroupsChangedEvent } from '@/lib/model-group-events'
+import { dispatchModelSetsChangedEvent } from '@/lib/model-set-events'
 import { cn } from '@/lib/utils'
 import {
     createId,
@@ -160,6 +161,7 @@ export function AIConnectionsTab() {
         addGroup,
         updateGroup: updateGroupLocal,
         removeGroup: removeGroupLocal,
+        setSets,
         setGroupAssignments: setGroupAssignmentsLocal,
         updateAssignment: updateAssignmentLocal,
     } = useAiStore()
@@ -352,6 +354,9 @@ export function AIConnectionsTab() {
         dispatchModelGroupsChangedEvent()
         try {
             await aiApi.deleteGroup(id)
+            const { sets } = await aiApi.listModelSets()
+            setSets(sets ?? [])
+            dispatchModelSetsChangedEvent()
         } catch {
             // ignore
         }

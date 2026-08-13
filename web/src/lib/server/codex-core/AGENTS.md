@@ -17,6 +17,7 @@
 - 创建、迁移、修改、删除用户技能，或把外部 skill 仓库改写为 ONW 格式 → `edit-skills`
 - 生成或编辑图片 → 优先使用原生 `imagegen` skill 和 `image_gen` 工具；当前连接无法使用原生能力时，再回退到 `onw-imagegen`
 - 从全文查找场景、回忆前文或核对连续性 → `story-context-retrieval`
+- 维护或查询时序实体、事实、别名、Moment 与来源证据 → `story-state`
 
 调用工具时使用工作区投影中标注的 `novel_id`、`act_number`、`chapter_id`、`scene_id`、`term_id`。
 

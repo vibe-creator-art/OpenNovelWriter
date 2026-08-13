@@ -486,7 +486,10 @@ function ModelSetCard({
     const [nameDraft, setNameDraft] = useState(setItem.name)
     const [isEditingName, setIsEditingName] = useState(false)
 
-    const memberIds = setItem.members.map((member) => `member-${setItem.id}-${member.groupId}`)
+    const visibleMembers = groups.length === 0
+        ? setItem.members
+        : setItem.members.filter((member) => groups.some((group) => group.id === member.groupId))
+    const memberIds = visibleMembers.map((member) => `member-${setItem.id}-${member.groupId}`)
 
     const commitNameDraft = async () => {
         const result = await onRenameSet(setItem.id, nameDraft)
@@ -546,7 +549,7 @@ function ModelSetCard({
                         )}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                        {t('setOrderHint')} · {t('setSummary', { count: setItem.members.length })}
+                        {t('setOrderHint')} · {t('setSummary', { count: visibleMembers.length })}
                     </div>
                 </div>
 
@@ -560,17 +563,17 @@ function ModelSetCard({
 
             {collapsed ? (
                 <div className="rounded-md border border-dashed border-muted px-3 py-3 text-xs text-muted-foreground">
-                    {setItem.members.length === 0 ? t('emptySet') : t('collapsedMembersHint', { count: setItem.members.length })}
+                    {visibleMembers.length === 0 ? t('emptySet') : t('collapsedMembersHint', { count: visibleMembers.length })}
                 </div>
             ) : (
                 <SortableContext items={memberIds} strategy={verticalListSortingStrategy}>
                     <div className="space-y-2">
-                        {setItem.members.length === 0 ? (
+                        {visibleMembers.length === 0 ? (
                             <div className="rounded-md border border-dashed border-muted px-3 py-3 text-xs text-muted-foreground">
                                 {t('emptySet')}
                             </div>
                         ) : (
-                            setItem.members.map((member) => {
+                            visibleMembers.map((member) => {
                                 const group = groups.find((item) => item.id === member.groupId)
                                 return (
                                     <SetMemberItem

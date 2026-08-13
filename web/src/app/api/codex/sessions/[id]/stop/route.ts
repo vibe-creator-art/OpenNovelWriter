@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
-import { interruptAndWaitForActiveCodexRun } from '@/lib/server/codex-app-server'
-import { serializeCodexSession } from '@/lib/server/codex-session'
+import { interruptAndWaitForActiveCodexRun, updateNovelCodexGoal } from '@/lib/server/codex-app-server'
+import { parseCodexThreadGoal, serializeCodexSession } from '@/lib/server/codex-session'
 
 interface RouteContext {
     params: Promise<unknown>
@@ -27,6 +27,19 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             where: { id, ownerId: user.userId },
         })
         if (!existing) return NextResponse.json({ detail: 'Codex session not found' }, { status: 404 })
+        const currentGoal = parseCodexThreadGoal(existing.goalJson)
+        const codexThreadId = currentGoal?.threadId ?? existing.codexThreadId
+        let nextGoal = currentGoal
+        if (currentGoal?.status === 'active' && codexThreadId) {
+            const result = await updateNovelCodexGoal({
+                sessionId: existing.id,
+                ownerId: user.userId,
+                codexThreadId,
+                codexConnectionId: existing.codexConnectionId,
+                status: 'paused',
+            })
+            nextGoal = result.goal
+        }
         const interrupted = await interruptAndWaitForActiveCodexRun(id)
         if (!interrupted && existing.status !== 'running') {
             return NextResponse.json({ ok: true, session: serializeCodexSession(existing) })
@@ -38,6 +51,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 status: 'idle',
                 lastError: null,
                 unreadCompletionAt: null,
+                codexThreadId,
+                goalJson: nextGoal ? JSON.stringify(nextGoal) : null,
                 updatedAt: new Date(),
             },
         })

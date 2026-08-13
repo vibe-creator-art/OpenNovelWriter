@@ -15,7 +15,8 @@ function createSession(overrides: Partial<CodexSession> = {}): CodexSession {
         modelId: 'gpt-5.6-luna',
         reasoningEffort: 'high',
         serviceTier: 'standard',
-        planMode: false,
+        composerMode: 'default',
+        goal: null,
         codexThreadId: null,
         codexConnectionId: null,
         draftContent: '',
@@ -62,5 +63,32 @@ describe('mergeServerSession', () => {
         assert.equal(merged.unreadCompletionAt, '2026-08-05T00:00:02.000Z')
         assert.equal(merged.messages[0]?.content, 'complete')
         assert.equal(merged.draftContent, 'unsaved draft')
+    })
+
+    test('accepts the authoritative paused goal state and persisted turn messages', () => {
+        const local = createSession({
+            status: 'running',
+            messages: [{ id: 'stream', role: 'assistant', content: 'stale', createdAt: '2026-08-05T00:00:01.000Z' }],
+        })
+        const server = createSession({
+            status: 'idle',
+            goal: {
+                threadId: 'thread-1',
+                objective: 'Keep counting',
+                status: 'paused',
+                tokenBudget: null,
+                tokensUsed: 100,
+                timeUsedSeconds: 60,
+                createdAt: 1_786_000_000,
+                updatedAt: 1_786_000_060,
+            },
+            messages: [{ id: 'persisted', role: 'assistant', content: '2', createdAt: '2026-08-05T00:00:02.000Z' }],
+        })
+
+        const merged = mergeServerSession(local, server, { preserveRunning: false })
+
+        assert.equal(merged.status, 'idle')
+        assert.equal(merged.goal?.status, 'paused')
+        assert.equal(merged.messages[0]?.content, '2')
     })
 })

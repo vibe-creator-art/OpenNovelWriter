@@ -4,13 +4,18 @@ import { getCurrentUser } from '@/lib/auth'
 import { normalizeLabelIds } from '@/lib/labels'
 import { serializeScene } from '@/lib/scenes'
 import { normalizeTermIds } from '@/lib/term-ids'
-import { syncNovelWorkspaceChapter, syncNovelWorkspaceOutline } from '@/lib/server/novel-workspace'
+import {
+    syncNovelWorkspaceChapter,
+    syncNovelWorkspaceOutline,
+    syncNovelWorkspaceStoryState,
+} from '@/lib/server/novel-workspace'
 import { cascadeDeleteContinuationDraftsForScenes } from '@/lib/server/continuation-draft'
 import {
     recordNovelWritingDelta,
     updateChapterWordCount,
     updateSceneContentWithStats,
 } from '@/lib/server/manuscript-word-count'
+import { deactivateStoryEpisodesForScene } from '@/lib/server/story-state'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -174,6 +179,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         const deletedCodexSessionIds = await cascadeDeleteContinuationDraftsForScenes(user.userId, [id])
 
         await prisma.$transaction(async (tx) => {
+            await deactivateStoryEpisodesForScene(tx, id)
             await tx.scene.delete({ where: { id } })
             const remainingScenes = await tx.scene.findMany({
                 where: { chapterId: scene.chapterId },
@@ -189,6 +195,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         await Promise.all([
             syncNovelWorkspaceOutline(user.userId, scene.chapter.novelId),
             syncNovelWorkspaceChapter(user.userId, scene.chapter.novelId, scene.chapter.id),
+            syncNovelWorkspaceStoryState(user.userId, scene.chapter.novelId),
         ])
 
         return NextResponse.json({ message: 'Scene deleted', deletedCodexSessionIds })

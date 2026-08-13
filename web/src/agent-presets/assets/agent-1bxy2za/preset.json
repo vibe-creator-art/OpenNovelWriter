@@ -1,0 +1,12 @@
+{
+  "schema": "open-novel-writer/agent-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "agent-1bxy2za",
+    "name": "通用写作助手",
+    "description": null,
+    "revision": 1.1,
+    "exportedAt": "2026-08-13T13:39:51.411Z"
+  },
+  "agent": "agent"
+}

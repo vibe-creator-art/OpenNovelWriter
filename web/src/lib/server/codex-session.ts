@@ -8,6 +8,19 @@ export type CodexSessionMessageRole = 'user' | 'assistant' | 'event'
 export type CodexReviewLevel = 'user_review' | 'auto_review' | 'no_review' | 'full_access'
 export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
 export type CodexServiceTier = 'standard' | 'fast'
+export type CodexComposerMode = 'default' | 'plan' | 'goal'
+export type CodexThreadGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
+
+export type CodexThreadGoal = {
+    threadId: string
+    objective: string
+    status: CodexThreadGoalStatus
+    tokenBudget: number | null
+    tokensUsed: number
+    timeUsedSeconds: number
+    createdAt: number
+    updatedAt: number
+}
 
 export const DEFAULT_CODEX_REVIEW_LEVEL: CodexReviewLevel = 'user_review'
 export const DEFAULT_CODEX_REASONING_EFFORT: CodexReasoningEffort = 'high'
@@ -25,6 +38,7 @@ export type CodexSessionMessage = {
     jsonArtifacts?: string[]
     /** Text selected from earlier Codex replies and attached as turn context. */
     responseAnnotations?: CodexResponseAnnotation[]
+    sentAsGoal?: boolean
     createdAt: string
 }
 
@@ -92,6 +106,61 @@ export function normalizeCodexServiceTier(value: unknown): CodexServiceTier | nu
         return value
     }
     return null
+}
+
+export function normalizeCodexComposerMode(value: unknown): CodexComposerMode | null {
+    return value === 'default' || value === 'plan' || value === 'goal' ? value : null
+}
+
+export function normalizeCodexThreadGoal(value: unknown): CodexThreadGoal | null {
+    if (!value || typeof value !== 'object') return null
+    const record = value as Record<string, unknown>
+    const status = record.status
+    if (
+        status !== 'active' &&
+        status !== 'paused' &&
+        status !== 'blocked' &&
+        status !== 'usageLimited' &&
+        status !== 'budgetLimited' &&
+        status !== 'complete'
+    ) {
+        return null
+    }
+    if (
+        typeof record.threadId !== 'string' ||
+        typeof record.objective !== 'string' ||
+        !record.objective.trim() ||
+        (record.tokenBudget !== null && (typeof record.tokenBudget !== 'number' || !Number.isFinite(record.tokenBudget))) ||
+        typeof record.tokensUsed !== 'number' ||
+        !Number.isFinite(record.tokensUsed) ||
+        typeof record.timeUsedSeconds !== 'number' ||
+        !Number.isFinite(record.timeUsedSeconds) ||
+        typeof record.createdAt !== 'number' ||
+        !Number.isFinite(record.createdAt) ||
+        typeof record.updatedAt !== 'number' ||
+        !Number.isFinite(record.updatedAt)
+    ) {
+        return null
+    }
+    return {
+        threadId: record.threadId,
+        objective: record.objective,
+        status,
+        tokenBudget: record.tokenBudget,
+        tokensUsed: record.tokensUsed,
+        timeUsedSeconds: record.timeUsedSeconds,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+    }
+}
+
+export function parseCodexThreadGoal(value: string | null | undefined) {
+    if (!value) return null
+    try {
+        return normalizeCodexThreadGoal(JSON.parse(value) as unknown)
+    } catch {
+        return null
+    }
 }
 
 export function normalizeCodexString(value: unknown) {
@@ -178,6 +247,7 @@ export function parseCodexSessionMessages(value: string | null | undefined): Cod
                     )
                     : []
                 const responseAnnotations = normalizeCodexResponseAnnotations(record.responseAnnotations)
+                const sentAsGoal = record.sentAsGoal === true
                 return {
                     id,
                     role,
@@ -187,6 +257,7 @@ export function parseCodexSessionMessages(value: string | null | undefined): Cod
                     attachments,
                     jsonArtifacts,
                     ...(responseAnnotations.length ? { responseAnnotations } : {}),
+                    ...(sentAsGoal ? { sentAsGoal: true } : {}),
                     createdAt,
                 }
             })
@@ -249,7 +320,8 @@ export function serializeCodexSession(record: CodexSessionRecord) {
         modelId: normalizeCodexStringId(record.modelId) ?? DEFAULT_CODEX_MODEL,
         reasoningEffort: normalizeCodexReasoningEffort(record.reasoningEffort) ?? DEFAULT_CODEX_REASONING_EFFORT,
         serviceTier: normalizeCodexServiceTier(record.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER,
-        planMode: record.planMode,
+        composerMode: normalizeCodexComposerMode(record.composerMode) ?? 'default',
+        goal: parseCodexThreadGoal(record.goalJson),
         codexThreadId: record.codexThreadId,
         codexConnectionId: record.codexConnectionId,
         draftContent: record.draftContent,

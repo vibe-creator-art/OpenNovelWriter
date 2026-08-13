@@ -1,5 +1,11 @@
 import { detectCherryStudioModelTypes } from '@/lib/cherrystudio-model-config'
-import { normalizeGroupModelTypes } from '@/lib/ai-group-config'
+import {
+    computeFailureUpdates,
+    getResetAssignmentHealth,
+    normalizeFailurePolicy,
+    normalizeGroupModelTypes,
+    type FailurePolicy,
+} from '@/lib/ai-group-config'
 import type { PrismaClient } from '@/generated/prisma/client'
 import { decryptApiKey } from '@/lib/server/ai-credentials'
 import { parseProviderType, resolveBaseUrl, type ProviderType } from '@/lib/server/ai-providers'
@@ -15,9 +21,25 @@ export type RetrievalModelOption = {
     providerType: ProviderType
 }
 
+export type RetrievalModelGroupOption = {
+    groupId: string
+    groupName: string
+    models: RetrievalModelOption[]
+}
+
 type LoadedRetrievalAssignment = RetrievalModelOption & {
     baseUrl: string
     apiKey: string
+    failureCount: number
+    ignoredUntil: Date | null
+    manuallyDisabled: boolean
+}
+
+export type LoadedRetrievalGroup = {
+    groupId: string
+    groupName: string
+    failurePolicy: FailurePolicy
+    assignments: LoadedRetrievalAssignment[]
 }
 
 function safeJsonParse(value: string | null | undefined) {
@@ -65,7 +87,7 @@ function getModelName(modelsJson: string, modelId: string) {
 }
 
 const retrievalAssignmentInclude = {
-    group: { select: { name: true, modelTypesJson: true } },
+    group: { select: { id: true, name: true, modelTypesJson: true, failurePolicyJson: true } },
     connection: {
         select: {
             name: true,
@@ -78,53 +100,23 @@ const retrievalAssignmentInclude = {
     },
 } as const
 
-export async function listRetrievalModelOptions(
-    prisma: PrismaClient,
-    ownerId: string,
-    capability: RetrievalModelCapability
-): Promise<RetrievalModelOption[]> {
-    const assignments = await prisma.aiModelAssignment.findMany({
-        where: { ownerId },
-        include: retrievalAssignmentInclude,
-        orderBy: [{ group: { sortOrder: 'asc' } }, { sortOrder: 'asc' }],
-    })
-
-    return assignments.flatMap((assignment) => {
-        const providerType = parseProviderType(assignment.connection.providerType)
-        if (!providerType || !isAssignmentAvailable(assignment)) return []
-        if (!getAssignmentCapability(assignment)[capability]) return []
-        if (capability === 'reranker' && providerType !== 'openai-chat') return []
-        return [{
-            assignmentId: assignment.id,
-            modelId: assignment.modelId,
-            modelName: getModelName(assignment.connection.modelsJson, assignment.modelId),
-            groupName: assignment.group.name,
-            connectionName: assignment.connection.name,
-            providerType,
-        }]
-    })
-}
-
-export async function loadRetrievalAssignment(
-    prisma: PrismaClient,
-    input: { ownerId: string; assignmentId: string; capability: RetrievalModelCapability }
-): Promise<LoadedRetrievalAssignment> {
-    const assignment = await prisma.aiModelAssignment.findFirst({
-        where: { id: input.assignmentId, ownerId: input.ownerId },
-        include: retrievalAssignmentInclude,
-    })
-    if (!assignment || !isAssignmentAvailable(assignment)) {
-        throw new Error('Selected retrieval model is unavailable.')
+function toLoadedAssignment(assignment: {
+    id: string
+    modelId: string
+    failureCount: number
+    ignoredUntil: Date | null
+    manuallyDisabled: boolean
+    group: { id: string; name: string }
+    connection: {
+        name: string
+        providerType: string
+        baseUrl: string | null
+        encryptedApiKey: string
+        modelsJson: string
     }
-
+}) {
     const providerType = parseProviderType(assignment.connection.providerType)
-    if (!providerType || !getAssignmentCapability(assignment)[input.capability]) {
-        throw new Error(`Selected model does not support ${input.capability}.`)
-    }
-    if (input.capability === 'reranker' && providerType !== 'openai-chat') {
-        throw new Error('The selected reranker connection does not expose an OpenAI-compatible rerank endpoint.')
-    }
-
+    if (!providerType) return null
     return {
         assignmentId: assignment.id,
         modelId: assignment.modelId,
@@ -134,7 +126,126 @@ export async function loadRetrievalAssignment(
         providerType,
         baseUrl: resolveBaseUrl(providerType, assignment.connection.baseUrl),
         apiKey: decryptApiKey(assignment.connection.encryptedApiKey),
+        failureCount: assignment.failureCount,
+        ignoredUntil: assignment.ignoredUntil,
+        manuallyDisabled: assignment.manuallyDisabled,
+    } satisfies LoadedRetrievalAssignment
+}
+
+export async function listRetrievalModelGroups(
+    prisma: PrismaClient,
+    ownerId: string,
+    capability: RetrievalModelCapability
+): Promise<RetrievalModelGroupOption[]> {
+    const assignments = await prisma.aiModelAssignment.findMany({
+        where: { ownerId },
+        include: retrievalAssignmentInclude,
+        orderBy: [{ group: { sortOrder: 'asc' } }, { sortOrder: 'asc' }],
+    })
+
+    const grouped = new Map<string, RetrievalModelGroupOption>()
+    for (const assignment of assignments) {
+        const providerType = parseProviderType(assignment.connection.providerType)
+        if (!providerType || !isAssignmentAvailable(assignment)) continue
+        if (!getAssignmentCapability(assignment)[capability]) continue
+        if (capability === 'reranker' && providerType !== 'openai-chat') continue
+        const option = {
+            assignmentId: assignment.id,
+            modelId: assignment.modelId,
+            modelName: getModelName(assignment.connection.modelsJson, assignment.modelId),
+            groupName: assignment.group.name,
+            connectionName: assignment.connection.name,
+            providerType,
+        }
+        const current = grouped.get(assignment.group.id)
+        if (current) {
+            current.models.push(option)
+        } else {
+            grouped.set(assignment.group.id, {
+                groupId: assignment.group.id,
+                groupName: assignment.group.name,
+                models: [option],
+            })
+        }
     }
+    return Array.from(grouped.values())
+}
+
+export async function loadRetrievalGroup(
+    prisma: PrismaClient,
+    input: { ownerId: string; groupId: string; capability: RetrievalModelCapability }
+): Promise<LoadedRetrievalGroup> {
+    const group = await prisma.aiModelGroup.findFirst({
+        where: { id: input.groupId, ownerId: input.ownerId },
+        select: {
+            id: true,
+            name: true,
+            failurePolicyJson: true,
+            assignments: {
+                include: retrievalAssignmentInclude,
+                orderBy: { sortOrder: 'asc' },
+            },
+        },
+    })
+    if (!group) throw new Error('Selected retrieval model group is unavailable.')
+
+    const assignments = group.assignments.flatMap((assignment) => {
+        const providerType = parseProviderType(assignment.connection.providerType)
+        if (!providerType || !isAssignmentAvailable(assignment)) return []
+        if (!getAssignmentCapability(assignment)[input.capability]) return []
+        if (input.capability === 'reranker' && providerType !== 'openai-chat') return []
+        const loaded = toLoadedAssignment(assignment)
+        return loaded ? [loaded] : []
+    })
+    if (assignments.length === 0) {
+        throw new Error(`Selected retrieval model group has no available ${input.capability} assignment.`)
+    }
+    return {
+        groupId: group.id,
+        groupName: group.name,
+        failurePolicy: normalizeFailurePolicy(safeJsonParse(group.failurePolicyJson)),
+        assignments,
+    }
+}
+
+async function runRetrievalGroupWithFallback<T>(
+    prisma: PrismaClient,
+    group: LoadedRetrievalGroup,
+    run: (assignment: LoadedRetrievalAssignment) => Promise<T>
+) {
+    let lastError: unknown = null
+    for (const assignment of group.assignments) {
+        try {
+            const value = await run(assignment)
+            if (assignment.failureCount || assignment.ignoredUntil || assignment.manuallyDisabled) {
+                await prisma.aiModelAssignment.update({
+                    where: { id: assignment.assignmentId },
+                    data: getResetAssignmentHealth(),
+                })
+            }
+            return { value, assignment }
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') throw error
+            lastError = error
+            const updates = computeFailureUpdates({
+                assignment: {
+                    failureCount: assignment.failureCount,
+                    ignoredUntil: assignment.ignoredUntil?.toISOString() ?? null,
+                    manuallyDisabled: assignment.manuallyDisabled,
+                },
+                failurePolicy: group.failurePolicy,
+            })
+            await prisma.aiModelAssignment.update({
+                where: { id: assignment.assignmentId },
+                data: {
+                    failureCount: updates.failureCount,
+                    ignoredUntil: updates.ignoredUntil ? new Date(updates.ignoredUntil) : null,
+                    manuallyDisabled: updates.manuallyDisabled,
+                },
+            }).catch(() => {})
+        }
+    }
+    throw lastError instanceof Error ? lastError : new Error(`All assignments in ${group.groupName} failed.`)
 }
 
 async function parseProviderResponse(response: Response) {
@@ -157,7 +268,7 @@ function validateEmbeddingVector(value: unknown): number[] {
     return value as number[]
 }
 
-export async function createEmbeddings(
+async function createEmbeddings(
     assignment: LoadedRetrievalAssignment,
     texts: string[],
     signal?: AbortSignal
@@ -203,7 +314,21 @@ export async function createEmbeddings(
     return embeddings.map((embedding) => validateEmbeddingVector(embedding.embedding))
 }
 
-export async function rerankDocuments(
+export async function createEmbeddingsWithGroup(
+    prisma: PrismaClient,
+    group: LoadedRetrievalGroup,
+    texts: string[],
+    signal?: AbortSignal
+) {
+    const result = await runRetrievalGroupWithFallback(
+        prisma,
+        group,
+        (assignment) => createEmbeddings(assignment, texts, signal)
+    )
+    return { vectors: result.value, assignment: result.assignment }
+}
+
+async function rerankDocuments(
     assignment: LoadedRetrievalAssignment,
     input: { query: string; documents: string[]; topN: number },
     signal?: AbortSignal
@@ -247,4 +372,18 @@ export async function rerankDocuments(
                 && Number.isFinite(result.score)
         )
         .sort((left, right) => right.score - left.score || left.index - right.index)
+}
+
+export async function rerankDocumentsWithGroup(
+    prisma: PrismaClient,
+    group: LoadedRetrievalGroup,
+    input: { query: string; documents: string[]; topN: number },
+    signal?: AbortSignal
+) {
+    const result = await runRetrievalGroupWithFallback(
+        prisma,
+        group,
+        (assignment) => rerankDocuments(assignment, input, signal)
+    )
+    return { results: result.value, assignment: result.assignment }
 }

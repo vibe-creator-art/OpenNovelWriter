@@ -1,0 +1,16 @@
+{
+  "schema": "open-novel-writer/skill-preset",
+  "version": 1,
+  "metadata": {
+    "presetId": "skill-duq4w8",
+    "name": "预设-修复过期来源",
+    "description": "修复摘要已变但尚未同步的剧情来源。用户主动要求修复过期来源时使用；其他任务中若发现过期来源不少于 5 条，应主动询问是否修复。",
+    "revision": 1,
+    "enabled": true,
+    "exportedAt": "2026-08-13T12:14:19.149Z"
+  },
+  "entrySkill": "skill",
+  "skills": [
+    "skill"
+  ]
+}

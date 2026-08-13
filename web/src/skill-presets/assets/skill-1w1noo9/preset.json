@@ -6,6 +6,7 @@
     "name": "预设-卷总结",
     "description": "对用户指定的卷进行总结",
     "revision": 1.1,
+    "enabled": true,
     "exportedAt": "2026-06-29T05:03:31.459Z"
   },
   "entrySkill": "skill",

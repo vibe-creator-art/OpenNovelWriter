@@ -7,6 +7,7 @@ export function toBuiltinSkillPresetPayload(entry: BuiltinSkillPresetRegistryEnt
         name: entry.summary.name,
         description: entry.summary.description,
         revision: entry.summary.revision,
+        enabled: entry.summary.enabled,
         exportedAt: entry.summary.exportedAt,
         skillCount: entry.summary.skillCount,
         skillCategories: entry.summary.skillCategories,

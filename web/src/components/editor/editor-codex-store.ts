@@ -14,6 +14,7 @@ import {
     type CodexSession,
     type CodexSessionCategory,
     type CodexSessionCleanupResult,
+    type CodexComposerMode,
     type CodexPromptArtifact,
     type CodexDraftArtifact,
 } from '@/lib/api'
@@ -147,7 +148,13 @@ type CodexStoreState = {
         sessionId: string,
         settings: Partial<Pick<CodexSession, 'modelId' | 'reasoningEffort' | 'serviceTier'>>
     ) => Promise<void>
-    updatePlanMode: (novelId: string | null | undefined, sessionId: string, planMode: boolean) => Promise<void>
+    updateComposerMode: (novelId: string | null | undefined, sessionId: string, composerMode: CodexComposerMode) => Promise<void>
+    controlGoal: (
+        novelId: string | null | undefined,
+        sessionId: string,
+        action: { action: 'edit'; objective: string } | { action: 'pause' } | { action: 'clear' }
+    ) => Promise<void>
+    resumeGoal: (novelId: string | null | undefined, sessionId: string) => Promise<void>
     renameSession: (novelId: string | null | undefined, sessionId: string, title: string) => Promise<void>
     deleteSession: (novelId: string | null | undefined, sessionId: string) => Promise<void>
     removeDeletedSession: (novelId: string | null | undefined, sessionId: string) => void
@@ -488,6 +495,28 @@ function applyCodexStreamEvent(
                 [sessionId]: event.approval,
             },
         }))
+        return null
+    }
+
+    if (event.type === 'goal_updated' || event.type === 'goal_cleared') {
+        set((state) => {
+            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            return {
+                sessionsByNovel: {
+                    ...state.sessionsByNovel,
+                    [novelKey]: {
+                        ...current,
+                        sessions: current.sessions.map((session) =>
+                            session.id === sessionId
+                                ? event.type === 'goal_updated'
+                                    ? { ...session, composerMode: 'goal', goal: event.goal }
+                                    : { ...session, composerMode: 'default', goal: null }
+                                : session
+                        ),
+                    },
+                },
+            }
+        })
         return null
     }
 
@@ -978,7 +1007,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             }
         })
     },
-    updatePlanMode: async (novelId, sessionId, planMode) => {
+    updateComposerMode: async (novelId, sessionId, composerMode) => {
         const novelKey = getNovelKey(novelId)
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
@@ -988,14 +1017,14 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                     [novelKey]: {
                         ...current,
                         sessions: current.sessions.map((session) =>
-                            session.id === sessionId ? { ...session, planMode } : session
+                            session.id === sessionId ? { ...session, composerMode } : session
                         ),
                     },
                 },
             }
         })
 
-        const result = await codexSessionApi.update(sessionId, { planMode })
+        const result = await codexSessionApi.update(sessionId, { composerMode })
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             return {
@@ -1009,6 +1038,62 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 },
             }
         })
+    },
+    controlGoal: async (novelId, sessionId, action) => {
+        const novelKey = getNovelKey(novelId)
+        const result = await codexSessionApi.controlGoal(sessionId, action)
+        const preserveRunning = action.action === 'edit'
+        set((state) => {
+            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            return {
+                sessionsByNovel: {
+                    ...state.sessionsByNovel,
+                    [novelKey]: applySession(
+                        current,
+                        mergeSessionPreservingComposer(current, result.session, { preserveRunning }),
+                        { front: false }
+                    ),
+                },
+            }
+        })
+    },
+    resumeGoal: async (novelId, sessionId) => {
+        const novelKey = getNovelKey(novelId)
+        const controller = beginClientRun(sessionId)
+        if (!controller) return
+        try {
+            set((state) => {
+                const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+                return {
+                    sessionsByNovel: {
+                        ...state.sessionsByNovel,
+                        [novelKey]: {
+                            ...current,
+                            sessions: current.sessions.map((session) =>
+                                session.id === sessionId
+                                    ? { ...session, status: 'running', unreadCompletionAt: null }
+                                    : session
+                            ),
+                        },
+                    },
+                }
+            })
+            let streamError: string | null = null
+            await codexSessionApi.streamGoalResume(sessionId, {
+                signal: controller.signal,
+                onEvent: (event) => {
+                    if (event.type === 'done' || event.type === 'error') finishClientRun(sessionId, controller)
+                    const detail = applyCodexStreamEvent(set, novelKey, sessionId, event)
+                    if (detail) streamError = detail
+                },
+            })
+            if (streamError) throw new Error(streamError)
+        } catch (error) {
+            if (controller.signal.aborted) return
+            throw error
+        } finally {
+            finishClientRun(sessionId, controller)
+        }
     },
     renameSession: async (novelId, sessionId, title) => {
         const novelKey = getNovelKey(novelId)
@@ -1149,6 +1234,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                                                 attachments: options?.attachments,
                                                 jsonArtifacts: options?.artifactFiles,
                                                 responseAnnotations: options?.responseAnnotations,
+                                                ...(session.composerMode === 'goal' && !session.goal ? { sentAsGoal: true } : {}),
                                                 createdAt: now,
                                             },
                                         ],

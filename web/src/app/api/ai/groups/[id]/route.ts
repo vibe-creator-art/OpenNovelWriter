@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
+    catalogAfterDeletingGroup,
+    collectPromptModelBindingUpdates,
+    loadPromptModelBindingCatalog,
+} from '@/lib/server/prompt-model-binding-sync'
+import {
     normalizeFailurePolicy,
     normalizeGroupModelTypes,
     normalizeGroupSettings,
@@ -106,6 +111,26 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
         return NextResponse.json({ detail: 'Not found' }, { status: 404 })
     }
 
-    await prisma.aiModelGroup.delete({ where: { id } })
+    const previous = await loadPromptModelBindingCatalog(user.userId)
+    const current = catalogAfterDeletingGroup(previous, id)
+    const promptUpdates = await collectPromptModelBindingUpdates({
+        ownerId: user.userId,
+        previousModelSetGroupIdsById: previous.modelSetGroupIdsById,
+        allowedGroupIds: current.allowedGroupIds,
+        modelSetGroupIdsById: current.modelSetGroupIdsById,
+    })
+
+    await prisma.$transaction([
+        prisma.aiModelGroup.delete({ where: { id } }),
+        ...promptUpdates.map((update) =>
+            prisma.prompt.update({
+                where: { id: update.id },
+                data: {
+                    modelGroupIdsJson: update.modelGroupIdsJson,
+                    modelSetIdsJson: update.modelSetIdsJson,
+                },
+            })
+        ),
+    ])
     return NextResponse.json({ message: 'Deleted' })
 }

@@ -8,10 +8,20 @@ type AgentMeta = {
     enabled: boolean
 }
 
+type AgentPresetOrigin = { presetId: string; revision: number }
+
 export type AgentRecord = {
     id: string
     name: string
     enabled: boolean
+    /**
+     * The official preset this agent was cloned from. Cloned-from-preset agents are read-only unless
+     * preset authoring is enabled; re-cloning the agent (via {@link cloneAgent}) clears this so the
+     * copy becomes editable. Tracked out-of-band in `.preset-origins.json` (NOT in AGENTS.md).
+     */
+    sourcePresetId: string | null
+    /** Revision of the official preset this agent was cloned from. */
+    sourcePresetRevision: number | null
     content: string
     createdAt: Date
     updatedAt: Date
@@ -19,6 +29,7 @@ export type AgentRecord = {
 
 const AGENT_FILE_NAME = 'AGENTS.md'
 const AGENT_META_FILE_NAME = 'meta.json'
+const PRESET_ORIGINS_FILE_NAME = '.preset-origins.json'
 
 export class AgentNotFoundError extends Error {}
 export class DuplicateAgentNameError extends Error {}
@@ -35,13 +46,16 @@ export async function listAgents(ownerId: string) {
     const root = getUserAgentsRoot(ownerId)
     await fs.mkdir(root, { recursive: true })
 
-    const entries = await fs.readdir(root, { withFileTypes: true })
+    const [entries, origins] = await Promise.all([
+        fs.readdir(root, { withFileTypes: true }),
+        getPresetOrigins(ownerId),
+    ])
     const agents = await Promise.all(
         entries
-            .filter((entry) => entry.isDirectory())
+            .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
             .map(async (entry) => {
                 try {
-                    return await readAgent(ownerId, entry.name)
+                    return await readAgentRecord(ownerId, entry.name, origins)
                 } catch {
                     return null
                 }
@@ -59,7 +73,15 @@ export async function listAgents(ownerId: string) {
 }
 
 export async function readAgent(ownerId: string, agentId: string) {
-    const directoryName = normalizeAgentId(agentId)
+    const origins = await getPresetOrigins(ownerId)
+    return readAgentRecord(ownerId, normalizeAgentId(agentId), origins)
+}
+
+async function readAgentRecord(
+    ownerId: string,
+    directoryName: string,
+    origins: Map<string, AgentPresetOrigin>
+) {
     const directory = getAgentDirectory(ownerId, directoryName)
     const agentFilePath = path.join(directory, AGENT_FILE_NAME)
     const metaFilePath = path.join(directory, AGENT_META_FILE_NAME)
@@ -72,11 +94,14 @@ export async function readAgent(ownerId: string, agentId: string) {
     ])
 
     const meta = parseAgentMeta(metaRaw)
+    const origin = origins.get(directoryName) ?? null
 
     return {
         id: directoryName,
         name: meta.name,
         enabled: meta.enabled,
+        sourcePresetId: origin?.presetId ?? null,
+        sourcePresetRevision: origin?.revision ?? null,
         content: normalizeAgentContent(content),
         createdAt: new Date(Math.min(agentStats.birthtimeMs, metaStats.birthtimeMs)),
         updatedAt: new Date(Math.max(agentStats.mtimeMs, metaStats.mtimeMs)),
@@ -105,6 +130,99 @@ export async function createAgent(input: {
     ])
 
     return readAgent(input.ownerId, directoryName)
+}
+
+export async function createAgentFromContent(input: {
+    ownerId: string
+    name: string
+    content: string
+}) {
+    const root = getUserAgentsRoot(input.ownerId)
+    await fs.mkdir(root, { recursive: true })
+
+    const nextName = input.name.trim()
+    if (!nextName) {
+        throw new Error('Agent name cannot be empty')
+    }
+
+    const existingKeys = await loadAgentNameKeys(input.ownerId)
+    if (existingKeys.has(toAgentNameKey(nextName))) {
+        throw new DuplicateAgentNameError('Agent name already exists')
+    }
+
+    const directoryName = await getUniqueAgentDirectoryName(root, nextName)
+    const directory = path.join(root, directoryName)
+
+    await fs.mkdir(directory, { recursive: true })
+    await Promise.all([
+        fs.writeFile(path.join(directory, AGENT_FILE_NAME), normalizeAgentContent(input.content), 'utf8'),
+        writeAgentMeta(directory, {
+            name: nextName,
+            enabled: false,
+        }),
+    ])
+
+    return readAgent(input.ownerId, directoryName)
+}
+
+/** Replace an owned agent's markdown while keeping its stable id and enabled state. */
+export async function replaceAgentContent(input: {
+    ownerId: string
+    agentId: string
+    name: string
+    content: string
+}) {
+    const directoryName = normalizeAgentId(input.agentId)
+    const directory = getAgentDirectory(input.ownerId, directoryName)
+    await ensureAgentExists(directory)
+
+    const current = await readAgent(input.ownerId, directoryName)
+    const nextName = input.name.trim()
+    if (!nextName) {
+        throw new Error('Agent name cannot be empty')
+    }
+
+    const existingKeys = await loadAgentNameKeys(input.ownerId, directoryName)
+    if (existingKeys.has(toAgentNameKey(nextName))) {
+        throw new DuplicateAgentNameError('Agent name already exists')
+    }
+
+    await Promise.all([
+        fs.writeFile(path.join(directory, AGENT_FILE_NAME), normalizeAgentContent(input.content), 'utf8'),
+        writeAgentMeta(directory, {
+            name: nextName,
+            enabled: current.enabled,
+        }),
+    ])
+
+    return readAgent(input.ownerId, directoryName)
+}
+
+/**
+ * Record (or clear, with `origin === null`) which official preset an agent was cloned from.
+ * Stored in `.preset-origins.json` at the user's agents root, keyed by agent id.
+ */
+export async function setAgentPresetOrigin(ownerId: string, agentId: string, origin: AgentPresetOrigin | null) {
+    const directoryName = normalizeAgentId(agentId)
+    const origins = await getPresetOrigins(ownerId)
+    if (origin) origins.set(directoryName, origin)
+    else if (!origins.delete(directoryName)) return
+    await writePresetOrigins(ownerId, origins)
+}
+
+/**
+ * Duplicate an owned agent into a fresh, editable copy: the preset-origin marker is dropped and the
+ * name is auto-numbered. The copy always starts disabled so it does not steal the active Codex session.
+ */
+export async function cloneAgent(input: { ownerId: string; agentId: string }) {
+    const source = await readAgent(input.ownerId, input.agentId)
+    const existingKeys = await loadAgentNameKeys(input.ownerId)
+    const cloneName = getNextAvailableNumberedAgentName(source.name, existingKeys)
+    return createAgentFromContent({
+        ownerId: input.ownerId,
+        name: cloneName,
+        content: source.content,
+    })
 }
 
 export async function updateAgent(input: {
@@ -156,6 +274,7 @@ export async function deleteAgent(ownerId: string, agentId: string) {
         recursive: true,
         force: true,
     })
+    await setAgentPresetOrigin(ownerId, directoryName, null)
 }
 
 export function toAgentDto(record: AgentRecord) {
@@ -164,6 +283,8 @@ export function toAgentDto(record: AgentRecord) {
         name: record.name,
         enabled: record.enabled,
         content: record.content,
+        sourcePresetId: record.sourcePresetId,
+        sourcePresetRevision: record.sourcePresetRevision,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
     }
@@ -280,6 +401,38 @@ function parseAgentMeta(content: string): AgentMeta {
         name,
         enabled: record.enabled === true,
     }
+}
+
+function getPresetOriginsFilePath(ownerId: string) {
+    return path.join(getUserAgentsRoot(ownerId), PRESET_ORIGINS_FILE_NAME)
+}
+
+async function getPresetOrigins(ownerId: string): Promise<Map<string, AgentPresetOrigin>> {
+    try {
+        const raw = await fs.readFile(getPresetOriginsFilePath(ownerId), 'utf8')
+        const parsed = JSON.parse(raw) as unknown
+        if (typeof parsed !== 'object' || parsed === null) return new Map()
+        const result = new Map<string, AgentPresetOrigin>()
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+            if (typeof value !== 'object' || value === null) continue
+            const presetId = (value as { presetId?: unknown }).presetId
+            const revision = (value as { revision?: unknown }).revision
+            if (typeof presetId !== 'string' || !presetId.trim()) continue
+            result.set(key, {
+                presetId: presetId.trim(),
+                revision: typeof revision === 'number' && Number.isFinite(revision) ? revision : 1,
+            })
+        }
+        return result
+    } catch {
+        return new Map()
+    }
+}
+
+async function writePresetOrigins(ownerId: string, origins: Map<string, AgentPresetOrigin>) {
+    const root = getUserAgentsRoot(ownerId)
+    await fs.mkdir(root, { recursive: true })
+    await fs.writeFile(getPresetOriginsFilePath(ownerId), `${JSON.stringify(Object.fromEntries(origins), null, 2)}\n`, 'utf8')
 }
 
 async function loadAgentNameKeys(ownerId: string, excludeId?: string) {

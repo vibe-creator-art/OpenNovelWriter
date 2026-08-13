@@ -10,6 +10,8 @@ export interface SkillPresetMetadataV1 {
     name: string
     description: string | null
     revision: number
+    /** Default enabled state applied when the preset is cloned into a user's library. */
+    enabled: boolean
     exportedAt: string
 }
 
@@ -117,6 +119,9 @@ export function parseSkillPresetAsset(value: unknown): SkillPresetParseResult {
     if (!name) return { ok: false, detail: 'metadata.name is required.' }
     const revision = normalizeRevision(rawMetadata.revision)
     if (revision === null) return { ok: false, detail: 'metadata.revision must be a positive number.' }
+    if (typeof rawMetadata.enabled !== 'boolean') {
+        return { ok: false, detail: 'metadata.enabled must be a boolean.' }
+    }
 
     if (!Array.isArray(obj.skills) || obj.skills.length === 0) {
         return { ok: false, detail: 'skills must contain at least one skill directory.' }
@@ -143,6 +148,7 @@ export function parseSkillPresetAsset(value: unknown): SkillPresetParseResult {
                 name,
                 description: typeof rawMetadata.description === 'string' ? rawMetadata.description : null,
                 revision,
+                enabled: rawMetadata.enabled,
                 exportedAt: typeof rawMetadata.exportedAt === 'string' && rawMetadata.exportedAt.trim()
                     ? rawMetadata.exportedAt
                     : new Date().toISOString(),

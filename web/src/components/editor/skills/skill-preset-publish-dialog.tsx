@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import type { BuiltinSkillPreset } from '@/lib/api'
 
@@ -14,12 +15,14 @@ type SkillPresetPublishDialogProps = {
     presets: BuiltinSkillPreset[]
     presetName: string
     description: string
+    enabled: boolean
     overwritePresetId: string
     busy: boolean
     error: string | null
     onOpenChange: (open: boolean) => void
     onPresetNameChange: (value: string) => void
     onDescriptionChange: (value: string) => void
+    onEnabledChange: (value: boolean) => void
     onOverwritePresetIdChange: (value: string) => void
     onSubmit: () => void | Promise<void>
 }
@@ -30,12 +33,14 @@ export function SkillPresetPublishDialog({
     presets,
     presetName,
     description,
+    enabled,
     overwritePresetId,
     busy,
     error,
     onOpenChange,
     onPresetNameChange,
     onDescriptionChange,
+    onEnabledChange,
     onOverwritePresetIdChange,
     onSubmit,
 }: SkillPresetPublishDialogProps) {
@@ -91,6 +96,14 @@ export function SkillPresetPublishDialog({
                             placeholder={t('presets.publish.descriptionPlaceholder')}
                             className="field-sizing-fixed h-28 resize-none"
                         />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="space-y-1">
+                            <div className="text-xs text-muted-foreground">{t('presets.publish.enabledLabel')}</div>
+                            <div className="text-xs text-muted-foreground">{t('presets.publish.enabledHint')}</div>
+                        </div>
+                        <Switch checked={enabled} onCheckedChange={onEnabledChange} disabled={busy} />
                     </div>
                 </div>
 

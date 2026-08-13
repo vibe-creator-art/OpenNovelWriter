@@ -3,10 +3,11 @@
   "version": 1,
   "metadata": {
     "presetId": "skill-1ny6m95",
-    "name": "预设-总结场景+更新经历",
-    "description": "总结场景并更新对应词条经历",
-    "revision": 1.1,
-    "exportedAt": "2026-06-20T08:49:38.255Z"
+    "name": "预设-总结场景+更新经历/关系",
+    "description": "总结场景并更新对应词条经历和关系",
+    "revision": 1.5,
+    "enabled": true,
+    "exportedAt": "2026-08-13T12:47:53.304Z"
   },
   "entrySkill": "skill",
   "skills": [

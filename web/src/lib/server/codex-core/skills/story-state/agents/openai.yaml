@@ -1,0 +1,4 @@
+interface:
+  display_name: "剧情状态"
+  short_description: "维护小说的时序实体、事实、别名、来源证据与状态变化"
+  default_prompt: "使用 $story-state 根据场景摘要维护当前小说的剧情状态。"

@@ -4,19 +4,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Bot, Check, MoreVertical, Plus, Search } from 'lucide-react'
 
-import { agentApi, type Agent } from '@/lib/api'
+import {
+    agentApi,
+    agentPresetApi,
+    ApiError,
+    type Agent,
+    type BuiltinAgentPreset,
+} from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import { AgentPresetLibrarySection } from '@/components/editor/agents/agent-preset-library-section'
+import { AgentPresetPublishDialog } from '@/components/editor/agents/agent-preset-publish-dialog'
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -60,6 +69,23 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
     const [draftContent, setDraftContent] = useState('')
     const [saveState, setSaveState] = useState<SaveState>('idle')
 
+    const [builtinPresets, setBuiltinPresets] = useState<BuiltinAgentPreset[]>([])
+    const [builtinPresetsLoading, setBuiltinPresetsLoading] = useState(true)
+    const [builtinPresetsError, setBuiltinPresetsError] = useState<string | null>(null)
+    const [presetAuthoringEnabled, setPresetAuthoringEnabled] = useState(false)
+    const [cloningPresetId, setCloningPresetId] = useState<string | null>(null)
+    const [cloningAllPresets, setCloningAllPresets] = useState(false)
+    const [cloneOverwritePresetId, setCloneOverwritePresetId] = useState<string | null>(null)
+    const [cloneConflictNames, setCloneConflictNames] = useState<string[]>([])
+    const [cloneOverwriteConfirmOpen, setCloneOverwriteConfirmOpen] = useState(false)
+    const [publishDialogOpen, setPublishDialogOpen] = useState(false)
+    const [publishDialogMode, setPublishDialogMode] = useState<'create' | 'overwrite'>('create')
+    const [publishPresetName, setPublishPresetName] = useState('')
+    const [publishDescription, setPublishDescription] = useState('')
+    const [publishOverwritePresetId, setPublishOverwritePresetId] = useState('')
+    const [publishBusy, setPublishBusy] = useState(false)
+    const [publishError, setPublishError] = useState<string | null>(null)
+
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const lastSavedRef = useRef<SavedDraftSnapshot | null>(null)
     const latestDraftRef = useRef({ name: '', content: '' })
@@ -91,6 +117,29 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
     useEffect(() => {
         void loadAgents()
     }, [loadAgents])
+
+    const loadBuiltinPresets = useCallback(async () => {
+        setBuiltinPresetsLoading(true)
+        setBuiltinPresetsError(null)
+        try {
+            const { authoringEnabled, presets } = await agentPresetApi.list()
+            setPresetAuthoringEnabled(authoringEnabled)
+            setBuiltinPresets(presets)
+            setPublishOverwritePresetId((prev) => {
+                if (prev && presets.some((preset) => preset.presetId === prev)) return prev
+                return presets[0]?.presetId ?? ''
+            })
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to load presets'
+            setBuiltinPresetsError(message)
+        } finally {
+            setBuiltinPresetsLoading(false)
+        }
+    }, [])
+
+    useEffect(() => {
+        void loadBuiltinPresets()
+    }, [loadBuiltinPresets])
 
     useEffect(() => {
         if (typeof window === 'undefined') return
@@ -131,6 +180,18 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
         () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
         [agents, selectedAgentId]
     )
+    const editorReadOnly = useMemo(
+        () => Boolean(selectedAgent?.sourcePresetId) && !presetAuthoringEnabled,
+        [presetAuthoringEnabled, selectedAgent?.sourcePresetId]
+    )
+    const agentPresetUpdate = useMemo(() => {
+        const sourceId = selectedAgent?.sourcePresetId ?? null
+        const clonedRevision = selectedAgent?.sourcePresetRevision ?? null
+        if (!sourceId) return { sourceId: null as string | null, clonedRevision: null as number | null, updateAvailable: false }
+        const current = builtinPresets.find((preset) => preset.presetId === sourceId) ?? null
+        const updateAvailable = current != null && clonedRevision != null && current.revision > clonedRevision
+        return { sourceId, clonedRevision, updateAvailable }
+    }, [builtinPresets, selectedAgent?.sourcePresetId, selectedAgent?.sourcePresetRevision])
 
     useEffect(() => {
         if (!selectedAgent) {
@@ -164,6 +225,7 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
 
     useEffect(() => {
         if (!selectedAgent) return
+        if (editorReadOnly) return
 
         const lastSaved = lastSavedRef.current
         if (!lastSaved || lastSaved.id !== selectedAgent.id) return
@@ -225,7 +287,7 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
         return () => {
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
         }
-    }, [draftContent, draftName, selectedAgent, t])
+    }, [draftContent, draftName, editorReadOnly, selectedAgent, t])
 
     const filteredAgents = useMemo(() => {
         const normalized = searchQuery.trim().toLowerCase()
@@ -288,6 +350,149 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
         }
     }, [agents, selectedAgent, t])
 
+    const handleCloneAgent = useCallback(async () => {
+        if (!selectedAgent) return
+        try {
+            setError(null)
+            const { agent } = await agentApi.clone(selectedAgent.id)
+            setAgents((prev) => sortAgents([agent, ...prev]))
+            setSelectedAgentId(agent.id)
+        } catch (err) {
+            console.error(err)
+            const detail = err instanceof Error ? err.message : ''
+            setError(detail ? `${t('errors.cloneFailed')}: ${detail}` : t('errors.cloneFailed'))
+        }
+    }, [selectedAgent, t])
+
+    const handleClonePreset = useCallback(async (presetId: string, overwriteExisting = false) => {
+        setCloningPresetId(presetId)
+        setBuiltinPresetsError(null)
+        try {
+            const { agents: importedAgents } = await agentPresetApi.clone(presetId, { overwriteExisting })
+            const importedIds = new Set(importedAgents.map((agent) => agent.id))
+            setAgents((prev) => sortAgents([...importedAgents, ...prev.filter((agent) => !importedIds.has(agent.id))]))
+
+            const preset = builtinPresets.find((item) => item.presetId === presetId) ?? null
+            const entryKey = (preset?.name ?? importedAgents[0]?.name ?? '').trim().toLowerCase()
+            const entryAgent = importedAgents.find((agent) => agent.name.trim().toLowerCase() === entryKey) ?? importedAgents[0] ?? null
+            if (entryAgent) setSelectedAgentId(entryAgent.id)
+
+            setCloneOverwriteConfirmOpen(false)
+            setCloneOverwritePresetId(null)
+            setCloneConflictNames([])
+        } catch (err) {
+            if (err instanceof ApiError) {
+                const data = err.data as { code?: unknown; names?: unknown } | undefined
+                const names = Array.isArray(data?.names)
+                    ? data.names.filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+                    : []
+
+                if (err.status === 409 && data?.code === 'AGENT_NAME_ALREADY_EXISTS' && names.length > 0 && !overwriteExisting) {
+                    setCloneOverwritePresetId(presetId)
+                    setCloneConflictNames(names)
+                    setCloneOverwriteConfirmOpen(true)
+                    return
+                }
+            }
+
+            console.error(err)
+            const detail = err instanceof Error ? err.message : ''
+            setBuiltinPresetsError(detail || t('presets.errors.cloneFailed'))
+        } finally {
+            setCloningPresetId((prev) => (prev === presetId ? null : prev))
+        }
+    }, [builtinPresets, t])
+
+    const handleConfirmCloneOverwrite = useCallback(async () => {
+        if (!cloneOverwritePresetId) return
+        await handleClonePreset(cloneOverwritePresetId, true)
+    }, [cloneOverwritePresetId, handleClonePreset])
+
+    const handleCloneAllPresets = useCallback(async () => {
+        setCloningAllPresets(true)
+        setBuiltinPresetsError(null)
+        try {
+            const allImported: Agent[] = []
+            for (const preset of builtinPresets) {
+                const { agents: importedAgents } = await agentPresetApi.clone(preset.presetId, { overwriteExisting: true })
+                allImported.push(...importedAgents)
+            }
+            if (allImported.length > 0) {
+                const importedIds = new Set(allImported.map((agent) => agent.id))
+                setAgents((prev) => sortAgents([...allImported, ...prev.filter((agent) => !importedIds.has(agent.id))]))
+            }
+        } catch (err) {
+            console.error(err)
+            const detail = err instanceof Error ? err.message : ''
+            setBuiltinPresetsError(detail || t('presets.errors.cloneFailed'))
+        } finally {
+            setCloningAllPresets(false)
+        }
+    }, [builtinPresets, t])
+
+    const handleOpenPublishDialog = useCallback((mode: 'create' | 'overwrite') => {
+        if (!selectedAgent) return
+
+        const agentName = draftName.trim() || t('actions.newAgentName')
+        const key = agentName.trim().toLowerCase()
+        const matchingPreset =
+            (selectedAgent.sourcePresetId
+                ? builtinPresets.find((preset) => preset.presetId === selectedAgent.sourcePresetId)
+                : null)
+            ?? builtinPresets.find(
+                (preset) => preset.name.trim().toLowerCase() === key
+            )
+            ?? builtinPresets[0]
+            ?? null
+
+        setPublishDialogMode(mode)
+        setPublishPresetName(agentName)
+        setPublishDescription(matchingPreset?.description ?? '')
+        setPublishOverwritePresetId(matchingPreset?.presetId ?? '')
+        setPublishError(null)
+        setPublishDialogOpen(true)
+    }, [builtinPresets, draftName, selectedAgent, t])
+
+    const handlePublishDialogOpenChange = useCallback((open: boolean) => {
+        setPublishDialogOpen(open)
+        if (!open) setPublishError(null)
+    }, [])
+
+    const handleSubmitPublishDialog = useCallback(async () => {
+        if (!selectedAgent) return
+
+        setPublishBusy(true)
+        setPublishError(null)
+        try {
+            const description = publishDescription.trim() ? publishDescription.trim() : null
+            if (publishDialogMode === 'create') {
+                await agentPresetApi.publish({
+                    agentId: selectedAgent.id,
+                    name: publishPresetName,
+                    description,
+                })
+            } else {
+                if (!publishOverwritePresetId) {
+                    throw new Error(t('presets.errors.selectPreset'))
+                }
+                await agentPresetApi.update(publishOverwritePresetId, {
+                    agentId: selectedAgent.id,
+                    name: publishPresetName,
+                    description,
+                })
+            }
+
+            await loadBuiltinPresets()
+            setPublishDialogOpen(false)
+        } catch (err) {
+            console.error(err)
+            const detail = err instanceof Error ? err.message : ''
+            setPublishError(detail || t('presets.errors.publishFailed'))
+        } finally {
+            setPublishBusy(false)
+        }
+    }, [loadBuiltinPresets, publishDescription, publishDialogMode, publishOverwritePresetId, publishPresetName, selectedAgent, t])
+
     const saveLabel = useMemo(() => {
         if (saveState === 'saving') return t('status.saving')
         if (saveState === 'saved') return t('status.saved')
@@ -304,6 +509,7 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
     }
 
     return (
+        <>
         <div className="flex h-full min-h-0">
             <section className="w-[340px] shrink-0 border-r bg-card flex flex-col">
                 <div className="border-b p-3">
@@ -323,6 +529,26 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
                         </Button>
                     </div>
                 </div>
+
+                <AgentPresetLibrarySection
+                    presets={builtinPresets}
+                    loading={builtinPresetsLoading}
+                    error={builtinPresetsError}
+                    cloningPresetId={cloningPresetId}
+                    cloningAll={cloningAllPresets}
+                    cloneConflictNames={cloneConflictNames}
+                    cloneOverwriteConfirmOpen={cloneOverwriteConfirmOpen}
+                    onClonePreset={(presetId, overwriteExisting) => void handleClonePreset(presetId, overwriteExisting)}
+                    onCloneAllPresets={() => void handleCloneAllPresets()}
+                    onCloneOverwriteConfirmOpenChange={(open) => {
+                        setCloneOverwriteConfirmOpen(open)
+                        if (!open) {
+                            setCloneOverwritePresetId(null)
+                            setCloneConflictNames([])
+                        }
+                    }}
+                    onConfirmCloneOverwrite={() => void handleConfirmCloneOverwrite()}
+                />
 
                 {error && <div className="border-b px-3 py-2 text-sm text-destructive">{error}</div>}
 
@@ -359,7 +585,14 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
                                     >
                                         <div className="flex items-center gap-2">
                                             <Bot className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                            <span className="truncate text-sm font-medium">{agent.name}</span>
+                                            <span
+                                                className={cn(
+                                                    'truncate text-sm font-medium',
+                                                    agent.sourcePresetId && 'italic text-muted-foreground'
+                                                )}
+                                            >
+                                                {agent.name}
+                                            </span>
                                             {agent.enabled && (
                                                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
                                                     {t('actions.enabled')}
@@ -404,6 +637,7 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
                                 <div className="shrink-0 text-sm font-medium">{t('editor.name')}</div>
                                 <Input
                                     value={draftName}
+                                    disabled={editorReadOnly}
                                     onChange={(event) => {
                                         setError(null)
                                         setDraftName(event.target.value)
@@ -433,6 +667,20 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
                                             </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
+                                            {presetAuthoringEnabled && (
+                                                <>
+                                                    <DropdownMenuItem onClick={() => handleOpenPublishDialog('create')}>
+                                                        {t('presets.publish.createMenu')}
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => handleOpenPublishDialog('overwrite')}>
+                                                        {t('presets.publish.overwriteMenu')}
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuSeparator />
+                                                </>
+                                            )}
+                                            <DropdownMenuItem onClick={() => void handleCloneAgent()}>
+                                                {t('actions.cloneAgent')}
+                                            </DropdownMenuItem>
                                             <DropdownMenuItem className="text-destructive" onClick={() => void handleDelete()}>
                                                 {t('actions.deleteAgent')}
                                             </DropdownMenuItem>
@@ -444,6 +692,31 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
 
                         <Separator />
 
+                        {editorReadOnly && (
+                            <div className="mx-5 mt-3 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-300">
+                                <div>
+                                    {agentPresetUpdate.clonedRevision != null
+                                        ? t('editor.presetReadOnlyNoticeVersioned', { revision: agentPresetUpdate.clonedRevision.toFixed(1) })
+                                        : t('editor.presetReadOnlyNotice')}
+                                </div>
+                                {agentPresetUpdate.updateAvailable && (
+                                    <div className="mt-2 flex items-center gap-2">
+                                        <span className="font-medium">{t('editor.presetUpdateAvailable')}</span>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 gap-1 border-amber-400/60 bg-background/60"
+                                            onClick={() => {
+                                                if (agentPresetUpdate.sourceId) void handleClonePreset(agentPresetUpdate.sourceId, true)
+                                            }}
+                                        >
+                                            {t('editor.presetUpdateClone')}
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         <div className="px-5 py-3">
                             <div className="text-base font-semibold">{t('editor.sectionTitle')}</div>
                         </div>
@@ -451,11 +724,15 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
                         <div className="flex-1 min-h-0 px-5 pb-5">
                             <Textarea
                                 value={draftContent}
+                                disabled={editorReadOnly}
                                 onChange={(event) => {
                                     setError(null)
                                     setDraftContent(event.target.value)
                                 }}
-                                className="h-full min-h-[420px] resize-none font-mono text-sm leading-6"
+                                className={cn(
+                                    'h-full min-h-[420px] resize-none font-mono text-sm leading-6',
+                                    editorReadOnly && 'bg-muted/40 text-muted-foreground'
+                                )}
                                 placeholder={t('editor.placeholder')}
                             />
                         </div>
@@ -463,5 +740,22 @@ export function MiddlePanelAgents({ novelId }: MiddlePanelAgentsProps) {
                 )}
             </section>
         </div>
+
+        <AgentPresetPublishDialog
+            open={publishDialogOpen}
+            mode={publishDialogMode}
+            presets={builtinPresets}
+            presetName={publishPresetName}
+            description={publishDescription}
+            overwritePresetId={publishOverwritePresetId}
+            busy={publishBusy}
+            error={publishError}
+            onOpenChange={handlePublishDialogOpenChange}
+            onPresetNameChange={setPublishPresetName}
+            onDescriptionChange={setPublishDescription}
+            onOverwritePresetIdChange={setPublishOverwritePresetId}
+            onSubmit={() => void handleSubmitPublishDialog()}
+        />
+        </>
     )
 }

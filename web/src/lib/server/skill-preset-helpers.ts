@@ -15,6 +15,7 @@ import {
     listSkills,
     readSkill,
     replaceSkillFromDirectory,
+    setSkillEnabled,
     setSkillPresetOrigin,
     toSkillDto,
 } from '@/lib/server/skill-storage'
@@ -35,6 +36,7 @@ export async function buildSkillPresetAssetFromOwnedSkill(params: {
     name: string
     description: string | null
     revision: number
+    enabled?: boolean
 }): Promise<{ ok: true; built: BuiltOwnedSkillPreset } | { ok: false; status: number; detail: string }> {
     const skill = await readSkill(params.ownerId, params.skillId).catch(() => null)
     if (!skill) return { ok: false, status: 404, detail: 'Skill not found.' }
@@ -51,6 +53,7 @@ export async function buildSkillPresetAssetFromOwnedSkill(params: {
                     name: params.name,
                     description: params.description,
                     revision: params.revision,
+                    enabled: typeof params.enabled === 'boolean' ? params.enabled : skill.enabled,
                     exportedAt,
                 },
                 entrySkill: 'skill',
@@ -147,16 +150,21 @@ export async function importSkillPresetForOwner(params: {
         presetId: params.entry.preset.metadata.presetId,
         revision: params.entry.preset.metadata.revision,
     }
+    const defaultEnabled = params.entry.preset.metadata.enabled
     const records = []
     for (const source of params.entry.skills) {
         const existingSkill = existingByNameKey.get(normalizeNameKey(source.name)) ?? null
-        const written = existingSkill && params.overwriteExisting
-            ? await replaceSkillFromDirectory({
+        let written
+        if (existingSkill && params.overwriteExisting) {
+            written = await replaceSkillFromDirectory({
                 ownerId: params.ownerId,
                 skillId: existingSkill.id,
                 sourceDirectory: source.directoryPath,
             })
-            : await createSkillFromDirectory({ ownerId: params.ownerId, sourceDirectory: source.directoryPath })
+        } else {
+            written = await createSkillFromDirectory({ ownerId: params.ownerId, sourceDirectory: source.directoryPath })
+            written = await setSkillEnabled(params.ownerId, written.id, defaultEnabled)
+        }
         await setSkillPresetOrigin(params.ownerId, written.id, origin)
         records.push(await readSkill(params.ownerId, written.id))
     }

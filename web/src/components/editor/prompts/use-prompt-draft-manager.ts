@@ -16,6 +16,7 @@ import {
     detachModelSetSelection,
     getLlmBindableModelSetIds,
     setPrimaryModelGroupSelection,
+    syncModelBindingSelection,
 } from '@/lib/model-bindings'
 
 import {
@@ -37,6 +38,8 @@ export function usePromptDraftManager(params: {
     prompts: Prompt[]
     modelGroups: ModelGroup[]
     modelSets: ModelSet[]
+    modelGroupsLoading: boolean
+    modelSetsLoading: boolean
     selectedPromptId: string | null
     setPrompts: React.Dispatch<React.SetStateAction<Prompt[]>>
     setError: React.Dispatch<React.SetStateAction<string | null>>
@@ -46,7 +49,7 @@ export function usePromptDraftManager(params: {
     readOnly: boolean
     t: PromptTranslateFn
 }) {
-    const { prompts, modelGroups, modelSets, selectedPromptId, setPrompts, setError, setActiveCategory, setEditorTab, onPromptChanged, readOnly, t } = params
+    const { prompts, modelGroups, modelSets, modelGroupsLoading, modelSetsLoading, selectedPromptId, setPrompts, setError, setActiveCategory, setEditorTab, onPromptChanged, readOnly, t } = params
 
     const [draft, setDraft] = useState<PromptDraft | null>(null)
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -83,6 +86,45 @@ export function usePromptDraftManager(params: {
         () => getLlmBindableModelSetIds(modelSets, allowedGroupIds),
         [allowedGroupIds, modelSets]
     )
+    const catalogReadyRef = useRef(false)
+    const previousModelSetGroupIdsByIdRef = useRef<Map<string, string[]>>(new Map())
+
+    useEffect(() => {
+        if (modelGroupsLoading || modelSetsLoading) return
+
+        if (!catalogReadyRef.current) {
+            catalogReadyRef.current = true
+            previousModelSetGroupIdsByIdRef.current = modelSetGroupIdsById
+            return
+        }
+
+        const previousMap = previousModelSetGroupIdsByIdRef.current
+        if (previousMap === modelSetGroupIdsById) return
+        previousModelSetGroupIdsByIdRef.current = modelSetGroupIdsById
+
+        setDraft((prev) => {
+            if (!prev) return prev
+            const next = syncModelBindingSelection({
+                selection: prev,
+                modelSetGroupIdsById,
+                previousModelSetGroupIdsById: previousMap,
+                allowedGroupIds,
+            })
+            if (!next.changed) return prev
+            return { ...prev, modelGroupIds: next.modelGroupIds, modelSetIds: next.modelSetIds }
+        })
+        setPrompts((prev) => prev.map((prompt) => {
+            if (prompt.id !== selectedPromptId) return prompt
+            const next = syncModelBindingSelection({
+                selection: prompt,
+                modelSetGroupIdsById,
+                previousModelSetGroupIdsById: previousMap,
+                allowedGroupIds,
+            })
+            if (!next.changed) return prompt
+            return { ...prompt, modelGroupIds: next.modelGroupIds, modelSetIds: next.modelSetIds }
+        }))
+    }, [allowedGroupIds, modelGroupsLoading, modelSetsLoading, modelSetGroupIdsById, selectedPromptId, setPrompts])
 
     const restorePromptName = useCallback((promptId: string, name: string) => {
         setDraft((prev) => (prev && prev.id === promptId ? { ...prev, name } : prev))

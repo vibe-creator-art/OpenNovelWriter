@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { InputsEditorModel } from '@/components/editor/prompt-inputs-editor/model'
 
-export type InfoPanelTab = 'preview' | 'codex' | 'chat' | 'materials'
+export type InfoPanelTab = 'preview' | 'codex' | 'chat' | 'materials' | 'storyState'
 
 export type InfoPanelPreviewPayload =
     | {

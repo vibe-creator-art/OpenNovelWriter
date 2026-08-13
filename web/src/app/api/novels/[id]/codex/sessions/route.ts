@@ -5,6 +5,7 @@ import {
     DEFAULT_CODEX_REVIEW_LEVEL,
     DEFAULT_CODEX_REASONING_EFFORT,
     DEFAULT_CODEX_SERVICE_TIER,
+    normalizeCodexComposerMode,
     normalizeCodexReviewLevel,
     normalizeCodexReasoningEffort,
     normalizeCodexServiceTier,
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 modelId: normalizeCodexStringId(body?.modelId) ?? activeConnectionModel,
                 reasoningEffort: normalizeCodexReasoningEffort(body?.reasoningEffort) ?? DEFAULT_CODEX_REASONING_EFFORT,
                 serviceTier,
-                planMode: body?.planMode === true,
+                composerMode: normalizeCodexComposerMode(body?.composerMode) ?? 'default',
                 draftContent: normalizeCodexString(body?.draftContent),
                 draftAttachmentsJson: JSON.stringify(
                     parseCodexDraftAttachments(JSON.stringify(body?.draftAttachments))

@@ -19,6 +19,7 @@ import { MiddlePanelPrompts } from '@/components/editor/middle-panel-prompts'
 import { MiddlePanelSkills } from '@/components/editor/skills/middle-panel-skills'
 import { MiddlePanelAgents } from '@/components/editor/agents/middle-panel-agents'
 import { MiddlePanelReview } from '@/components/editor/middle-panel-review'
+import { MiddlePanelStoryState } from '@/components/editor/middle-panel-story-state'
 import { WriteFormatMenu } from '@/components/editor/write-format-menu'
 import { LeftPanelMenu } from '@/components/editor/left-panel-menu'
 import { RightPanel } from '@/components/editor/right-panel'
@@ -56,13 +57,14 @@ import {
     BookMarked,
     Sparkles,
     Bot,
+    Orbit,
 } from 'lucide-react'
 
 // View filter enum
 type ViewFilter = 'everything' | 'act' | 'chapter'
 
 // Nav tab type
-type NavTab = 'menu' | 'write' | 'prompts' | 'skills' | 'agents' | 'review'
+type NavTab = 'menu' | 'write' | 'prompts' | 'skills' | 'agents' | 'review' | 'storyState'
 
 type RequestedOutlineTarget =
     | { kind: 'act'; actNumber: number }
@@ -236,6 +238,10 @@ export default function EditorPage({ params }: EditorPageProps) {
     // Right sidebar state
     const [rightSidebarWidth, setRightSidebarWidth] = useState(520) // Default to the current max width for chat/preview usage
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true)
+
+    useEffect(() => {
+        if (activeTab === 'storyState') editorScrollRef.current?.scrollTo({ top: 0, left: 0 })
+    }, [activeTab])
 
     // Resolve params
     useEffect(() => {
@@ -721,6 +727,7 @@ export default function EditorPage({ params }: EditorPageProps) {
                     || parsed.activeTab === 'skills'
                     || parsed.activeTab === 'agents'
                     || parsed.activeTab === 'review'
+                    || parsed.activeTab === 'storyState'
                     ? parsed.activeTab
                     : 'write'
                 let nextViewFilter: ViewFilter = parsed.viewFilter === 'act' || parsed.viewFilter === 'chapter' || parsed.viewFilter === 'everything'
@@ -1132,9 +1139,14 @@ export default function EditorPage({ params }: EditorPageProps) {
         { id: 'skills', label: t('nav.skills'), icon: <Sparkles className="h-4 w-4" /> },
         { id: 'agents', label: t('nav.agents'), icon: <Bot className="h-4 w-4" /> },
         { id: 'review', label: t('nav.review'), icon: <BookMarked className="h-4 w-4" /> },
+        { id: 'storyState', label: t('nav.storyState'), icon: <Orbit className="h-4 w-4" /> },
     ]
 
-    const isStandaloneTab = activeTab === 'menu' || activeTab === 'prompts' || activeTab === 'skills' || activeTab === 'agents'
+    const isStandaloneTab = activeTab === 'menu'
+        || activeTab === 'prompts'
+        || activeTab === 'skills'
+        || activeTab === 'agents'
+        || activeTab === 'storyState'
 
     return (
         <div className="h-screen flex flex-col bg-background">
@@ -1507,6 +1519,13 @@ export default function EditorPage({ params }: EditorPageProps) {
                                     onNavigateToScene={(chapterId, sceneId) => navigateToWriteTarget({ kind: 'scene', chapterId, sceneId })}
                                 />
                             )}
+
+                            {activeTab === 'storyState' && novelId && (
+                                <MiddlePanelStoryState
+                                    novelId={novelId}
+                                    onNavigateToScene={(chapterId, sceneId) => navigateToWriteTarget({ kind: 'scene', chapterId, sceneId })}
+                                />
+                            )}
                         </div>
                     </main>
 
@@ -1538,7 +1557,7 @@ export default function EditorPage({ params }: EditorPageProps) {
                 )}
             </div>
 
-            {novelId && novel?.codexPetEnabled && (
+            {novelId && novel?.codexPetEnabled && activeTab !== 'storyState' && (
                 <CodexPet
                     novelId={novelId}
                     petId={novel.codexPetId}

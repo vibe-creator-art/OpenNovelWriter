@@ -179,7 +179,7 @@ export function CodexModelPicker({
                     type="button"
                     size="sm"
                     variant="ghost"
-                    className="max-w-full min-w-0 gap-1 text-muted-foreground"
+                    className="max-w-full min-w-0 gap-0.5 px-1.5 has-[>svg]:px-1.5 text-muted-foreground"
                     disabled={disabled}
                 >
                     {showServiceTier && serviceTier === 'fast' && (

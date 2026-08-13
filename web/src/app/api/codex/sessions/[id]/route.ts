@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
 import {
+    normalizeCodexComposerMode,
     normalizeCodexReasoningEffort,
     normalizeCodexReviewLevel,
     normalizeCodexServiceTier,
@@ -50,7 +51,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
             modelId?: string
             reasoningEffort?: string
             serviceTier?: string
-            planMode?: boolean
+            composerMode?: string
             draftContent?: string
             draftAttachmentsJson?: string
             draftArtifactsJson?: string
@@ -91,8 +92,12 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
             }
             data.serviceTier = serviceTier
         }
-        if (body && Object.hasOwn(body, 'planMode')) {
-            data.planMode = body.planMode === true
+        if (body && Object.hasOwn(body, 'composerMode')) {
+            const composerMode = normalizeCodexComposerMode(body.composerMode)
+            if (!composerMode) {
+                return NextResponse.json({ detail: 'Invalid Codex composer mode' }, { status: 400 })
+            }
+            data.composerMode = composerMode
         }
         if (body && Object.hasOwn(body, 'draftContent')) {
             data.draftContent = normalizeCodexString(body.draftContent)

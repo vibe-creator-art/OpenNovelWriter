@@ -216,41 +216,59 @@ export function setPrimaryModelGroupSelection(params: {
     }
 }
 
+function collectBoundMemberIds(
+    setIds: readonly string[],
+    modelSetGroupIdsById: Map<string, string[]>,
+    allowedGroupIds?: ReadonlySet<string>
+) {
+    const memberIds = new Set<string>()
+    for (const setId of setIds) {
+        for (const groupId of modelSetGroupIdsById.get(setId) ?? []) {
+            if (allowedGroupIds && !allowedGroupIds.has(groupId)) continue
+            memberIds.add(groupId)
+        }
+    }
+    return memberIds
+}
+
+function sameIdList(left: readonly string[], right: readonly string[]) {
+    return left.length === right.length && left.every((id, index) => id === right[index])
+}
+
 export function syncModelBindingSelection(params: {
     selection: ModelBindingSelection
     modelSetGroupIdsById: Map<string, string[]>
+    previousModelSetGroupIdsById?: Map<string, string[]>
     allowedGroupIds?: ReadonlySet<string>
-    allowedSetIds?: ReadonlySet<string>
 }) {
     const modelGroupIds = normalizeIdList(params.selection.modelGroupIds)
     const modelSetIds = normalizeIdList(params.selection.modelSetIds)
+    const knownSetIds = new Set(params.modelSetGroupIdsById.keys())
 
-    const nextGroupIds = params.allowedGroupIds
+    let nextGroupIds = params.allowedGroupIds
         ? modelGroupIds.filter((groupId) => params.allowedGroupIds?.has(groupId))
         : [...modelGroupIds]
-    const nextSetIds = params.allowedSetIds
-        ? modelSetIds.filter((setId) => params.allowedSetIds?.has(setId))
-        : [...modelSetIds]
+    const nextSetIds = modelSetIds.filter((setId) => knownSetIds.has(setId))
+    const currentBoundMemberIds = collectBoundMemberIds(nextSetIds, params.modelSetGroupIdsById, params.allowedGroupIds)
 
-    let addedGroupCount = 0
-    for (const setId of nextSetIds) {
-        for (const groupId of params.modelSetGroupIdsById.get(setId) ?? []) {
-            if (params.allowedGroupIds && !params.allowedGroupIds.has(groupId)) continue
-            if (nextGroupIds.includes(groupId)) continue
-            nextGroupIds.push(groupId)
-            addedGroupCount += 1
-        }
+    for (const groupId of currentBoundMemberIds) {
+        if (!nextGroupIds.includes(groupId)) nextGroupIds.push(groupId)
+    }
+
+    if (params.previousModelSetGroupIdsById) {
+        const previousBoundMemberIds = collectBoundMemberIds(
+            modelSetIds,
+            params.previousModelSetGroupIdsById,
+            params.allowedGroupIds
+        )
+        nextGroupIds = nextGroupIds.filter(
+            (groupId) => !previousBoundMemberIds.has(groupId) || currentBoundMemberIds.has(groupId)
+        )
     }
 
     return {
         modelGroupIds: nextGroupIds,
         modelSetIds: nextSetIds,
-        removedGroupCount: modelGroupIds.length - nextGroupIds.filter((groupId) => modelGroupIds.includes(groupId)).length,
-        removedSetCount: modelSetIds.length - nextSetIds.length,
-        addedGroupCount,
-        changed:
-            addedGroupCount > 0 ||
-            modelGroupIds.length !== nextGroupIds.length ||
-            modelSetIds.length !== nextSetIds.length,
+        changed: !sameIdList(modelGroupIds, nextGroupIds) || !sameIdList(modelSetIds, nextSetIds),
     }
 }

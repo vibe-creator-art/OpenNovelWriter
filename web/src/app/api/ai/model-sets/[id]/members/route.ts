@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import {
+    catalogAfterUpdatingSetMembers,
+    collectPromptModelBindingUpdates,
+    loadPromptModelBindingCatalog,
+} from '@/lib/server/prompt-model-binding-sync'
 
 type IncomingMember = {
     groupId: string
@@ -57,30 +62,48 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ id:
             }
         }
 
+        const previous = await loadPromptModelBindingCatalog(user.userId)
+        const current = catalogAfterUpdatingSetMembers(previous, setId, uniqueGroupIds)
+        const promptUpdates = await collectPromptModelBindingUpdates({
+            ownerId: user.userId,
+            previousModelSetGroupIdsById: previous.modelSetGroupIdsById,
+            allowedGroupIds: current.allowedGroupIds,
+            modelSetGroupIdsById: current.modelSetGroupIdsById,
+        })
+
         await prisma.$transaction(async (tx) => {
             if (uniqueGroupIds.length === 0) {
                 await tx.aiModelSetMember.deleteMany({
                     where: { ownerId: user.userId, setId },
                 })
-                return
+            } else {
+                await tx.aiModelSetMember.deleteMany({
+                    where: { ownerId: user.userId, setId, groupId: { notIn: uniqueGroupIds } },
+                })
+
+                for (const [index, groupId] of uniqueGroupIds.entries()) {
+                    await tx.aiModelSetMember.upsert({
+                        where: { setId_groupId: { setId, groupId } },
+                        update: {
+                            ownerId: user.userId,
+                            sortOrder: index,
+                        },
+                        create: {
+                            ownerId: user.userId,
+                            setId,
+                            groupId,
+                            sortOrder: index,
+                        },
+                    })
+                }
             }
 
-            await tx.aiModelSetMember.deleteMany({
-                where: { ownerId: user.userId, setId, groupId: { notIn: uniqueGroupIds } },
-            })
-
-            for (const [index, groupId] of uniqueGroupIds.entries()) {
-                await tx.aiModelSetMember.upsert({
-                    where: { setId_groupId: { setId, groupId } },
-                    update: {
-                        ownerId: user.userId,
-                        sortOrder: index,
-                    },
-                    create: {
-                        ownerId: user.userId,
-                        setId,
-                        groupId,
-                        sortOrder: index,
+            for (const update of promptUpdates) {
+                await tx.prompt.update({
+                    where: { id: update.id },
+                    data: {
+                        modelGroupIdsJson: update.modelGroupIdsJson,
+                        modelSetIdsJson: update.modelSetIdsJson,
                     },
                 })
             }

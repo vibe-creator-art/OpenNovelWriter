@@ -6,6 +6,7 @@
     "name": "预设-更新词条",
     "description": "一般用于中途导入的书，或者很久没更新的词条，更新重要词条",
     "revision": 1.1,
+    "enabled": true,
     "exportedAt": "2026-06-20T22:23:22.280Z"
   },
   "entrySkill": "skill",

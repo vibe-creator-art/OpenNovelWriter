@@ -9,6 +9,7 @@ import {
     type CodexResponseAnnotation,
 } from '@/lib/codex-response-annotations'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
+import { parseCodexAssistantNotification } from '@/lib/server/codex-assistant-notification'
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
 import { ensureCodexSessionWorkspace } from '@/lib/server/codex-session-workspace'
@@ -29,7 +30,10 @@ import {
     normalizeCodexReasoningEffort,
     normalizeCodexReviewLevel,
     normalizeCodexServiceTier,
+    normalizeCodexThreadGoal,
+    type CodexComposerMode,
     type CodexReviewLevel,
+    type CodexThreadGoal,
 } from '@/lib/server/codex-session'
 
 type JsonRpcMessage =
@@ -249,6 +253,75 @@ export async function interruptAndWaitForActiveCodexRun(sessionId: string) {
     return true
 }
 
+export async function updateNovelCodexGoal(input: {
+    sessionId: string
+    ownerId: string
+    codexThreadId: string
+    codexConnectionId?: string | null
+    objective?: string
+    status?: 'active' | 'paused'
+    clear?: boolean
+    interruptTurn?: boolean
+}) {
+    const activeRun = getActiveCodexRun(input.sessionId)
+    if (activeRun?.client && activeRun.threadId === input.codexThreadId) {
+        const result = input.clear
+            ? await activeRun.client.request<{ cleared: boolean }>('thread/goal/clear', { threadId: input.codexThreadId })
+            : await activeRun.client.request<{ goal: unknown }>('thread/goal/set', {
+                threadId: input.codexThreadId,
+                ...(input.objective !== undefined ? { objective: input.objective } : {}),
+                ...(input.status !== undefined ? { status: input.status } : {}),
+            })
+        if (input.interruptTurn && activeRun.turnId) {
+            await activeRun.client.request('turn/interrupt', {
+                threadId: input.codexThreadId,
+                turnId: activeRun.turnId,
+            })
+        }
+        if (input.interruptTurn) await activeRun.completion
+        if (input.clear) return { cleared: (result as { cleared: boolean }).cleared, goal: null }
+        const goal = normalizeCodexThreadGoal((result as { goal: unknown }).goal)
+        if (!goal) throw new Error('Codex returned an invalid goal.')
+        return { cleared: false, goal }
+    }
+
+    const connection = input.codexConnectionId
+        ? await prisma.codexConnection.findFirst({
+            where: { id: input.codexConnectionId, ownerId: input.ownerId },
+        })
+        : await prisma.codexConnection.findFirst({
+            where: { ownerId: input.ownerId, isActive: true },
+            orderBy: { createdAt: 'asc' },
+        })
+    if (!connection) throw new Error('No Codex connection is available.')
+    const codexHome = connection.providerType === 'custom'
+        ? await syncCodexConnectionRuntimeFiles(connection)
+        : await ensureCodexConnectionHome(input.ownerId, connection.id)
+    const client = await CodexAppServerClient.create(codexHome)
+    try {
+        await client.request('thread/resume', {
+            threadId: input.codexThreadId,
+            excludeTurns: true,
+        })
+        if (input.clear) {
+            const result = await client.request<{ cleared: boolean }>('thread/goal/clear', {
+                threadId: input.codexThreadId,
+            })
+            return { cleared: result.cleared, goal: null }
+        }
+        const result = await client.request<{ goal: unknown }>('thread/goal/set', {
+            threadId: input.codexThreadId,
+            ...(input.objective !== undefined ? { objective: input.objective } : {}),
+            ...(input.status !== undefined ? { status: input.status } : {}),
+        })
+        const goal = normalizeCodexThreadGoal(result.goal)
+        if (!goal) throw new Error('Codex returned an invalid goal.')
+        return { cleared: false, goal }
+    } finally {
+        client.close()
+    }
+}
+
 class CodexAppServerClient {
     private process: ChildProcessWithoutNullStreams
     private nextId = 1
@@ -256,6 +329,7 @@ class CodexAppServerClient {
     private buffer = ''
     private stderrBuffer = ''
     private notificationHandler: ((message: JsonRpcMessage) => void) | null = null
+    private queuedNotifications: JsonRpcMessage[] = []
     private serverRequestHandler: ServerRequestHandler | null = null
     private exitHandler: ((error: Error) => void) | null = null
     private closed = false
@@ -337,6 +411,10 @@ class CodexAppServerClient {
 
     setNotificationHandler(handler: ((message: JsonRpcMessage) => void) | null) {
         this.notificationHandler = handler
+        if (!handler || this.queuedNotifications.length === 0) return
+        const queued = this.queuedNotifications
+        this.queuedNotifications = []
+        queued.forEach(handler)
     }
 
     setServerRequestHandler(handler: ServerRequestHandler | null) {
@@ -377,6 +455,7 @@ class CodexAppServerClient {
         if (this.closed) return
         this.closed = true
         this.notificationHandler = null
+        this.queuedNotifications = []
         this.serverRequestHandler = null
         this.exitHandler = null
         this.rejectAll(new Error('Codex app-server client closed.'))
@@ -417,7 +496,8 @@ class CodexAppServerClient {
         }
 
         if (message.method) {
-            this.notificationHandler?.(message)
+            if (this.notificationHandler) this.notificationHandler(message)
+            else this.queuedNotifications.push(message)
         }
     }
 
@@ -473,11 +553,16 @@ type CodexPlanStep = {
 }
 
 type CodexRunStreamHandlers = {
+    onTurnStarted?: (turnId: string) => void
+    onTurnCompleted?: (turn: { turnId: string; status: 'completed' | 'failed' | 'interrupted' }) => void
     onAssistantDelta?: (delta: string) => void
+    onAssistantNotification?: (notification: { id: string; content: string; createdAt: string }) => void
     onPlanDelta?: (event: { id: string; delta: string; createdAt: string }) => void
     onEvent?: (event: CodexRunEvent) => void
     onApprovalRequest?: (request: CodexApprovalRequest) => void
     onContextWindow?: (contextWindow: CodexContextWindow) => void
+    onGoalUpdated?: (goal: CodexThreadGoal) => void
+    onGoalCleared?: () => void
 }
 
 type CodexRuntimeReviewOptions = {
@@ -498,15 +583,15 @@ function getCodexRuntimeSandbox(reviewLevel: CodexReviewLevel) {
 }
 
 function getCodexCollaborationMode(input: {
-    planMode: boolean
+    composerMode: CodexComposerMode
     modelId: string
     reasoningEffort: string
 }) {
     return {
-        mode: input.planMode ? 'plan' : 'default',
+        mode: input.composerMode === 'plan' ? 'plan' : 'default',
         settings: {
             model: input.modelId,
-            reasoning_effort: input.planMode ? CODEX_PLAN_MODE_REASONING_EFFORT : input.reasoningEffort,
+            reasoning_effort: input.composerMode === 'plan' ? CODEX_PLAN_MODE_REASONING_EFFORT : input.reasoningEffort,
             developer_instructions: null,
         },
     }
@@ -1052,8 +1137,11 @@ export async function runNovelCodexTurn(input: {
     modelId?: string | null
     reasoningEffort?: string | null
     serviceTier?: string | null
-    planMode?: boolean | null
-    prompt: string
+    composerMode?: CodexComposerMode | null
+    currentGoal?: CodexThreadGoal | null
+    goalObjective?: string | null
+    resumeGoal?: boolean
+    prompt?: string
     imageUrls?: string[] | null
     skillRefs?: Array<{ id: string; name: string }> | null
     stream?: CodexRunStreamHandlers
@@ -1129,10 +1217,12 @@ export async function runNovelCodexTurn(input: {
             ? await readFastServiceTierId(client, modelId)
             : null
     const collaborationMode = getCodexCollaborationMode({
-        planMode: input.planMode === true,
+        composerMode: input.composerMode ?? 'default',
         modelId,
         reasoningEffort,
     })
+    let goal = normalizeCodexThreadGoal(input.currentGoal)
+    let waitingForResumeActivation = input.resumeGoal === true
     let assistantText = ''
     let contextWindow: CodexContextWindow | null = null
     const eventOrder: string[] = []
@@ -1307,34 +1397,58 @@ export async function runNovelCodexTurn(input: {
 
         const skillInputItems = await resolveCodexSkillInputItems(client, codexHome, input.skillRefs)
         throwIfCodexRunStopped(activeRunHandle)
-        const turnResponse = await client.request<{ turn: { id: string } }>('turn/start', {
-            threadId,
-            cwd: sessionWorkspacePath,
-            model: modelId,
-            serviceTier,
-            effort: reasoningEffort,
-            collaborationMode,
-            approvalPolicy: reviewOptions.approvalPolicy,
-            approvalsReviewer: reviewOptions.approvalsReviewer,
-            input: [
-                { type: 'text', text: input.prompt, text_elements: [] },
-                ...resolveCodexImageInputItems(input.imageUrls),
-                ...skillInputItems,
-            ],
-        })
-        turnId = turnResponse.turn.id
-        activeRunHandle.turnId = turnId
+        if (input.resumeGoal) {
+            const response = await client.request<{ goal: unknown }>('thread/goal/set', {
+                threadId,
+                status: 'active',
+            })
+            goal = normalizeCodexThreadGoal(response.goal)
+            if (!goal) throw new Error('Codex returned an invalid goal while resuming.')
+            input.stream?.onGoalUpdated?.(goal)
+        } else {
+            const prompt = input.prompt?.trim()
+            if (!prompt) throw new Error('Codex prompt is required.')
+            const turnResponse = await client.request<{ turn: { id: string } }>('turn/start', {
+                threadId,
+                cwd: sessionWorkspacePath,
+                model: modelId,
+                serviceTier,
+                effort: reasoningEffort,
+                collaborationMode,
+                approvalPolicy: reviewOptions.approvalPolicy,
+                approvalsReviewer: reviewOptions.approvalsReviewer,
+                input: [
+                    { type: 'text', text: prompt, text_elements: [] },
+                    ...resolveCodexImageInputItems(input.imageUrls),
+                    ...skillInputItems,
+                ],
+            })
+            turnId = turnResponse.turn.id
+            activeRunHandle.turnId = turnId
+            if (input.goalObjective?.trim()) {
+                const response = await client.request<{ goal: unknown }>('thread/goal/set', {
+                    threadId,
+                    objective: input.goalObjective.trim(),
+                    status: 'active',
+                })
+                goal = normalizeCodexThreadGoal(response.goal)
+                if (!goal) throw new Error('Codex returned an invalid goal after creation.')
+                input.stream?.onGoalUpdated?.(goal)
+            }
+        }
         throwIfCodexRunStopped(activeRunHandle)
 
         let interrupted = false
+        let goalWasCleared = false
         try {
             await new Promise<void>((resolve, reject) => {
-            activeRunHandle.rejectRun = reject
-            if (activeRunHandle.stopped) {
-                reject(new CodexRunInterruptedError())
-                return
-            }
-            runClient.setNotificationHandler((message) => {
+                let turnInProgress = turnId !== null
+                activeRunHandle.rejectRun = reject
+                if (activeRunHandle.stopped) {
+                    reject(new CodexRunInterruptedError())
+                    return
+                }
+                runClient.setNotificationHandler((message) => {
                 if (activeRunHandle.stopped) return
                 const params = message.params as Record<string, unknown> | undefined
                 if (!params) return
@@ -1347,11 +1461,52 @@ export async function runNovelCodexTurn(input: {
                 }
                 if (params.threadId !== threadId) return
 
+                if (message.method === 'thread/goal/updated') {
+                    const nextGoal = normalizeCodexThreadGoal(params.goal)
+                    if (!nextGoal) return
+                    if (waitingForResumeActivation && nextGoal.status !== 'active') return
+                    waitingForResumeActivation = false
+                    goal = nextGoal
+                    input.stream?.onGoalUpdated?.(nextGoal)
+                    if (nextGoal.status !== 'active' && !turnInProgress) resolve()
+                    return
+                }
+
+                if (message.method === 'thread/goal/cleared') {
+                    if (waitingForResumeActivation) return
+                    goal = null
+                    goalWasCleared = true
+                    input.stream?.onGoalCleared?.()
+                    if (!turnInProgress) resolve()
+                    return
+                }
+
+                if (message.method === 'turn/started') {
+                    const turn = params.turn as Record<string, unknown> | undefined
+                    if (typeof turn?.id !== 'string') return
+                    turnId = turn.id
+                    activeRunHandle.turnId = turnId
+                    turnInProgress = true
+                    input.stream?.onTurnStarted?.(turnId)
+                    return
+                }
+
                 if (message.method === 'item/agentMessage/delta' && params.turnId === turnId) {
                     if (typeof params.delta === 'string') {
                         assistantText += params.delta
                         input.stream?.onAssistantDelta?.(params.delta)
                     }
+                    return
+                }
+
+                if (message.method === 'rawResponseItem/completed' && params.turnId === turnId) {
+                    const notification = parseCodexAssistantNotification(params.item)
+                    if (!notification) return
+                    input.stream?.onAssistantNotification?.({
+                        id: notification.id ?? `codex_notification_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`,
+                        content: notification.content,
+                        createdAt: new Date().toISOString(),
+                    })
                     return
                 }
 
@@ -1445,24 +1600,31 @@ export async function runNovelCodexTurn(input: {
 
                 if (message.method === 'turn/completed') {
                     const turn = params.turn as Record<string, unknown> | undefined
-                    if (turn?.id !== turnId) return
+                    if (!turn || typeof turn.id !== 'string' || turn.id !== turnId) return
+                    const completedTurnId = turn.id
                     const status = turn.status
+                    turnInProgress = false
+                    activeRunHandle.turnId = null
+                    if (status === 'completed' || status === 'failed' || status === 'interrupted') {
+                        input.stream?.onTurnCompleted?.({ turnId: completedTurnId, status })
+                    }
                     if (status === 'failed') {
                         const error = turn.error as Record<string, unknown> | undefined
                         reject(new Error(typeof error?.message === 'string' ? error.message : 'Codex turn failed.'))
                     } else if (status === 'completed') {
-                        resolve()
+                        if (goalWasCleared || goal?.status !== 'active') resolve()
                     } else if (status === 'interrupted') {
-                        reject(new CodexRunInterruptedError())
+                        if (activeRunHandle.stopped) reject(new CodexRunInterruptedError())
+                        else if (goalWasCleared || goal?.status !== 'active') resolve()
                     } else {
                         reject(new Error(`Codex turn completed with an unexpected status: ${String(status)}.`))
                     }
                 }
-            })
+                })
 
-            runClient.setExitHandler((error) => {
-                reject(error)
-            })
+                runClient.setExitHandler((error) => {
+                    reject(error)
+                })
             })
         } catch (error) {
             if (error instanceof CodexRunInterruptedError) interrupted = true
@@ -1481,12 +1643,23 @@ export async function runNovelCodexTurn(input: {
             if (contextWindow) input.stream?.onContextWindow?.(contextWindow)
         }
 
+        if (!interrupted && goal?.status === 'complete') {
+            await client.request('thread/goal/clear', { threadId })
+            if (goal) {
+                goal = null
+                goalWasCleared = true
+                input.stream?.onGoalCleared?.()
+            }
+        }
+
         return {
             threadId,
             assistantText: assistantText.trim(),
             events: eventOrder.map((eventId) => eventsById.get(eventId)).filter((event): event is CodexRunEvent => event !== undefined),
             contextWindow,
             connectionId: connection.id,
+            goal,
+            goalCleared: goalWasCleared,
             status: interrupted ? 'interrupted' as const : 'completed' as const,
         }
     } catch (error) {

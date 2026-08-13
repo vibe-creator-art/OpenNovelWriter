@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { listRetrievalModelOptions } from '@/lib/server/retrieval-models'
+import { listRetrievalModelGroups } from '@/lib/server/retrieval-models'
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -17,9 +17,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
     if (!novel) return NextResponse.json({ detail: 'Novel not found' }, { status: 404 })
 
-    const [embeddingModels, rerankerModels] = await Promise.all([
-        listRetrievalModelOptions(prisma, user.userId, 'embedding'),
-        listRetrievalModelOptions(prisma, user.userId, 'reranker'),
+    const [embeddingGroups, rerankerGroups] = await Promise.all([
+        listRetrievalModelGroups(prisma, user.userId, 'embedding'),
+        listRetrievalModelGroups(prisma, user.userId, 'reranker'),
     ])
-    return NextResponse.json({ embeddingModels, rerankerModels })
+    return NextResponse.json({ embeddingGroups, rerankerGroups })
 }

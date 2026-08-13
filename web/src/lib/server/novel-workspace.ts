@@ -7,6 +7,7 @@ import { getOpenNovelWriterDataDir } from '@/lib/server/data-dir'
 import { getUserAgentsRoot } from '@/lib/server/agent-storage'
 import { removeManagedSymlink } from '@/lib/server/managed-symlink'
 import { getTermStateEntries } from '@/lib/term-state'
+import { annotateStoryFactCredibility, attachEpisodeSyncStatus, isDriftedStoryEpisodeSyncStatus } from '@/lib/server/story-state'
 
 const prisma = getPrismaClient({ ensureModel: 'novel' })
 const require = createRequire(import.meta.url)
@@ -54,6 +55,7 @@ const CHAPTERS_DIR_NAME = 'chapters'
 const TERMS_DIR_NAME = 'terms'
 const SNIPPETS_DIR_NAME = 'snippets'
 const MATERIALS_DIR_NAME = 'materials'
+const STORY_STATE_DIR_NAME = 'story-state'
 const DETAILED_OUTLINE_DIR_NAME = 'DetailedOutline'
 const DETAILED_OUTLINE_CHAPTERS_DIR_NAME = 'chapters'
 const DETAILED_OUTLINE_ACTS_DIR_NAME = 'acts'
@@ -231,6 +233,7 @@ async function ensureNovelWorkspaceUnlocked(ownerId: string, novelId: string) {
         syncNovelWorkspaceSnippetsUnlocked(ownerId, novelId),
         syncNovelWorkspaceDetailedOutlinesUnlocked(ownerId, novelId),
         syncNovelWorkspaceMaterialsUnlocked(ownerId, novelId),
+        syncNovelWorkspaceStoryStateUnlocked(ownerId, novelId),
     ])
 
     const chaptersPath = getNovelWorkspaceChaptersPath(ownerId, novelId)
@@ -293,6 +296,10 @@ export async function syncNovelWorkspaceSnippet(ownerId: string, novelId: string
 
 export async function syncNovelWorkspaceMaterials(ownerId: string, novelId: string) {
     return withNovelWorkspaceSyncLock(ownerId, novelId, () => syncNovelWorkspaceMaterialsUnlocked(ownerId, novelId))
+}
+
+export async function syncNovelWorkspaceStoryState(ownerId: string, novelId: string) {
+    return withNovelWorkspaceSyncLock(ownerId, novelId, () => syncNovelWorkspaceStoryStateUnlocked(ownerId, novelId))
 }
 
 export async function removeNovelWorkspaceChapter(ownerId: string, novelId: string, chapterId: string) {
@@ -695,6 +702,146 @@ async function syncNovelWorkspaceMaterialsUnlocked(ownerId: string, novelId: str
     }))
 
     return { materialsPath, written }
+}
+
+async function syncNovelWorkspaceStoryStateUnlocked(ownerId: string, novelId: string) {
+    const workspacePath = await ensureNovelWorkspaceDirectory(ownerId, novelId)
+    const novel = await prisma.novel.findFirst({
+        where: { id: novelId, ownerId },
+        select: {
+            id: true,
+            storyMoments: {
+                orderBy: { storyOrder: 'asc' },
+                select: { id: true, label: true, storyOrder: true, sourceSceneId: true },
+            },
+            storyEntities: {
+                orderBy: [{ kind: 'asc' }, { name: 'asc' }],
+                include: { aliases: { orderBy: { alias: 'asc' } } },
+            },
+            storyFacts: {
+                orderBy: { createdAt: 'asc' },
+                include: {
+                    subjectEntity: { select: { id: true, name: true } },
+                    objectEntity: { select: { id: true, name: true } },
+                    validFromMoment: { select: { id: true, label: true } },
+                    validToMoment: { select: { id: true, label: true } },
+                    evidence: {
+                        include: {
+                            episode: {
+                                select: {
+                                    id: true,
+                                    sourceKind: true,
+                                    sourceSceneId: true,
+                                    contentHash: true,
+                                    inactiveAt: true,
+                                    sourceScene: { select: { summary: true } },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            storyEpisodes: {
+                where: { sourceKind: 'SCENE_SUMMARY', inactiveAt: null },
+                orderBy: { createdAt: 'desc' },
+                select: {
+                    id: true,
+                    sourceKind: true,
+                    sourceSceneId: true,
+                    content: true,
+                    contentHash: true,
+                    inactiveAt: true,
+                    sourceScene: {
+                        select: {
+                            id: true,
+                            summary: true,
+                            chapter: { select: { id: true, title: true } },
+                        },
+                    },
+                },
+            },
+        },
+    })
+    if (!novel) return null
+
+    const storyStatePath = path.join(workspacePath, STORY_STATE_DIR_NAME)
+    const moments = [
+        '# Story Moments',
+        '',
+        `<!-- novel_id: ${novel.id} -->`,
+        '',
+        ...(novel.storyMoments.length > 0
+            ? novel.storyMoments.map((moment) =>
+                  `${moment.storyOrder}. ${moment.label} <!-- moment_id: ${moment.id}${moment.sourceSceneId ? `; source_scene_id: ${moment.sourceSceneId}` : ''} -->`
+              )
+            : ['No story moments.']),
+        '',
+    ].join('\n')
+    const entities = [
+        '# Story Entities',
+        '',
+        `<!-- novel_id: ${novel.id} -->`,
+        '',
+        ...(novel.storyEntities.length > 0
+            ? novel.storyEntities.flatMap((entity) => [
+                  `## ${entity.name}`,
+                  '',
+                  `<!-- entity_id: ${entity.id}; kind: ${entity.kind}${entity.termId ? `; term_id: ${entity.termId}` : ''} -->`,
+                  ...(entity.aliases.length > 0 ? ['', `Aliases: ${entity.aliases.map((alias) => alias.alias).join('、')}`] : []),
+                  ...(entity.summary ? ['', entity.summary] : []),
+                  '',
+              ])
+            : ['No story entities.', '']),
+    ].join('\n')
+    const annotatedFacts = novel.storyFacts.map(annotateStoryFactCredibility)
+    const credibleFacts = annotatedFacts.filter((fact) => fact.credible)
+    const facts = [
+        '# Active Story Facts',
+        '',
+        `<!-- novel_id: ${novel.id} -->`,
+        '',
+        ...(credibleFacts.length > 0
+            ? credibleFacts.map((fact) => {
+                  const object = fact.objectEntity?.name ?? fact.objectValue ?? ''
+                  const interval = fact.validFromMoment || fact.validToMoment
+                      ? ` [${fact.validFromMoment?.label ?? '…'}, ${fact.validToMoment?.label ?? '…'})`
+                      : ''
+                  const episodeIds = fact.evidence
+                      .filter((evidence) => evidence.role === 'SUPPORTS' && !evidence.episode.inactiveAt)
+                      .map((evidence) => evidence.episode.id)
+                  const stale = fact.staleCredible ? '; stale_credible: true' : ''
+                  return `- ${fact.subjectEntity.name} — ${fact.predicateKey} → ${object}: ${fact.factText}${interval} <!-- fact_id: ${fact.id}; episode_ids: ${episodeIds.join(',')}${stale} -->`
+              })
+            : ['No active story facts.']),
+        '',
+    ].join('\n')
+    const outdatedEpisodes = novel.storyEpisodes
+        .map(attachEpisodeSyncStatus)
+        .filter((episode) => isDriftedStoryEpisodeSyncStatus(episode.syncStatus))
+    const outdated = [
+        '# Outdated Story Sources',
+        '',
+        `<!-- novel_id: ${novel.id} -->`,
+        '',
+        ...(outdatedEpisodes.length > 0
+            ? outdatedEpisodes.map((episode) => {
+                  const scene = episode.sourceScene
+                  const location = scene?.chapter?.title
+                      ? `${scene.chapter.title}`
+                      : 'unlinked scene'
+                  return `- ${episode.syncStatus}: ${location} <!-- episode_id: ${episode.id}${episode.sourceSceneId ? `; scene_id: ${episode.sourceSceneId}` : ''}; sync_status: ${episode.syncStatus} -->`
+              })
+            : ['No outdated sources.']),
+        '',
+    ].join('\n')
+
+    await Promise.all([
+        writeReadonlyProjectionFile(path.join(storyStatePath, 'moments.md'), moments),
+        writeReadonlyProjectionFile(path.join(storyStatePath, 'entities.md'), entities),
+        writeReadonlyProjectionFile(path.join(storyStatePath, 'facts-active.md'), facts),
+        writeReadonlyProjectionFile(path.join(storyStatePath, 'outdated.md'), outdated),
+    ])
+    return storyStatePath
 }
 
 async function removeNovelWorkspaceChapterUnlocked(ownerId: string, novelId: string, chapterId: string) {

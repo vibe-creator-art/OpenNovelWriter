@@ -25,6 +25,8 @@ import {
     createCodexMessageId,
     createCodexSessionTitle,
     normalizeCodexString,
+    normalizeCodexComposerMode,
+    parseCodexThreadGoal,
     parseCodexSessionMessages,
     serializeCodexSession,
     type CodexSessionMessage,
@@ -156,8 +158,18 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         return NextResponse.json({ detail: 'This Codex session category is not runnable yet.' }, { status: 400 })
     }
     const body = await request.json().catch(() => null)
+    const resumeGoal = body?.resumeGoal === true
     const content = normalizeCodexString(body?.content).trim()
-    if (!content) return NextResponse.json({ detail: 'Message content is required.' }, { status: 400 })
+    const currentGoal = parseCodexThreadGoal(existing.goalJson)
+    if (resumeGoal && (!existing.codexThreadId || !currentGoal || currentGoal.status === 'complete')) {
+        return NextResponse.json({ detail: 'This session has no paused goal to resume.' }, { status: 409 })
+    }
+    if (!resumeGoal && !content) {
+        return NextResponse.json({ detail: 'Message content is required.' }, { status: 400 })
+    }
+    if (!resumeGoal && existing.composerMode === 'goal' && currentGoal === null && content.length > 4000) {
+        return NextResponse.json({ detail: 'Goal objective must contain at most 4,000 characters.' }, { status: 400 })
+    }
     const attachments = normalizeManagedAttachmentUrls(body?.attachments)
     const responseAnnotations = normalizeCodexResponseAnnotations(body?.responseAnnotations)
     const artifactFiles = Array.isArray(body?.artifactFiles)
@@ -405,6 +417,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const now = new Date()
         const startedAt = now.toISOString()
         const currentMessages = parseCodexSessionMessages(existing.messagesJson)
+        const sentAsGoal = !resumeGoal && existing.composerMode === 'goal' && currentGoal === null
         const userMessage: CodexSessionMessage = {
             id: createCodexMessageId('codex_user'),
             role: 'user',
@@ -412,18 +425,21 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             attachments,
             jsonArtifacts: artifactFiles,
             ...(responseAnnotations.length ? { responseAnnotations } : {}),
+            ...(sentAsGoal ? { sentAsGoal: true } : {}),
             createdAt: startedAt,
         }
-        const optimisticMessages = [...currentMessages, userMessage]
+        const optimisticMessages = resumeGoal ? currentMessages : [...currentMessages, userMessage]
         const title = existing.titleManuallyEdited ? existing.title : createCodexSessionTitle(optimisticMessages)
 
         await prisma.codexSession.update({
             where: { id },
             data: {
                 messagesJson: JSON.stringify(optimisticMessages),
-                draftContent: '',
-                draftAttachmentsJson: '[]',
-                draftArtifactsJson: '[]',
+                ...(resumeGoal ? {} : {
+                    draftContent: '',
+                    draftAttachmentsJson: '[]',
+                    draftArtifactsJson: '[]',
+                }),
                 status: 'running',
                 lastError: null,
                 unreadCompletionAt: null,
@@ -443,8 +459,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             modelId: existing.modelId,
             reasoningEffort: existing.reasoningEffort,
             serviceTier: existing.serviceTier,
-            planMode: existing.planMode,
-            prompt: finalPromptText,
+            composerMode: normalizeCodexComposerMode(existing.composerMode) ?? 'default',
+            currentGoal,
+            goalObjective: sentAsGoal ? content : null,
+            resumeGoal,
+            prompt: resumeGoal ? undefined : finalPromptText,
             imageUrls: attachments,
             skillRefs,
         }
@@ -472,12 +491,27 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 const streamedMessages = [...optimisticMessages]
                 let assistantSegmentId: string | null = null
                 let assistantSegmentCreatedAt: string | null = null
+                let goalPersistence = Promise.resolve()
+                let turnPersistence = Promise.resolve()
                 let contextWindow: CodexContextWindow | null = null
 
                 try {
                     const result = await runNovelCodexTurn({
                         ...runInput,
                         stream: {
+                            onTurnStarted: () => {
+                                assistantSegmentId = null
+                                assistantSegmentCreatedAt = null
+                            },
+                            onTurnCompleted: () => {
+                                const messagesJson = JSON.stringify(streamedMessages)
+                                turnPersistence = turnPersistence.then(async () => {
+                                    await prisma.codexSession.updateMany({
+                                        where: { id, ownerId: user.userId, status: 'running' },
+                                        data: { messagesJson, updatedAt: new Date() },
+                                    })
+                                })
+                            },
                             onAssistantDelta: (delta) => {
                                 if (!assistantSegmentId) {
                                     assistantSegmentId = createCodexMessageId('codex_assistant_stream')
@@ -488,6 +522,21 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                                 assistantSegmentCreatedAt = segmentCreatedAt
                                 appendAssistantDeltaMessage(streamedMessages, delta, segmentId, segmentCreatedAt)
                                 send('assistant_delta', { id: segmentId, delta, createdAt: segmentCreatedAt })
+                            },
+                            onAssistantNotification: (notification) => {
+                                assistantSegmentId = null
+                                assistantSegmentCreatedAt = null
+                                appendAssistantDeltaMessage(
+                                    streamedMessages,
+                                    notification.content,
+                                    notification.id,
+                                    notification.createdAt
+                                )
+                                send('assistant_delta', {
+                                    id: notification.id,
+                                    delta: notification.content,
+                                    createdAt: notification.createdAt,
+                                })
                             },
                             onPlanDelta: (event) => {
                                 // Same rule as onEvent: later deltas accumulate into the existing
@@ -521,12 +570,41 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                                 contextWindow = nextContextWindow
                                 send('context_window', { contextWindow: nextContextWindow })
                             },
+                            onGoalUpdated: (goal) => {
+                                send('goal_updated', { goal })
+                                goalPersistence = goalPersistence.then(async () => {
+                                    await prisma.codexSession.updateMany({
+                                        where: { id, ownerId: user.userId },
+                                        data: {
+                                            codexThreadId: goal.threadId,
+                                            goalJson: JSON.stringify(goal),
+                                            updatedAt: new Date(),
+                                        },
+                                    })
+                                })
+                            },
+                            onGoalCleared: () => {
+                                send('goal_cleared', {})
+                                goalPersistence = goalPersistence.then(async () => {
+                                    await prisma.codexSession.updateMany({
+                                        where: { id, ownerId: user.userId },
+                                        data: { composerMode: 'default', goalJson: null, updatedAt: new Date() },
+                                    })
+                                })
+                            },
                         },
                     })
+                    await Promise.all([goalPersistence, turnPersistence])
                     contextWindow = result.contextWindow ?? contextWindow
 
                     const hasAssistantMessage = streamedMessages.slice(optimisticMessages.length).some((message) => message.role === 'assistant')
-                    if (result.status === 'completed' && !hasAssistantMessage) {
+                    if (
+                        result.status === 'completed' &&
+                        !hasAssistantMessage &&
+                        !result.goalCleared &&
+                        result.goal?.status !== 'active' &&
+                        result.goal?.status !== 'paused'
+                    ) {
                         streamedMessages.push({
                             id: createCodexMessageId('codex_assistant'),
                             role: 'assistant',
@@ -536,15 +614,20 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                     }
                     attachContextWindowToLastAssistant(streamedMessages, contextWindow)
                     const completedAt = new Date()
+                    const nextComposerMode = existing.composerMode === 'goal' && !result.goal
+                        ? 'default'
+                        : existing.composerMode
                     const session = await prisma.codexSession.update({
                         where: { id },
                         data: {
                             codexThreadId: result.threadId,
                             codexConnectionId: result.connectionId,
+                            composerMode: nextComposerMode,
+                            goalJson: result.goal ? JSON.stringify(result.goal) : null,
                             messagesJson: JSON.stringify(streamedMessages),
                             status: 'idle',
                             lastError: null,
-                            unreadCompletionAt: result.status === 'completed' ? completedAt : null,
+                            unreadCompletionAt: result.status === 'completed' && result.goal?.status !== 'paused' ? completedAt : null,
                             updatedAt: completedAt,
                         },
                     })

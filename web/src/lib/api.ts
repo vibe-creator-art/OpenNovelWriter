@@ -8,6 +8,7 @@ import type { StoredTerms, TermEntryGalleryItem } from '@/components/editor/term
 import type { RevisionHistoryItem } from '@/lib/revision-history'
 import type { PromptBundleV1 } from './prompt-bundle'
 import type { SkillPresetAssetV1 } from './skill-preset'
+import type { AgentPresetAssetV1 } from './agent-preset'
 import type { CodexResponseAnnotation } from './codex-response-annotations'
 import type { PetSummary } from './pets'
 
@@ -97,9 +98,9 @@ export interface Novel {
     termContextIncludesRelations: boolean
     termContextIncludesExperiences: boolean
     retrievalEmbeddingEnabled: boolean
-    retrievalEmbeddingAssignmentId: string | null
+    retrievalEmbeddingGroupId: string | null
     retrievalRerankerEnabled: boolean
-    retrievalRerankerAssignmentId: string | null
+    retrievalRerankerGroupId: string | null
     retrievalTopK: number
     codexSessionAutoCleanup: boolean
     codexSessionRetentionLimit: number
@@ -119,7 +120,7 @@ export const novelApi = {
     create: (data: { title: string; description?: string; category?: string; coverImage?: string; coverCrop?: string | null; language?: string }) =>
         fetchApi<Novel>('/novels', { method: 'POST', body: JSON.stringify(data) }),
 
-    update: (id: string, data: Partial<Novel> & { resetRetrievalEmbeddings?: boolean }) =>
+    update: (id: string, data: Partial<Novel>) =>
         fetchApi<Novel>(`/novels/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
     delete: (id: string) =>
@@ -135,7 +136,15 @@ export type RetrievalModelOption = {
     providerType: ProviderType
 }
 
+export type RetrievalModelGroupOption = {
+    groupId: string
+    groupName: string
+    models: RetrievalModelOption[]
+}
+
 export type SceneEmbeddingStatus = 'fresh' | 'stale' | 'missing' | 'error'
+export type StoryStateEmbeddingSourceKind = 'ENTITY' | 'FACT' | 'EPISODE'
+export type EmbeddingStatusCounts = Record<SceneEmbeddingStatus, number>
 
 export type RetrievalStatusResponse = {
     embeddingEnabled: boolean
@@ -146,12 +155,13 @@ export type RetrievalStatusResponse = {
         embeddedAt: string | null
         error: string | null
     }>
-    counts: Record<SceneEmbeddingStatus, number>
+    counts: EmbeddingStatusCounts
+    storyStateCounts: Record<StoryStateEmbeddingSourceKind, EmbeddingStatusCounts>
 }
 
 export const retrievalApi = {
     options: (novelId: string) =>
-        fetchApi<{ embeddingModels: RetrievalModelOption[]; rerankerModels: RetrievalModelOption[] }>(
+        fetchApi<{ embeddingGroups: RetrievalModelGroupOption[]; rerankerGroups: RetrievalModelGroupOption[] }>(
             `/novels/${encodeURIComponent(novelId)}/retrieval`
         ),
 
@@ -159,12 +169,105 @@ export const retrievalApi = {
         fetchApi<RetrievalStatusResponse>(`/novels/${encodeURIComponent(novelId)}/retrieval/status`),
 
     updateEmbeddings: (novelId: string, sceneId?: string) =>
-        fetchApi<{ updated: number; skipped: number; assignmentId: string; modelId: string }>(
+        fetchApi<{ updated: number; skipped: number; groupId: string; assignmentId: string | null; modelId: string | null }>(
             `/novels/${encodeURIComponent(novelId)}/retrieval/embeddings`,
             {
                 method: 'POST',
                 body: JSON.stringify(sceneId ? { sceneId } : {}),
             }
+        ),
+}
+
+export type StoryStateView = 'moments' | 'episodes' | 'entities' | 'aliases' | 'facts' | 'evidence'
+
+export type StoryStateViewResponse = {
+    view: StoryStateView
+    total: number
+    matched: number
+    rows: Array<Record<string, unknown>>
+}
+
+export type StoryStateSceneSource = {
+    id: string
+    order: number
+    chapter: {
+        id: string
+        title: string
+        actNumber: number
+        order: number
+    }
+}
+
+export type StoryStateVisualizationMoment = {
+    id: string
+    label: string
+    storyOrder: number
+    sourceScene: StoryStateSceneSource | null
+}
+
+export type StoryStateVisualizationEntity = {
+    id: string
+    name: string
+    kind: string
+    summary: string | null
+    aliases: Array<{
+        id: string
+        alias: string
+        sourceKind: string
+    }>
+}
+
+export type StoryEpisodeSyncStatus = 'fresh' | 'outdated' | 'source_empty' | 'inactive'
+
+export type StoryStateVisualizationEpisode = {
+    id: string
+    sourceKind: string
+    content: string
+    referenceMomentId: string | null
+    replacesEpisodeId: string | null
+    inactiveAt: string | null
+    inactiveReason: string | null
+    syncStatus: StoryEpisodeSyncStatus
+    createdAt: string
+    sourceScene: StoryStateSceneSource | null
+}
+
+export type StoryStateVisualizationFact = {
+    id: string
+    subjectEntityId: string
+    predicateKey: string
+    objectEntityId: string | null
+    objectValue: string | null
+    factText: string
+    validFromMomentId: string | null
+    validToMomentId: string | null
+    credible: boolean
+    staleCredible: boolean
+    evidence: Array<{
+        episodeId: string
+        role: string
+    }>
+}
+
+export type StoryStateVisualizationData = {
+    moments: StoryStateVisualizationMoment[]
+    entities: StoryStateVisualizationEntity[]
+    episodes: StoryStateVisualizationEpisode[]
+    facts: StoryStateVisualizationFact[]
+}
+
+export const storyStateApi = {
+    view: (novelId: string, view: StoryStateView, query?: string) => {
+        const params = new URLSearchParams({ view })
+        const normalized = query?.trim() ?? ''
+        if (normalized) params.set('q', normalized)
+        return fetchApi<StoryStateViewResponse>(
+            `/novels/${encodeURIComponent(novelId)}/story-state?${params.toString()}`
+        )
+    },
+    visualization: (novelId: string) =>
+        fetchApi<StoryStateVisualizationData>(
+            `/novels/${encodeURIComponent(novelId)}/story-state/visualization`
         ),
 }
 
@@ -563,6 +666,8 @@ export interface Agent {
     name: string
     enabled: boolean
     content: string
+    sourcePresetId: string | null
+    sourcePresetRevision: number | null
     createdAt: string
     updatedAt: string
 }
@@ -799,6 +904,7 @@ export interface BuiltinSkillPreset {
     name: string
     description: string | null
     revision: number
+    enabled: boolean
     exportedAt: string
     skillCount: number
     skillCategories: Array<SkillCategory | string>
@@ -830,25 +936,46 @@ export const skillPresetApi = {
             }),
         }),
 
-    publish: (data: { skillId: string; name: string; description?: string | null }) =>
+    publish: (data: { skillId: string; name: string; description?: string | null; enabled?: boolean }) =>
         fetchApi<SkillPresetPublishResult>('/skills/presets/publish', {
             method: 'POST',
             body: JSON.stringify({
                 skillId: data.skillId,
                 name: data.name,
                 description: data.description ?? null,
+                ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
             }),
         }),
 
-    update: (presetId: string, data: { skillId: string; name?: string; description?: string | null }) =>
+    update: (presetId: string, data: { skillId: string; name?: string; description?: string | null; enabled?: boolean }) =>
         fetchApi<SkillPresetPublishResult>(`/skills/presets/${encodeURIComponent(presetId)}`, {
             method: 'PUT',
             body: JSON.stringify({
                 skillId: data.skillId,
                 ...(data.name !== undefined ? { name: data.name } : {}),
                 ...(data.description !== undefined ? { description: data.description } : {}),
+                ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
             }),
         }),
+}
+
+export interface BuiltinAgentPreset {
+    presetId: string
+    name: string
+    description: string | null
+    revision: number
+    exportedAt: string
+}
+
+export interface AgentPresetListResponse {
+    authoringEnabled: boolean
+    presets: BuiltinAgentPreset[]
+}
+
+export interface AgentPresetPublishResult {
+    presetId: string
+    revision: number
+    preset: AgentPresetAssetV1
 }
 
 export const agentApi = {
@@ -862,6 +989,11 @@ export const agentApi = {
         fetchApi<{ agent: Agent }>('/agents', {
             method: 'POST',
             body: JSON.stringify(data),
+        }),
+
+    clone: (id: string) =>
+        fetchApi<{ agent: Agent }>(`/agents/${encodeURIComponent(id)}/clone`, {
+            method: 'POST',
         }),
 
     update: (
@@ -879,6 +1011,40 @@ export const agentApi = {
 
     delete: (id: string) =>
         fetchApi<{ ok: true }>(`/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+}
+
+export const agentPresetApi = {
+    list: () => fetchApi<AgentPresetListResponse>('/agents/presets'),
+
+    get: (presetId: string) => fetchApi<{ preset: AgentPresetAssetV1 }>(`/agents/presets/${encodeURIComponent(presetId)}`),
+
+    clone: (presetId: string, data?: { overwriteExisting?: boolean }) =>
+        fetchApi<{ presetId: string; agents: Agent[] }>(`/agents/presets/${encodeURIComponent(presetId)}/clone`, {
+            method: 'POST',
+            body: JSON.stringify({
+                ...(data?.overwriteExisting !== undefined ? { overwriteExisting: data.overwriteExisting } : {}),
+            }),
+        }),
+
+    publish: (data: { agentId: string; name: string; description?: string | null }) =>
+        fetchApi<AgentPresetPublishResult>('/agents/presets/publish', {
+            method: 'POST',
+            body: JSON.stringify({
+                agentId: data.agentId,
+                name: data.name,
+                description: data.description ?? null,
+            }),
+        }),
+
+    update: (presetId: string, data: { agentId: string; name?: string; description?: string | null }) =>
+        fetchApi<AgentPresetPublishResult>(`/agents/presets/${encodeURIComponent(presetId)}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                agentId: data.agentId,
+                ...(data.name !== undefined ? { name: data.name } : {}),
+                ...(data.description !== undefined ? { description: data.description } : {}),
+            }),
+        }),
 }
 
 // Upload API
@@ -1231,6 +1397,19 @@ export type CodexSessionStatus = 'idle' | 'running' | 'error'
 export type CodexReviewLevel = 'user_review' | 'auto_review' | 'no_review' | 'full_access'
 export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
 export type CodexServiceTier = 'standard' | 'fast'
+export type CodexComposerMode = 'default' | 'plan' | 'goal'
+export type CodexThreadGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
+
+export type CodexThreadGoal = {
+    threadId: string
+    objective: string
+    status: CodexThreadGoalStatus
+    tokenBudget: number | null
+    tokensUsed: number
+    timeUsedSeconds: number
+    createdAt: number
+    updatedAt: number
+}
 
 export type CodexSessionMessage = {
     id: string
@@ -1241,6 +1420,7 @@ export type CodexSessionMessage = {
     attachments?: string[]
     jsonArtifacts?: string[]
     responseAnnotations?: CodexResponseAnnotation[]
+    sentAsGoal?: boolean
     createdAt: string
 }
 
@@ -1277,6 +1457,8 @@ export type CodexSessionStreamEvent =
     | { type: 'event'; event: CodexRunEvent }
     | { type: 'approval_request'; approval: CodexApprovalRequest }
     | { type: 'context_window'; contextWindow: CodexContextWindow }
+    | { type: 'goal_updated'; goal: CodexThreadGoal }
+    | { type: 'goal_cleared' }
     | { type: 'done'; session: CodexSession }
     | { type: 'error'; session?: CodexSession; detail: string }
 
@@ -1308,7 +1490,8 @@ export type CodexSession = {
     modelId: string
     reasoningEffort: CodexReasoningEffort
     serviceTier: CodexServiceTier
-    planMode: boolean
+    composerMode: CodexComposerMode
+    goal: CodexThreadGoal | null
     codexThreadId: string | null
     codexConnectionId: string | null
     draftContent: string
@@ -1372,6 +1555,11 @@ async function readSseStream(
         } else if (eventName === 'context_window' && data && typeof data === 'object') {
             const record = data as Record<string, unknown>
             onEvent({ type: 'context_window', contextWindow: record.contextWindow as CodexContextWindow })
+        } else if (eventName === 'goal_updated' && data && typeof data === 'object') {
+            const record = data as Record<string, unknown>
+            onEvent({ type: 'goal_updated', goal: record.goal as CodexThreadGoal })
+        } else if (eventName === 'goal_cleared') {
+            onEvent({ type: 'goal_cleared' })
         } else if (eventName === 'done' && data && typeof data === 'object') {
             const record = data as Record<string, unknown>
             onEvent({ type: 'done', session: record.session as CodexSession })
@@ -1424,7 +1612,7 @@ export const codexSessionApi = {
             modelId?: string
             reasoningEffort?: CodexReasoningEffort
             serviceTier?: CodexServiceTier
-            planMode?: boolean
+            composerMode?: CodexComposerMode
             draftContent?: string
             draftAttachments?: string[]
             draftArtifacts?: CodexDraftArtifact[]
@@ -1451,7 +1639,7 @@ export const codexSessionApi = {
             modelId: string
             reasoningEffort: CodexReasoningEffort
             serviceTier: CodexServiceTier
-            planMode: boolean
+            composerMode: CodexComposerMode
             draftContent: string
             draftAttachments: string[]
             draftArtifacts: CodexDraftArtifact[]
@@ -1522,6 +1710,15 @@ export const codexSessionApi = {
             method: 'POST',
         }),
 
+    controlGoal: (
+        id: string,
+        data: { action: 'edit'; objective: string } | { action: 'pause' } | { action: 'clear' }
+    ) =>
+        fetchApi<{ session: CodexSession }>(`/codex/sessions/${encodeURIComponent(id)}/goal`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        }),
+
     streamMessage: async (
         id: string,
         content: string,
@@ -1564,6 +1761,33 @@ export const codexSessionApi = {
             throw new ApiError(response.status, error.detail || 'Request failed', error)
         }
 
+        await readSseStream(response, options.onEvent)
+    },
+
+    streamGoalResume: async (
+        id: string,
+        options: {
+            signal?: AbortSignal
+            onEvent: (event: CodexSessionStreamEvent) => void
+        }
+    ) => {
+        const token = useAuthStore.getState().token
+        if (!token) throw new ApiError(401, 'Not authenticated - no token available')
+        const response = await fetch(`${API_BASE}/codex/sessions/${encodeURIComponent(id)}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream',
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ resumeGoal: true }),
+            signal: options.signal,
+        })
+        if (!response.ok) {
+            if (response.status === 401) useAuthStore.getState().logout()
+            const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+            throw new ApiError(response.status, error.detail || 'Request failed', error)
+        }
         await readSseStream(response, options.onEvent)
     },
 

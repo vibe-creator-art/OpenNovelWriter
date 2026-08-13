@@ -14,6 +14,7 @@ export interface BuiltinSkillPresetSummary {
     name: string
     description: string | null
     revision: number
+    enabled: boolean
     exportedAt: string
     skillCount: number
     skillCategories: SkillCategory[]
@@ -107,6 +108,7 @@ function createBuiltinSkillPresetRegistryEntry(assetDirectoryPath: string): Buil
         name: parsed.preset.metadata.name,
         description: parsed.preset.metadata.description ?? null,
         revision: parsed.preset.metadata.revision,
+        enabled: parsed.preset.metadata.enabled,
         exportedAt: parsed.preset.metadata.exportedAt,
         skillCount: skills.length,
         skillCategories: toSortedUniqueList(skills.map((skill) => skill.category)),
