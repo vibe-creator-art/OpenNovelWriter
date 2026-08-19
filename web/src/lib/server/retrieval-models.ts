@@ -7,6 +7,7 @@ import {
     type FailurePolicy,
 } from '@/lib/ai-group-config'
 import type { PrismaClient } from '@/generated/prisma/client'
+import { isAbortError } from '@/lib/server/abort-error'
 import { decryptApiKey } from '@/lib/server/ai-credentials'
 import { parseProviderType, resolveBaseUrl, type ProviderType } from '@/lib/server/ai-providers'
 
@@ -225,7 +226,7 @@ async function runRetrievalGroupWithFallback<T>(
             }
             return { value, assignment }
         } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') throw error
+            if (isAbortError(error)) throw error
             lastError = error
             const updates = computeFailureUpdates({
                 assignment: {

@@ -568,7 +568,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                             },
                             onContextWindow: (nextContextWindow) => {
                                 contextWindow = nextContextWindow
+                                attachContextWindowToLastAssistant(streamedMessages, nextContextWindow)
                                 send('context_window', { contextWindow: nextContextWindow })
+                            },
+                            onRateLimits: (rateLimits, connectionId) => {
+                                send('rate_limits', { rateLimits, connectionId })
                             },
                             onGoalUpdated: (goal) => {
                                 send('goal_updated', { goal })

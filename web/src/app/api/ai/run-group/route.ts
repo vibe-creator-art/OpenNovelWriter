@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
+import { isAbortError } from '@/lib/server/abort-error'
 import {
     loadModelGroupForOwner,
     ModelGroupRunnerError,
@@ -37,8 +38,22 @@ export async function POST(request: NextRequest) {
     }
 
     const encoder = new TextEncoder()
+    const isControllerOpen = (controller: ReadableStreamDefaultController<Uint8Array>) => controller.desiredSize !== null
     const writeEvent = (controller: ReadableStreamDefaultController<Uint8Array>, event: unknown) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+        if (!isControllerOpen(controller)) return
+        try {
+            controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+        } catch {
+            // Client already dropped the stream.
+        }
+    }
+    const closeController = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+        if (!isControllerOpen(controller)) return
+        try {
+            controller.close()
+        } catch {
+            // Already closed by cancel() or a prior write.
+        }
     }
 
     const stream = new ReadableStream<Uint8Array>({
@@ -79,7 +94,7 @@ export async function POST(request: NextRequest) {
                         usedAssignment: result.usedAssignment,
                     })
                 } catch (error) {
-                    if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                    if (!isAbortError(error, request.signal)) {
                         console.error('AI model group run failed:', error)
                         writeEvent(controller, {
                             type: 'error',
@@ -90,7 +105,7 @@ export async function POST(request: NextRequest) {
                         })
                     }
                 } finally {
-                    controller.close()
+                    closeController(controller)
                 }
             })()
         },

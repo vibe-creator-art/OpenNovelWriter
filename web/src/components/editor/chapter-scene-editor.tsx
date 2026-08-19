@@ -46,6 +46,10 @@ import { buildDefaultPromptInputValues, getMissingRequiredPromptInputNames } fro
 import { PROMPTS_CHANGED_EVENT } from '@/lib/prompt-events'
 import { sceneHasBodyContent } from '@/lib/manuscript-delete-rules'
 import {
+    MANUSCRIPT_FLUSH_REQUESTED_EVENT,
+    type ManuscriptFlushRequestedDetail,
+} from '@/lib/manuscript-flush-events'
+import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
@@ -142,6 +146,8 @@ export function ChapterSceneEditor({
 
     // Track local edits for each scene
     const [localEdits, setLocalEdits] = useState<Record<string, string>>({})
+    const localEditsRef = useRef(localEdits)
+    localEditsRef.current = localEdits
     const [editingSummaryId, setEditingSummaryId] = useState<string | null>(null)
     const [summaryText, setSummaryText] = useState('')
     const saveTimersRef = useRef<Record<string, NodeJS.Timeout>>({})
@@ -380,6 +386,31 @@ export function ChapterSceneEditor({
             console.error('Failed to save scene:', error)
         }
     }, [onSceneContentIndexed, updateScenes])
+
+    const saveSceneContentRef = useRef(saveSceneContent)
+    saveSceneContentRef.current = saveSceneContent
+
+    const flushPendingSaves = useCallback(async () => {
+        const pending = { ...localEditsRef.current }
+        const sceneIds = Object.keys(pending)
+        for (const sceneId of sceneIds) {
+            if (saveTimersRef.current[sceneId]) {
+                clearTimeout(saveTimersRef.current[sceneId])
+                delete saveTimersRef.current[sceneId]
+            }
+        }
+        if (sceneIds.length === 0) return
+        await Promise.all(sceneIds.map((sceneId) => saveSceneContentRef.current(sceneId, pending[sceneId])))
+    }, [])
+
+    useEffect(() => {
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<ManuscriptFlushRequestedDetail>).detail
+            detail?.register(flushPendingSaves())
+        }
+        window.addEventListener(MANUSCRIPT_FLUSH_REQUESTED_EVENT, handler)
+        return () => window.removeEventListener(MANUSCRIPT_FLUSH_REQUESTED_EVENT, handler)
+    }, [flushPendingSaves])
 
     // Save scene summary
     const saveSceneSummary = useCallback(async (sceneId: string, summary: string) => {

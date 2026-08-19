@@ -146,6 +146,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                             contextWindow = nextContextWindow
                             send('context_window', { contextWindow: nextContextWindow })
                         },
+                        onRateLimits: (rateLimits, connectionId) => {
+                            send('rate_limits', { rateLimits, connectionId })
+                        },
                     },
                 })
                 contextWindow = result.contextWindow ?? contextWindow

@@ -11,6 +11,7 @@ import {
     normalizeGroupModelTypes,
     normalizeGroupSettings,
 } from '@/lib/ai-group-config'
+import { isAbortError } from '@/lib/server/abort-error'
 import { decryptApiKey } from '@/lib/server/ai-credentials'
 import { createLanguageModel, parseProviderType } from '@/lib/server/ai-providers'
 
@@ -130,13 +131,6 @@ function isAssignmentAvailable(assignment: Pick<ModelAssignment, 'manuallyDisabl
     const timestamp = new Date(assignment.ignoredUntil).getTime()
     if (Number.isNaN(timestamp)) return true
     return timestamp <= nowMs
-}
-
-function isAbortError(error: unknown) {
-    return (
-        (error instanceof DOMException && error.name === 'AbortError') ||
-        (error instanceof Error && error.name === 'AbortError')
-    )
 }
 
 function toLoadedModelGroup(record: LoadedModelGroupRecord | null) {
@@ -319,7 +313,7 @@ export async function runModelGroupWithFallbackOnServer(options: {
                 },
             }
         } catch (error) {
-            if (isAbortError(error)) throw error
+            if (isAbortError(error, options.signal)) throw error
 
             lastError = error
             const failureUpdates = computeFailureUpdates({

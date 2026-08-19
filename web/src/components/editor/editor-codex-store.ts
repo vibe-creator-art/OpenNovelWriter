@@ -15,9 +15,13 @@ import {
     type CodexSessionCategory,
     type CodexSessionCleanupResult,
     type CodexComposerMode,
+    type CodexContextWindow,
     type CodexPromptArtifact,
     type CodexDraftArtifact,
+    type CodexRateLimits,
 } from '@/lib/api'
+import { getLatestContextWindowFromMessages } from '@/lib/codex-context-window'
+import { mergeCodexRateLimits } from '@/lib/codex-rate-limits'
 import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import {
     getStickyCodexFastMode,
@@ -99,6 +103,13 @@ type CodexStoreState = {
     queuedMessagesBySession: Record<string, QueuedCodexMessage[]>
     queueingEnabledBySession: Record<string, boolean>
     optimisticSteerMessagesBySession: Record<string, CodexSession['messages']>
+    liveContextWindowBySession: Record<string, CodexContextWindow>
+    liveRateLimitsByConnection: Record<string, CodexRateLimits>
+    setLiveRateLimits: (
+        connectionId: string,
+        rateLimits: CodexRateLimits | null,
+        mode?: 'replace' | 'merge' | 'hydrate'
+    ) => void
     loadSessions: (novelId?: string | null, options?: { force?: boolean }) => Promise<void>
     /** Drop cached sessions so the next loadSessions hits the server again. */
     invalidateSessions: (novelId?: string | null) => void
@@ -212,12 +223,14 @@ function removeSessionFromState(state: CodexStoreState, novelKey: string, sessio
     const queuedMessagesBySession = { ...state.queuedMessagesBySession }
     const queueingEnabledBySession = { ...state.queueingEnabledBySession }
     const optimisticSteerMessagesBySession = { ...state.optimisticSteerMessagesBySession }
+    const liveContextWindowBySession = { ...state.liveContextWindowBySession }
     delete pendingApprovalsBySession[sessionId]
     delete imageAttachmentsBySession[sessionId]
     delete jsonArtifactUploadingBySession[sessionId]
     delete queuedMessagesBySession[sessionId]
     delete queueingEnabledBySession[sessionId]
     delete optimisticSteerMessagesBySession[sessionId]
+    delete liveContextWindowBySession[sessionId]
     return {
         pendingApprovalsBySession,
         imageAttachmentsBySession,
@@ -225,6 +238,7 @@ function removeSessionFromState(state: CodexStoreState, novelKey: string, sessio
         queuedMessagesBySession,
         queueingEnabledBySession,
         optimisticSteerMessagesBySession,
+        liveContextWindowBySession,
         sessionsByNovel: {
             ...state.sessionsByNovel,
             [novelKey]: {
@@ -445,11 +459,16 @@ function applyCodexStreamEvent(
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             const session = mergeSessionPreservingComposer(current, event.session, { preserveRunning: false })
+            const liveContextWindowBySession = { ...state.liveContextWindowBySession }
+            if (getLatestContextWindowFromMessages(session.messages)) {
+                delete liveContextWindowBySession[sessionId]
+            }
             return {
                 pendingApprovalsBySession: {
                     ...state.pendingApprovalsBySession,
                     [sessionId]: null,
                 },
+                liveContextWindowBySession,
                 sessionsByNovel: {
                     ...state.sessionsByNovel,
                     [novelKey]: applySession(current, session),
@@ -486,6 +505,28 @@ function applyCodexStreamEvent(
             }
         })
         return event.detail
+    }
+
+    if (event.type === 'rate_limits') {
+        set((state) => {
+            const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+            const connectionId = event.connectionId
+                ?? current.sessions.find((session) => session.id === sessionId)?.codexConnectionId
+                ?? null
+            if (!connectionId) return state
+            const merged = mergeCodexRateLimits(
+                state.liveRateLimitsByConnection[connectionId] ?? null,
+                event.rateLimits
+            )
+            if (!merged) return state
+            return {
+                liveRateLimitsByConnection: {
+                    ...state.liveRateLimitsByConnection,
+                    [connectionId]: merged,
+                },
+            }
+        })
+        return null
     }
 
     if (event.type === 'approval_request') {
@@ -540,6 +581,9 @@ function applyCodexStreamEvent(
                     }),
                 },
             },
+            liveContextWindowBySession: event.type === 'context_window'
+                ? { ...state.liveContextWindowBySession, [sessionId]: event.contextWindow }
+                : state.liveContextWindowBySession,
         }
     })
     return null
@@ -553,6 +597,31 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     queuedMessagesBySession: {},
     queueingEnabledBySession: {},
     optimisticSteerMessagesBySession: {},
+    liveContextWindowBySession: {},
+    liveRateLimitsByConnection: {},
+    setLiveRateLimits: (connectionId, rateLimits, mode = 'replace') => {
+        set((state) => {
+            const existing = state.liveRateLimitsByConnection[connectionId] ?? null
+            if (!rateLimits && mode === 'replace') {
+                if (!existing) return state
+                const liveRateLimitsByConnection = { ...state.liveRateLimitsByConnection }
+                delete liveRateLimitsByConnection[connectionId]
+                return { liveRateLimitsByConnection }
+            }
+            const nextValue = mode === 'merge'
+                ? mergeCodexRateLimits(existing, rateLimits)
+                : mode === 'hydrate'
+                    ? mergeCodexRateLimits(rateLimits, existing)
+                    : rateLimits
+            if (!nextValue) return state
+            return {
+                liveRateLimitsByConnection: {
+                    ...state.liveRateLimitsByConnection,
+                    [connectionId]: nextValue,
+                },
+            }
+        })
+    },
     invalidateSessions: (novelId) => {
         const novelKey = getNovelKey(novelId)
         if (novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID) {

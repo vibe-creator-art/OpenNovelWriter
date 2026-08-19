@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { ModelMessage } from 'ai'
+import { isAbortError } from '@/lib/server/abort-error'
 import { isValidCodexInternalToken } from '@/lib/server/codex-internal-auth'
 import {
     loadModelGroupForOwner,
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
             modelId: result.usedAssignment.modelId,
         })
     } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
+        if (isAbortError(error, request.signal)) {
             return NextResponse.json({ detail: 'Aborted.' }, { status: 499 })
         }
         console.error('Codex run-llm internal call failed:', error)

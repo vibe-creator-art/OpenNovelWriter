@@ -150,7 +150,8 @@
             "metadata": "Metadata",
             "writing": "Writing",
             "memory": "Memory Recall",
-            "codex": "Codex"
+            "codex": "Codex",
+            "export": "Export"
         },
         "metadata": {
             "title": "METADATA",
@@ -246,6 +247,27 @@
                 "delete": "Delete pet",
                 "deleteConfirm": "Delete the pet “{name}”?"
             }
+        },
+        "export": {
+            "title": "Export Prose",
+            "description": "Choose the acts and chapters to export as TXT or Word.",
+            "toggleAll": "Select all",
+            "toggleNone": "Deselect all",
+            "loading": "Loading chapters…",
+            "empty": "This novel has no chapters yet.",
+            "loadFailed": "Failed to load chapters.",
+            "formatLabel": "File format",
+            "formatTxt": "Plain text (.txt)",
+            "formatDocx": "Word (.docx)",
+            "includeActTitles": "Include act titles",
+            "includeActTitlesHint": "Turn this off to export only chapter titles and prose.",
+            "sceneDividerLabel": "Scene dividers",
+            "sceneDividerAsterisks": "Asterisks (* * *)",
+            "sceneDividerHeadings": "Headings (Scene 1, Scene 2, …)",
+            "sceneDividerNone": "None",
+            "export": "Export",
+            "exporting": "Exporting…",
+            "failed": "Export failed."
         },
         "saveChanges": "Save Changes",
         "saving": "Saving..."

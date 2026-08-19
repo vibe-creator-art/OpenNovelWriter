@@ -150,7 +150,8 @@
             "metadata": "元数据",
             "writing": "写作",
             "memory": "记忆召回",
-            "codex": "Codex"
+            "codex": "Codex",
+            "export": "导出"
         },
         "metadata": {
             "title": "元数据",
@@ -246,6 +247,27 @@
                 "delete": "删除宠物",
                 "deleteConfirm": "确定删除宠物“{name}”吗？"
             }
+        },
+        "export": {
+            "title": "导出正文",
+            "description": "选择要导出的卷和章，将正文导出为 TXT 或 Word。",
+            "toggleAll": "全选",
+            "toggleNone": "取消全选",
+            "loading": "正在读取章节…",
+            "empty": "这本书还没有章节。",
+            "loadFailed": "读取章节失败。",
+            "formatLabel": "文件格式",
+            "formatTxt": "纯文本（.txt）",
+            "formatDocx": "Word（.docx）",
+            "includeActTitles": "包含卷标题",
+            "includeActTitlesHint": "关闭后只输出章标题和正文。",
+            "sceneDividerLabel": "场分隔",
+            "sceneDividerAsterisks": "星号（* * *）",
+            "sceneDividerHeadings": "标题（场 1、场 2……）",
+            "sceneDividerNone": "无",
+            "export": "导出",
+            "exporting": "导出中…",
+            "failed": "导出失败。"
         },
         "saveChanges": "保存更改",
         "saving": "保存中..."

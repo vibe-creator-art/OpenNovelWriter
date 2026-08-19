@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { CircleUserRound, ImagePlus, Loader2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ImageViewerDialog } from '@/components/image/image-viewer-dialog'
+import { UserImage } from '@/components/image/user-image'
 import { uploadApi } from '@/lib/api'
 import { createId } from '@/components/editor/terms/utils'
 import type { TermEntry } from '@/components/editor/terms/types'
@@ -62,8 +63,7 @@ export function TermEntryGalleryTab({
                         className="aspect-square overflow-hidden rounded-lg border transition-opacity hover:opacity-85"
                         onClick={() => setViewerUrl(item.url)}
                     >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={item.url} alt="" loading="lazy" className="h-full w-full object-cover" />
+                        <UserImage src={item.url} alt="" loading="lazy" className="h-full w-full object-cover" />
                     </button>
                 ))}
 

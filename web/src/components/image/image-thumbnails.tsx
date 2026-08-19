@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { ImageViewerDialog } from '@/components/image/image-viewer-dialog'
+import { UserImage } from '@/components/image/user-image'
 
 /** Message-bubble image thumbnails; click any to open it in the shared viewer. */
 export function ImageThumbnails({ urls, className }: { urls: string[] | null | undefined; className?: string }) {
@@ -20,8 +21,7 @@ export function ImageThumbnails({ urls, className }: { urls: string[] | null | u
                         className="overflow-hidden rounded-lg border border-foreground/10 transition-opacity hover:opacity-85"
                         onClick={() => setOpenUrl(url)}
                     >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt="" loading="lazy" className="h-24 max-w-44 object-cover" />
+                        <UserImage src={url} alt="" loading="lazy" className="h-24 max-w-44 object-cover" />
                     </button>
                 ))}
             </div>

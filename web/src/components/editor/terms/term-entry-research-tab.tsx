@@ -13,6 +13,7 @@ import {
     getExternalFaviconUrl,
     normalizeExternalUrl,
 } from '@/components/editor/terms/utils'
+import { UserImage } from '@/components/image/user-image'
 
 type ResearchTab = 'notes' | 'external'
 
@@ -65,8 +66,7 @@ function ExternalFavicon({ url }: { url: string }) {
 
     return (
         <div className="h-10 w-10 rounded-md border bg-background flex items-center justify-center overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <UserImage
                 alt=""
                 src={src}
                 className="h-6 w-6 object-contain"

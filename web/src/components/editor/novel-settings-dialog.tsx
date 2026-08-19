@@ -47,7 +47,9 @@ import {
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowDownAZ, Ban, Bot, Brain, Check, Database, GripVertical, Info, Loader2, Plus, RefreshCw, Search, Upload, Trash2 } from 'lucide-react'
+import { ArrowDownAZ, Ban, Bot, Brain, Check, Database, Download, GripVertical, Info, Loader2, Plus, RefreshCw, Search, Upload, Trash2 } from 'lucide-react'
+import { CodexPetSettings } from '@/components/editor/codex-pet-settings'
+import { NovelExportTab } from '@/components/editor/novel-export-tab'
 import { useLocale, useTranslations } from 'next-intl'
 import {
     DEFAULT_CODEX_SESSION_RETENTION_LIMIT,
@@ -55,8 +57,9 @@ import {
 } from '@/lib/codex-session-retention'
 import { dispatchNovelSettingsChanged } from '@/lib/novel-settings-events'
 import { dispatchRetrievalStatusChanged } from '@/lib/retrieval-events'
-import { CodexPetSettings } from '@/components/editor/codex-pet-settings'
 import { DEFAULT_PET_ID } from '@/lib/pets'
+
+type NovelSettingsTab = 'metadata' | 'writing' | 'memory' | 'codex' | 'export'
 
 interface NovelSettingsDialogProps {
     open: boolean
@@ -65,7 +68,7 @@ interface NovelSettingsDialogProps {
     onUpdate: (novel: Novel) => void
     labels: NovelLabel[]
     onLabelsChange: (labels: NovelLabel[]) => void
-    initialTab?: 'metadata' | 'writing' | 'memory' | 'codex'
+    initialTab?: NovelSettingsTab
 }
 
 const LANGUAGES = [
@@ -234,7 +237,7 @@ export function NovelSettingsDialog({
         if (locale?.toLowerCase().startsWith('zh')) return 'zh-CN'
         return 'en'
     }, [locale])
-    const [activeTab, setActiveTab] = useState<'metadata' | 'writing' | 'memory' | 'codex'>('metadata')
+    const [activeTab, setActiveTab] = useState<NovelSettingsTab>('metadata')
     const [saving, setSaving] = useState(false)
     const [uploading, setUploading] = useState(false)
     const [labelsBusy, setLabelsBusy] = useState(false)
@@ -630,6 +633,16 @@ export function NovelSettingsDialog({
                     >
                         <Bot className="h-4 w-4" />
                         {t('tabs.codex')}
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('export')}
+                        className={`flex items-center gap-2 pb-3 px-1 border-b-2 transition-colors ${activeTab === 'export'
+                            ? 'border-primary text-primary font-medium'
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                            }`}
+                    >
+                        <Download className="h-4 w-4" />
+                        {t('tabs.export')}
                     </button>
                 </div>
 
@@ -1157,14 +1170,18 @@ export function NovelSettingsDialog({
                             />
                         </div>
                     )}
+                    {activeTab === 'export' && (
+                        <NovelExportTab novel={novel} active={activeTab === 'export'} />
+                    )}
                 </div>
 
-                {/* Save Button */}
-                <div className="flex justify-end mt-6 pt-4 border-t">
-                    <Button onClick={handleSave} disabled={saving}>
-                        {saving ? t('saving') : t('saveChanges')}
-                    </Button>
-                </div>
+                {activeTab !== 'export' && (
+                    <div className="flex justify-end mt-6 pt-4 border-t">
+                        <Button onClick={handleSave} disabled={saving}>
+                            {saving ? t('saving') : t('saveChanges')}
+                        </Button>
+                    </div>
+                )}
             </DialogContent>
         </Dialog>
     )

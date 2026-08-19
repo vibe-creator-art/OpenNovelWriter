@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import { croppedImageStyle, type ImageCrop } from '@/lib/image-crop'
+import { UserImage } from '@/components/image/user-image'
 
 interface CroppedImageProps {
     src: string
@@ -10,7 +11,7 @@ interface CroppedImageProps {
     crop?: ImageCrop | null
     alt?: string
     className?: string
-    /** Class for the rendered <img> (e.g. to round avatars). */
+    /** Class for the rendered image (e.g. to round avatars). */
     imageClassName?: string
 }
 
@@ -35,11 +36,9 @@ export function CroppedImage({
     return (
         <div className={cn('relative overflow-hidden', className)} style={{ aspectRatio }}>
             {crop ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={src} alt={alt} style={croppedImageStyle(crop)} className={imageClassName} draggable={false} />
+                <UserImage src={src} alt={alt} style={croppedImageStyle(crop)} className={imageClassName} draggable={false} />
             ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <UserImage
                     src={src}
                     alt={alt}
                     className={cn('absolute inset-0 h-full w-full object-cover', imageClassName)}

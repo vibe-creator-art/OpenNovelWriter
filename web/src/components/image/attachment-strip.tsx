@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Loader2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ImageViewerDialog } from '@/components/image/image-viewer-dialog'
+import { UserImage } from '@/components/image/user-image'
 import type { PendingImageAttachment } from '@/components/image/use-image-attachments'
 
 /** Pending image thumbnails shown above a composer before the message is sent. */
@@ -30,8 +31,7 @@ export function AttachmentStrip({
                             className="h-full w-full"
                             onClick={() => setOpenUrl(item.previewUrl)}
                         >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
+                            <UserImage src={item.previewUrl} alt="" className="h-full w-full object-cover" />
                         </button>
                         {item.status === 'uploading' && (
                             <div className="absolute inset-0 flex items-center justify-center bg-background/60">

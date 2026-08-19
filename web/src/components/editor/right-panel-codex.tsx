@@ -47,6 +47,7 @@ import {
     Zap,
 } from 'lucide-react'
 import { AttachmentStrip } from '@/components/image/attachment-strip'
+import { UserImage } from '@/components/image/user-image'
 import { ImageThumbnails } from '@/components/image/image-thumbnails'
 import {
     ImageViewerBoundary,
@@ -81,6 +82,7 @@ import {
     modelSupportsCodexFastMode,
     setStickyCodexFastMode,
 } from '@/lib/codex-fast-mode-preference'
+import { getLatestContextWindowFromMessages } from '@/lib/codex-context-window'
 import {
     getCodexRateLimitSummary,
     hasMeaningfulCodexRateLimits,
@@ -106,7 +108,6 @@ import {
     type CodexConnectionSummary,
     type CodexContextWindow,
     type CodexComposerMode,
-    type CodexRateLimits,
     type CodexModelCatalogEntry,
     type CodexReasoningEffort,
     type CodexReviewLevel,
@@ -823,14 +824,6 @@ function getTurnDurationLabel(messages: CodexSessionMessage[], running: boolean,
     return `${running ? 'Working for' : 'Worked for'} ${formatDuration(endedAt - startedAt)}`
 }
 
-function getLatestContextWindow(messages: CodexSessionMessage[]) {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const contextWindow = messages[index]?.contextWindow
-        if (contextWindow) return contextWindow
-    }
-    return null
-}
-
 type ApprovalTranslate = (key: string, values?: Record<string, string | number>) => string
 
 function getApprovalTitle(approval: CodexApprovalRequest, t: ApprovalTranslate) {
@@ -1208,8 +1201,7 @@ function CodexImageArtifactRef({ target, label }: { target: string; label: strin
                                     title={item.label}
                                     onClick={() => setOpenItem(item)}
                                 >
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={item.url} alt={item.label} className="max-h-80 w-auto max-w-full object-contain" />
+                                    <UserImage src={item.url} alt={item.label} className="max-h-80 w-auto max-w-full object-contain" />
                                 </button>
                                 <div className="max-w-80">
                                     <GeneratedImagePrompt prompt={item.prompt || item.revisedPrompt || ''} />
@@ -2828,8 +2820,7 @@ function ImageGenerationCard({ message }: { message: CodexSessionMessage }) {
                         className="overflow-hidden rounded-xl border transition-opacity hover:opacity-90"
                         onClick={() => setOpenUrl(url)}
                     >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt="" loading="lazy" className="max-h-80 w-auto max-w-full object-contain" />
+                        <UserImage src={url} alt="" loading="lazy" className="max-h-80 w-auto max-w-full object-contain" />
                     </button>
                 ))}
             </div>
@@ -3175,10 +3166,12 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const stop = useEditorCodexStore((state) => state.stop)
     const pendingApprovalsBySession = useEditorCodexStore((state) => state.pendingApprovalsBySession)
     const resolveApproval = useEditorCodexStore((state) => state.resolveApproval)
+    const liveContextWindowBySession = useEditorCodexStore((state) => state.liveContextWindowBySession)
+    const liveRateLimitsByConnection = useEditorCodexStore((state) => state.liveRateLimitsByConnection)
+    const setLiveRateLimits = useEditorCodexStore((state) => state.setLiveRateLimits)
     const [runError, setRunError] = useState<string | null>(null)
     const [connections, setConnections] = useState<CodexConnectionSummary[]>([])
     const [activeModelCatalog, setActiveModelCatalog] = useState<CodexModelCatalogEntry[]>([])
-    const [activeConnectionRateLimits, setActiveConnectionRateLimits] = useState<CodexRateLimits | null>(null)
     const [planHintDismissed, setPlanHintDismissed] = useState(false)
     const [dismissedComposerActions, setDismissedComposerActions] = useState<Record<string, true>>({})
     const [composerActionSelection, setComposerActionSelection] = useState<{ actionId: string; optionId: string } | null>(null)
@@ -3920,7 +3913,9 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         error: sceneEditStatusSnapshot.key === sceneEditStatusKey ? sceneEditStatusSnapshot.error : null,
         setStatus: setSceneEditStatus,
     }), [sceneEditStatusKey, sceneEditStatusSnapshot, setSceneEditStatus])
-    const latestContextWindow = selectedSession ? getLatestContextWindow(selectedSession.messages) : null
+    const latestContextWindow = selectedSession
+        ? liveContextWindowBySession[selectedSession.id] ?? getLatestContextWindowFromMessages(selectedSession.messages)
+        : null
     const latestPlanMessage = selectedSession
         ? [...selectedSession.messages].reverse().find((message) => message.role === 'event' && message.kind === 'plan') ?? null
         : null
@@ -3947,6 +3942,9 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         () => connections.find((connection) => connection.id === selectedSession?.codexConnectionId) ?? activeConnection,
         [activeConnection, connections, selectedSession?.codexConnectionId]
     )
+    const activeConnectionRateLimits = sessionConnection?.id
+        ? liveRateLimitsByConnection[sessionConnection.id] ?? null
+        : null
     const hasChatGptAuth = isAuthenticatedChatGptCodexConnection(sessionConnection)
     const currentModelSupportsFastMode = modelSupportsCodexFastMode(activeModelCatalog, modelId)
     const showServiceTier = currentModelSupportsFastMode
@@ -4049,7 +4047,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         void codexApi.getConnection(sessionConnection.id)
             .then((detail) => {
                 if (cancelled) return
-                setActiveConnectionRateLimits(detail.rateLimits)
+                setLiveRateLimits(sessionConnection.id, detail.rateLimits, 'hydrate')
             })
             .catch((error) => {
                 if (!cancelled) {
@@ -4067,7 +4065,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         return () => {
             cancelled = true
         }
-    }, [sessionConnection?.id])
+    }, [sessionConnection?.id, setLiveRateLimits])
 
     useEffect(() => {
         const wasRunning = previousRunningRef.current
@@ -4078,7 +4076,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         void codexApi.getConnection(sessionConnection.id)
             .then((detail) => {
                 if (cancelled) return
-                setActiveConnectionRateLimits(detail.rateLimits)
+                setLiveRateLimits(sessionConnection.id, detail.rateLimits, 'replace')
             })
             .catch((error) => {
                 if (!cancelled) {
@@ -4089,7 +4087,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         return () => {
             cancelled = true
         }
-    }, [sessionConnection?.id, running])
+    }, [sessionConnection?.id, running, setLiveRateLimits])
 
     useEffect(() => {
         const root = scrollRef.current

@@ -11,6 +11,8 @@ import type { SkillPresetAssetV1 } from './skill-preset'
 import type { AgentPresetAssetV1 } from './agent-preset'
 import type { CodexResponseAnnotation } from './codex-response-annotations'
 import type { PetSummary } from './pets'
+import { parseContentDispositionFilename } from '@/lib/export/filename'
+import type { NovelExportRequest } from '@/lib/export/types'
 
 const API_BASE = '/api'
 
@@ -125,6 +127,35 @@ export const novelApi = {
 
     delete: (id: string) =>
         fetchApi<{ message: string }>(`/novels/${id}`, { method: 'DELETE' }),
+
+    export: async (id: string, data: NovelExportRequest) => {
+        const token = useAuthStore.getState().token
+        if (!token) {
+            throw new ApiError(401, 'Not authenticated - no token available')
+        }
+
+        const response = await fetch(`${API_BASE}/novels/${id}/export`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(data),
+        })
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                useAuthStore.getState().logout()
+            }
+            const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+            throw new ApiError(response.status, error.detail || 'Request failed', error)
+        }
+
+        const blob = await response.blob()
+        const filename = parseContentDispositionFilename(response.headers.get('Content-Disposition'))
+            || `export.${data.format}`
+        return { blob, filename }
+    },
 }
 
 export type RetrievalModelOption = {
@@ -1457,6 +1488,7 @@ export type CodexSessionStreamEvent =
     | { type: 'event'; event: CodexRunEvent }
     | { type: 'approval_request'; approval: CodexApprovalRequest }
     | { type: 'context_window'; contextWindow: CodexContextWindow }
+    | { type: 'rate_limits'; rateLimits: CodexRateLimits; connectionId?: string }
     | { type: 'goal_updated'; goal: CodexThreadGoal }
     | { type: 'goal_cleared' }
     | { type: 'done'; session: CodexSession }
@@ -1555,6 +1587,13 @@ async function readSseStream(
         } else if (eventName === 'context_window' && data && typeof data === 'object') {
             const record = data as Record<string, unknown>
             onEvent({ type: 'context_window', contextWindow: record.contextWindow as CodexContextWindow })
+        } else if (eventName === 'rate_limits' && data && typeof data === 'object') {
+            const record = data as Record<string, unknown>
+            onEvent({
+                type: 'rate_limits',
+                rateLimits: record.rateLimits as CodexRateLimits,
+                connectionId: typeof record.connectionId === 'string' ? record.connectionId : undefined,
+            })
         } else if (eventName === 'goal_updated' && data && typeof data === 'object') {
             const record = data as Record<string, unknown>
             onEvent({ type: 'goal_updated', goal: record.goal as CodexThreadGoal })

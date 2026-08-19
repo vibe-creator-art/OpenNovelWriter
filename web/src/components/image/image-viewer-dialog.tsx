@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { Check, Copy, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { UserImage } from '@/components/image/user-image'
 
 /**
  * Context-injected action buttons appended to every viewer opened within the
@@ -139,8 +140,7 @@ export function ImageViewerDialog({
 
                 {src && (
                     <div className="flex flex-col items-center gap-5">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
+                        <UserImage
                             src={src}
                             alt=""
                             draggable={false}

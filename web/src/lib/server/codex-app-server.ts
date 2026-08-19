@@ -22,6 +22,12 @@ import {
     type CodexApprovalDecision,
     type CodexApprovalRequest,
 } from '@/lib/server/codex-approval-bridge'
+import type { CodexRateLimits } from '@/lib/api'
+import {
+    getContextWindowFromCodexNotification,
+    getContextWindowFromTokenCount,
+} from '@/lib/codex-context-window'
+import { parseCodexRateLimitSnapshot } from '@/lib/codex-rate-limits'
 import {
     DEFAULT_CODEX_REVIEW_LEVEL,
     DEFAULT_CODEX_REASONING_EFFORT,
@@ -561,6 +567,7 @@ type CodexRunStreamHandlers = {
     onEvent?: (event: CodexRunEvent) => void
     onApprovalRequest?: (request: CodexApprovalRequest) => void
     onContextWindow?: (contextWindow: CodexContextWindow) => void
+    onRateLimits?: (rateLimits: CodexRateLimits, connectionId: string) => void
     onGoalUpdated?: (goal: CodexThreadGoal) => void
     onGoalCleared?: () => void
 }
@@ -893,67 +900,34 @@ function getEventFromPlanUpdate(params: Record<string, unknown>): CodexRunEvent 
     }
 }
 
-function getNumberValue(value: unknown) {
-    return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function getTokenUsage(value: unknown) {
-    if (!value || typeof value !== 'object') return null
-    const record = value as Record<string, unknown>
-    const inputTokens = getNumberValue(record.input_tokens)
-    const cachedInputTokens = getNumberValue(record.cached_input_tokens)
-    const outputTokens = getNumberValue(record.output_tokens)
-    const reasoningOutputTokens = getNumberValue(record.reasoning_output_tokens)
-    const totalTokens = getNumberValue(record.total_tokens)
-    if (
-        inputTokens === null ||
-        cachedInputTokens === null ||
-        outputTokens === null ||
-        reasoningOutputTokens === null ||
-        totalTokens === null
-    ) {
-        return null
-    }
-    return { inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens, totalTokens }
-}
-
-function getContextWindowFromTokenCountPayload(payload: Record<string, unknown>): CodexContextWindow | null {
-    if (payload.type !== 'token_count') return null
-    const info = payload.info && typeof payload.info === 'object'
-        ? payload.info as Record<string, unknown>
-        : null
-    if (!info) return null
-
-    const totalTokens = getNumberValue(info.model_context_window)
-    const lastTokenUsage = getTokenUsage(info.last_token_usage)
-    if (totalTokens === null || !lastTokenUsage) return null
-
-    const usedTokens = lastTokenUsage.totalTokens
-    const remainingTokens = Math.max(0, totalTokens - usedTokens)
-    const usagePercent = totalTokens > 0 ? Math.min(100, Math.max(0, usedTokens / totalTokens * 100)) : 0
-
-    return {
-        usedTokens,
-        totalTokens,
-        usagePercent,
-        remainingTokens,
-        lastTokenUsage,
-        totalTokenUsage: getTokenUsage(info.total_token_usage),
-    }
-}
-
-function getContextWindowFromTokenCount(value: unknown, depth = 0): CodexContextWindow | null {
-    if (!value || typeof value !== 'object' || depth > 4) return null
-    const record = value as Record<string, unknown>
-    const direct = getContextWindowFromTokenCountPayload(record)
-    if (direct) return direct
-
-    for (const key of ['payload', 'event', 'item', 'message', 'msg', 'data']) {
-        const nested = getContextWindowFromTokenCount(record[key], depth + 1)
-        if (nested) return nested
+function consumeLiveCodexUsageNotification(input: {
+    method?: string
+    params: unknown
+    previousContextWindow: CodexContextWindow | null
+    connectionId: string
+    stream?: CodexRunStreamHandlers
+}): { contextWindow: CodexContextWindow | null; consumed: boolean } {
+    if (input.method === 'thread/tokenUsage/updated' || input.method === 'account/rateLimits/updated') {
+        if (input.method === 'account/rateLimits/updated') {
+            const snapshot = parseCodexRateLimitSnapshot(input.params)
+            if (snapshot) input.stream?.onRateLimits?.(snapshot, input.connectionId)
+            return { contextWindow: null, consumed: true }
+        }
+        const nextContextWindow = getContextWindowFromCodexNotification(
+            input.method,
+            input.params,
+            input.previousContextWindow
+        )
+        if (nextContextWindow) input.stream?.onContextWindow?.(nextContextWindow)
+        return { contextWindow: nextContextWindow, consumed: true }
     }
 
-    return null
+    const nextContextWindow = getContextWindowFromTokenCount(input.params)
+    if (nextContextWindow) {
+        input.stream?.onContextWindow?.(nextContextWindow)
+        return { contextWindow: nextContextWindow, consumed: true }
+    }
+    return { contextWindow: null, consumed: false }
 }
 
 async function findCodexRolloutFiles(root: string, threadId: string, depth = 0): Promise<string[]> {
@@ -1453,12 +1427,15 @@ export async function runNovelCodexTurn(input: {
                 const params = message.params as Record<string, unknown> | undefined
                 if (!params) return
                 if (params.threadId && params.threadId !== threadId) return
-                const nextContextWindow = getContextWindowFromTokenCount(params)
-                if (nextContextWindow) {
-                    contextWindow = nextContextWindow
-                    input.stream?.onContextWindow?.(nextContextWindow)
-                    return
-                }
+                const usage = consumeLiveCodexUsageNotification({
+                    method: message.method,
+                    params,
+                    previousContextWindow: contextWindow,
+                    connectionId: connection.id,
+                    stream: input.stream,
+                })
+                if (usage.contextWindow) contextWindow = usage.contextWindow
+                if (usage.consumed) return
                 if (params.threadId !== threadId) return
 
                 if (message.method === 'thread/goal/updated') {
@@ -1819,12 +1796,15 @@ export async function runNovelCodexCompaction(input: {
                     activeRunHandle.turnId = turnId
                 }
 
-                const nextContextWindow = getContextWindowFromTokenCount(params)
-                if (nextContextWindow) {
-                    contextWindow = nextContextWindow
-                    input.stream?.onContextWindow?.(nextContextWindow)
-                    return
-                }
+                const usage = consumeLiveCodexUsageNotification({
+                    method: message.method,
+                    params,
+                    previousContextWindow: contextWindow,
+                    connectionId: connection.id,
+                    stream: input.stream,
+                })
+                if (usage.contextWindow) contextWindow = usage.contextWindow
+                if (usage.consumed) return
 
                 if (message.method === 'turn/started') {
                     const turn = params.turn as Record<string, unknown> | undefined

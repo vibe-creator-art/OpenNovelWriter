@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { ImageCrop } from '@/lib/image-crop'
+import { UserImage } from '@/components/image/user-image'
 
 interface ImageCropEditorProps {
     src: string
@@ -146,8 +147,7 @@ export function ImageCropEditor({
                 onPointerUp={onPointerUp}
                 onPointerCancel={onPointerUp}
             >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <UserImage
                     src={src}
                     alt=""
                     onLoad={handleLoad}
