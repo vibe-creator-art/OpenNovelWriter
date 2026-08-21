@@ -80,6 +80,20 @@ export const authApi = {
             false // No auth required for login
         ),
 
+    forgotPassword: (data: { username: string }) =>
+        fetchApi<{ ok: true }>(
+            '/auth/forgot-password',
+            { method: 'POST', body: JSON.stringify(data) },
+            false
+        ),
+
+    resetPassword: (data: { username: string; code: string; password: string }) =>
+        fetchApi<{ access_token: string; user: { id: string; username: string; email: string } }>(
+            '/auth/reset-password',
+            { method: 'POST', body: JSON.stringify(data) },
+            false
+        ),
+
     me: () =>
         fetchApi<{ id: string; username: string; email: string }>('/auth/me'),
 }

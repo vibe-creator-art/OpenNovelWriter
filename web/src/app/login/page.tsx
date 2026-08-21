@@ -30,8 +30,8 @@ export default function LoginPage() {
             const response = await authApi.login({ username, password })
             setAuth(response.access_token, response.user)
             router.push('/bookshelf')
-        } catch (err) {
-            setError(err instanceof Error ? err.message : t('failed'))
+        } catch {
+            setError(t('failed'))
         } finally {
             setLoading(false)
         }
@@ -79,14 +79,20 @@ export default function LoginPage() {
                         <Button type="submit" className="w-full" disabled={loading}>
                             {loading ? t('submitting') : t('submit')}
                         </Button>
-                        {registrationEnabled ? (
-                            <p className="text-sm text-center text-muted-foreground">
-                                {t('noAccount')}{' '}
-                                <Link href="/register" className="text-primary hover:underline">
-                                    {t('register')}
-                                </Link>
-                            </p>
-                        ) : null}
+                        <p className="text-sm text-center text-muted-foreground">
+                            {registrationEnabled ? (
+                                <>
+                                    {t('noAccount')}{' '}
+                                    <Link href="/register" className="text-primary hover:underline">
+                                        {t('register')}
+                                    </Link>
+                                    <span className="px-2">·</span>
+                                </>
+                            ) : null}
+                            <Link href="/forgot-password" className="text-primary hover:underline">
+                                {t('forgotPassword')}
+                            </Link>
+                        </p>
                     </CardFooter>
                 </form>
             </Card>

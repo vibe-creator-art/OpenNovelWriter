@@ -1,5 +1,7 @@
 import { createElement, Fragment, type ReactNode } from 'react'
 
+import { collapseRepeatedAssistantText } from '@/lib/collapse-repeated-text'
+
 type MarkdownListItem = {
     content: string[]
     children: MarkdownList[]
@@ -50,17 +52,30 @@ type ParseSimpleMarkdownOptions = {
     includeTables?: boolean
 }
 
+export type WebReference = {
+    number: string
+    href: string
+    title: string
+}
+
 export type RenderSimpleMarkdownOptions = {
     /** Render an inline `[label](llm:<target>)` reference (a Codex model-reply embed). */
     renderLlmRef?: (target: string, label: string, key: string) => ReactNode
     /** Render an inline `[label](model:<groupId>)` mention chip. */
     renderModelRef?: (groupId: string, label: string, key: string) => ReactNode
+    /** When false, skip the trailing 参考链接 list so the host can render it once. */
+    includeWebReferenceList?: boolean
+    /** Reuse references collected from the full message. */
+    webReferences?: WebReference[]
 }
 
 // Set for the duration of a single synchronous renderSimpleMarkdown() call so the
 // inline matcher can reach the custom renderers without threading options through
 // every helper. Safe because React render is synchronous and single-threaded.
 let activeInlineOptions: RenderSimpleMarkdownOptions | null = null
+let activeWebReferences: WebReference[] = []
+let activeWebReferenceByHref = new Map<string, WebReference>()
+let activeWebReferenceByNumber = new Map<string, WebReference>()
 
 function getIndentWidth(line: string) {
     let width = 0
@@ -386,6 +401,266 @@ function findRegexMatch(
 
 // Images accept absolute http(s) URLs and app-relative paths like /uploads/….
 const INLINE_IMAGE_RE = /!\[([^\]]*)\]\(((?:https?:\/\/|\/)[^\s)]+)\)/g
+const WEB_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g
+const WEB_CITATION_RE = /\[\[([^\]]+)\]\]\((https?:\/\/[^\s)]+)\)/g
+const ANGLE_URL_RE = /<((?:https?:\/\/)[^>\s]+)>/g
+const BARE_URL_RE = /https?:\/\/[^\s<>"'`\[\]（）)]+/g
+const WEB_LINK_CLASS = 'text-primary underline underline-offset-2'
+const WEB_CITE_CLASS = 'text-primary no-underline hover:underline'
+const BARE_CITATION_RE = /\[(\d{1,2})\](?!\()/g
+
+function isCitationNumber(value: string) {
+    return /^\d{1,2}$/.test(value.trim())
+}
+
+function isHttpUrl(value: string) {
+    return /^https?:\/\/\S+$/i.test(value.trim())
+}
+
+function shortenUrlLabel(url: string) {
+    try {
+        const parsed = new URL(url)
+        const path = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, '')
+        const shown = `${parsed.host}${path}`
+        return shown.length > 42 ? `${shown.slice(0, 39)}…` : shown
+    } catch {
+        return url.length > 42 ? `${url.slice(0, 39)}…` : url
+    }
+}
+
+function webLinkLabel(label: string, href: string) {
+    const trimmed = label.trim()
+    if (!trimmed || isHttpUrl(trimmed) || trimmed === href) return shortenUrlLabel(href)
+    return trimmed
+}
+
+function webLinkProps(href: string) {
+    return {
+        href,
+        target: '_blank',
+        rel: 'noreferrer noopener',
+        title: href,
+    } as const
+}
+
+function trimBareUrl(raw: string) {
+    return raw.replace(/[.,;:!?。，、]+$/u, '')
+}
+
+function stripMarkdownCode(source: string) {
+    return source.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]+`/g, ' ')
+}
+
+function resetSharedRegexes() {
+    WEB_CITATION_RE.lastIndex = 0
+    WEB_LINK_RE.lastIndex = 0
+    ANGLE_URL_RE.lastIndex = 0
+    BARE_URL_RE.lastIndex = 0
+    BARE_CITATION_RE.lastIndex = 0
+}
+
+function normalizeWebHref(href: string) {
+    return href.replace(/[)#]+$/g, '').replace(/\/+$/, '')
+}
+
+function addWebReference(href: string, title: string, number?: string) {
+    const normalizedHref = normalizeWebHref(href)
+    const existing = activeWebReferenceByHref.get(normalizedHref) ?? activeWebReferenceByHref.get(href)
+    if (existing) {
+        if (number && existing.number !== number) {
+            if (existing.number) activeWebReferenceByNumber.delete(existing.number)
+            if (!activeWebReferenceByNumber.has(number)) {
+                existing.number = number
+                activeWebReferenceByNumber.set(number, existing)
+            }
+        }
+        if (
+            title
+            && !isCitationNumber(title)
+            && !isHttpUrl(title)
+            && (isCitationNumber(existing.title) || isHttpUrl(existing.title) || existing.title === shortenUrlLabel(existing.href))
+        ) {
+            existing.title = title
+        }
+        return existing
+    }
+
+    const ref: WebReference = {
+        number: number && !activeWebReferenceByNumber.has(number) ? number : '',
+        href: normalizedHref || href,
+        title: webLinkLabel(title || shortenUrlLabel(href), href),
+    }
+    activeWebReferenceByHref.set(ref.href, ref)
+    if (ref.number) activeWebReferenceByNumber.set(ref.number, ref)
+    return ref
+}
+
+export function collectWebReferences(source: string | null | undefined): WebReference[] {
+    activeWebReferences = []
+    activeWebReferenceByHref = new Map()
+    activeWebReferenceByNumber = new Map()
+    const collapsed = collapseRepeatedAssistantText(typeof source === 'string' ? source : '')
+    const stripped = stripMarkdownCode(collapsed)
+    if (!stripped.trim()) return []
+
+    resetSharedRegexes()
+    for (const match of stripped.matchAll(WEB_CITATION_RE)) {
+        addWebReference(match[2], match[1], isCitationNumber(match[1]) ? match[1] : undefined)
+    }
+    resetSharedRegexes()
+    for (const match of stripped.matchAll(WEB_LINK_RE)) {
+        addWebReference(match[2], match[1], isCitationNumber(match[1]) ? match[1] : undefined)
+    }
+    resetSharedRegexes()
+    for (const match of stripped.matchAll(ANGLE_URL_RE)) {
+        addWebReference(match[1], shortenUrlLabel(match[1]))
+    }
+    resetSharedRegexes()
+    for (const match of stripped.matchAll(BARE_URL_RE)) {
+        const url = trimBareUrl(match[0])
+        if (url) addWebReference(url, shortenUrlLabel(url))
+    }
+
+    let next = 1
+    for (const ref of activeWebReferenceByHref.values()) {
+        if (ref.number && activeWebReferenceByNumber.get(ref.number) === ref) continue
+        if (ref.number && activeWebReferenceByNumber.get(ref.number) !== ref) {
+            ref.number = ''
+        }
+        while (activeWebReferenceByNumber.has(String(next))) next += 1
+        ref.number = String(next)
+        activeWebReferenceByNumber.set(ref.number, ref)
+        next += 1
+    }
+
+    const seenHref = new Set<string>()
+    const seenNumber = new Set<string>()
+    activeWebReferences = [...activeWebReferenceByHref.values()]
+        .sort((left, right) => Number(left.number) - Number(right.number))
+        .filter((ref) => {
+            if (!ref.number || seenHref.has(ref.href) || seenNumber.has(ref.number)) return false
+            seenHref.add(ref.href)
+            seenNumber.add(ref.number)
+            return true
+        })
+    return activeWebReferences
+}
+
+function lookupWebReference(href?: string, number?: string) {
+    if (href && activeWebReferenceByHref.has(href)) return activeWebReferenceByHref.get(href)
+    if (number && activeWebReferenceByNumber.has(number)) return activeWebReferenceByNumber.get(number)
+    return undefined
+}
+
+function activateWebReferences(refs: WebReference[]) {
+    activeWebReferences = refs
+    activeWebReferenceByHref = new Map(refs.map((ref) => [ref.href, ref]))
+    activeWebReferenceByNumber = new Map(refs.map((ref) => [ref.number, ref]))
+}
+
+function renderCitationMark(key: string, number: string, href?: string): ReactNode {
+    const isExternal = Boolean(href && isHttpUrl(href))
+    return createElement(
+        'sup',
+        { key, className: 'ml-0.5 text-[0.7em] font-medium leading-none' },
+        createElement(
+            'a',
+            {
+                ...(isExternal && href ? webLinkProps(href) : {}),
+                href: isExternal && href ? href : `#onw-ref-${number}`,
+                className: WEB_CITE_CLASS,
+                'data-onw-ref': number,
+            },
+            `[${number}]`
+        )
+    )
+}
+
+function uniqueWebReferences(refs: WebReference[]) {
+    const seenHref = new Set<string>()
+    const seenNumber = new Set<string>()
+    return refs.filter((ref) => {
+        if (!ref.number || seenHref.has(ref.href) || seenNumber.has(ref.number)) return false
+        seenHref.add(ref.href)
+        seenNumber.add(ref.number)
+        return true
+    })
+}
+
+export function renderWebReferenceList(refs: WebReference[], key = 'onw-web-refs'): ReactNode | null {
+    refs = uniqueWebReferences(refs)
+    if (refs.length === 0) return null
+    return createElement(
+        'div',
+        { key, className: 'mt-3 border-t border-border/60 pt-2 text-xs text-muted-foreground not-prose' },
+        createElement('div', { className: 'mb-1.5 font-medium text-foreground/80' }, '参考链接'),
+        createElement(
+            'ol',
+            { className: 'my-0 list-none space-y-1 pl-0' },
+            ...refs.map((ref, index) =>
+                createElement(
+                    'li',
+                    { key: `${key}-${ref.number}-${index}`, id: `onw-ref-${ref.number}`, className: 'flex gap-1.5 break-words [overflow-wrap:anywhere]' },
+                    createElement('span', { className: 'shrink-0 text-muted-foreground' }, `[${ref.number}]`),
+                    createElement(
+                        'a',
+                        { ...webLinkProps(ref.href), className: `${WEB_LINK_CLASS} min-w-0` },
+                        ref.title
+                    )
+                )
+            )
+        )
+    )
+}
+
+function renderWebReferenceListHtml(refs: WebReference[]) {
+    refs = uniqueWebReferences(refs)
+    if (refs.length === 0) return ''
+    const items = refs
+        .map((ref) =>
+            `<li id="onw-ref-${escapeHtml(ref.number)}">[${escapeHtml(ref.number)}] <a href="${escapeHtml(ref.href)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(ref.href)}">${escapeHtml(ref.title)}</a></li>`
+        )
+        .join('')
+    return `<section><h6>参考链接</h6><ol>${items}</ol></section>`
+}
+
+function findBareUrlMatch(
+    text: string,
+    startIndex: number,
+    priority: number,
+    renderMatch: (url: string, key: string) => ReactNode
+): InlineMatch | null {
+    BARE_URL_RE.lastIndex = startIndex
+    const match = BARE_URL_RE.exec(text)
+    if (!match) return null
+    const url = trimBareUrl(match[0])
+    if (!url) return null
+    return {
+        index: match.index,
+        end: match.index + url.length,
+        priority,
+        render: (key) => renderMatch(url, key),
+    }
+}
+
+function findBareUrlHtmlMatch(
+    text: string,
+    startIndex: number,
+    priority: number,
+    renderMatch: (url: string) => string
+): HtmlInlineMatch | null {
+    BARE_URL_RE.lastIndex = startIndex
+    const match = BARE_URL_RE.exec(text)
+    if (!match) return null
+    const url = trimBareUrl(match[0])
+    if (!url) return null
+    return {
+        index: match.index,
+        end: match.index + url.length,
+        priority,
+        render: () => renderMatch(url),
+    }
+}
 
 function getNextInlineMatch(text: string, startIndex: number): InlineMatch | null {
     const matches = [
@@ -401,13 +676,23 @@ function getNextInlineMatch(text: string, startIndex: number): InlineMatch | nul
                 className: 'my-1 max-h-64 w-auto max-w-full cursor-zoom-in rounded-lg border',
             })
         ),
-        findRegexMatch(text, startIndex, /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, 1, (match, key) =>
-            createElement(
-                'a',
-                { key, href: match[2], target: '_blank', rel: 'noreferrer noopener' },
-                ...renderInlineMarkdown(match[1], `${key}-label`)
+        findRegexMatch(text, startIndex, WEB_CITATION_RE, 1, (match, key) => {
+            const ref = lookupWebReference(match[2], isCitationNumber(match[1]) ? match[1] : undefined)
+            return renderCitationMark(key, ref?.number || match[1], ref?.href || match[2])
+        }),
+        findRegexMatch(text, startIndex, WEB_LINK_RE, 1, (match, key) => {
+            const href = match[2]
+            const ref = lookupWebReference(href, isCitationNumber(match[1]) ? match[1] : undefined)
+            if (isCitationNumber(match[1]) || isHttpUrl(match[1])) {
+                return renderCitationMark(key, ref?.number || match[1], ref?.href || href)
+            }
+            return createElement(
+                Fragment,
+                { key },
+                ...renderInlineMarkdown(match[1], `${key}-label`),
+                renderCitationMark(`${key}-cite`, ref?.number || '1', ref?.href || href)
             )
-        ),
+        }),
         findRegexMatch(text, startIndex, /\[([^\]]+)\]\((chapter|act|scene):([^\s)]+)\)/g, 1, (match, key) =>
             createElement(
                 'a',
@@ -457,6 +742,18 @@ function getNextInlineMatch(text: string, startIndex: number): InlineMatch | nul
         findRegexMatch(text, startIndex, /_(.+?)_/g, 6, (match, key) =>
             createElement('em', { key }, ...renderInlineMarkdown(match[1], key))
         ),
+        findRegexMatch(text, startIndex, BARE_CITATION_RE, 7, (match, key) => {
+            const ref = lookupWebReference(undefined, match[1])
+            return renderCitationMark(key, ref?.number || match[1], ref?.href)
+        }),
+        findRegexMatch(text, startIndex, ANGLE_URL_RE, 8, (match, key) => {
+            const ref = lookupWebReference(match[1])
+            return renderCitationMark(key, ref?.number || '1', ref?.href || match[1])
+        }),
+        findBareUrlMatch(text, startIndex, 9, (url, key) => {
+            const ref = lookupWebReference(url)
+            return renderCitationMark(key, ref?.number || '1', ref?.href || url)
+        }),
     ].filter((match): match is InlineMatch => match !== null)
 
     return (
@@ -526,9 +823,20 @@ function getNextInlineHtmlMatch(text: string, startIndex: number): HtmlInlineMat
         findHtmlRegexMatch(text, startIndex, new RegExp(INLINE_IMAGE_RE), 1, (match) =>
             `<img src="${escapeHtml(match[2])}" alt="${escapeHtml(match[1])}">`
         ),
-        findHtmlRegexMatch(text, startIndex, /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, 1, (match) =>
-            `<a href="${escapeHtml(match[2])}" target="_blank" rel="noreferrer noopener">${renderInlineMarkdownToHtml(match[1])}</a>`
-        ),
+        findHtmlRegexMatch(text, startIndex, WEB_CITATION_RE, 1, (match) => {
+            const ref = lookupWebReference(match[2], isCitationNumber(match[1]) ? match[1] : undefined)
+            const number = ref?.number || match[1]
+            const href = ref?.href || match[2]
+            return `<sup><a href="${escapeHtml(href)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(href)}">[${escapeHtml(number)}]</a></sup>`
+        }),
+        findHtmlRegexMatch(text, startIndex, WEB_LINK_RE, 1, (match) => {
+            const href = match[2]
+            const ref = lookupWebReference(href, isCitationNumber(match[1]) ? match[1] : undefined)
+            const number = ref?.number || (isCitationNumber(match[1]) ? match[1] : '1')
+            const mark = `<sup><a href="${escapeHtml(ref?.href || href)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(ref?.href || href)}">[${escapeHtml(number)}]</a></sup>`
+            if (isCitationNumber(match[1]) || isHttpUrl(match[1])) return mark
+            return `${renderInlineMarkdownToHtml(match[1])}${mark}`
+        }),
         findHtmlRegexMatch(text, startIndex, /\[([^\]]+)\]\((chapter|act|scene):([^\s)]+)\)/g, 1, (match) =>
             `<span class="text-primary">${renderInlineMarkdownToHtml(match[1])}</span>`
         ),
@@ -553,6 +861,21 @@ function getNextInlineHtmlMatch(text: string, startIndex: number): HtmlInlineMat
         findHtmlRegexMatch(text, startIndex, /_(.+?)_/g, 6, (match) =>
             `<em>${renderInlineMarkdownToHtml(match[1])}</em>`
         ),
+        findHtmlRegexMatch(text, startIndex, BARE_CITATION_RE, 7, (match) => {
+            const ref = lookupWebReference(undefined, match[1])
+            const href = ref?.href || `#onw-ref-${match[1]}`
+            return `<sup><a href="${escapeHtml(href)}" target="_blank" rel="noreferrer noopener">[${escapeHtml(ref?.number || match[1])}]</a></sup>`
+        }),
+        findHtmlRegexMatch(text, startIndex, ANGLE_URL_RE, 8, (match) => {
+            const ref = lookupWebReference(match[1])
+            const href = ref?.href || match[1]
+            return `<sup><a href="${escapeHtml(href)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(href)}">[${escapeHtml(ref?.number || '1')}]</a></sup>`
+        }),
+        findBareUrlHtmlMatch(text, startIndex, 9, (url) => {
+            const ref = lookupWebReference(url)
+            const href = ref?.href || url
+            return `<sup><a href="${escapeHtml(href)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(href)}">[${escapeHtml(ref?.number || '1')}]</a></sup>`
+        }),
     ].filter((match): match is HtmlInlineMatch => match !== null)
 
     return (
@@ -766,15 +1089,23 @@ function renderBlock(block: MarkdownBlock, index: number): ReactNode {
 
 export function renderSimpleMarkdown(source: string | null | undefined, options?: RenderSimpleMarkdownOptions) {
     activeInlineOptions = options ?? null
+    const collapsed = collapseRepeatedAssistantText(typeof source === 'string' ? source : '')
+    const refs = options?.webReferences ?? collectWebReferences(collapsed)
+    if (options?.webReferences) activateWebReferences(options.webReferences)
     try {
-        return parseSimpleMarkdown(source, { includeTables: true }).map(renderBlock)
+        const nodes = parseSimpleMarkdown(collapsed, { includeTables: true }).map(renderBlock)
+        if (options?.includeWebReferenceList === false) return nodes
+        const list = renderWebReferenceList(refs)
+        return list ? [...nodes, list] : nodes
     } finally {
         activeInlineOptions = null
     }
 }
 
 export function markdownToHtml(source: string | null | undefined) {
-    const blocks = parseSimpleMarkdown(source)
-    if (blocks.length === 0) return ''
-    return blocks.map(renderBlockToHtml).join('')
+    const collapsed = collapseRepeatedAssistantText(typeof source === 'string' ? source : '')
+    const refs = collectWebReferences(collapsed)
+    const blocks = parseSimpleMarkdown(collapsed)
+    if (blocks.length === 0 && refs.length === 0) return ''
+    return `${blocks.map(renderBlockToHtml).join('')}${renderWebReferenceListHtml(refs)}`
 }

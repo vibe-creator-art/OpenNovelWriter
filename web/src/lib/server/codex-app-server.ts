@@ -10,8 +10,15 @@ import {
 } from '@/lib/codex-response-annotations'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
 import { parseCodexAssistantNotification } from '@/lib/server/codex-assistant-notification'
+import { mergeCompletedAssistantText } from '@/lib/server/codex-assistant-text'
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
+import {
+    getCodexRuntimeSandbox,
+    getCodexRuntimeSandboxPolicy,
+    getCodexRuntimeWorkspaceRoots,
+} from '@/lib/server/codex-runtime-sandbox'
+import { getNovelWorkspacePath } from '@/lib/server/novel-workspace'
 import { ensureCodexSessionWorkspace } from '@/lib/server/codex-session-workspace'
 import { isSafeGitHubCloneApprovalRequest } from '@/lib/server/codex-github-clone-approval'
 import {
@@ -585,10 +592,6 @@ function getCodexRuntimeReviewOptions(reviewLevel: CodexReviewLevel): CodexRunti
     }
 }
 
-function getCodexRuntimeSandbox(reviewLevel: CodexReviewLevel) {
-    return reviewLevel === 'full_access' ? 'danger-full-access' : 'workspace-write'
-}
-
 function getCodexCollaborationMode(input: {
     composerMode: CodexComposerMode
     modelId: string
@@ -1160,7 +1163,17 @@ export async function runNovelCodexTurn(input: {
         : await ensureCodexConnectionHome(input.ownerId, connection.id)
     const reviewLevel = normalizeCodexReviewLevel(input.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL
     const reviewOptions = getCodexRuntimeReviewOptions(reviewLevel)
+    const novelWorkspacePath = getNovelWorkspacePath(input.ownerId, input.novelId)
     const sandbox = getCodexRuntimeSandbox(reviewLevel)
+    const runtimeWorkspaceRoots = getCodexRuntimeWorkspaceRoots({
+        sessionWorkspacePath,
+        novelWorkspacePath,
+    })
+    const sandboxPolicy = getCodexRuntimeSandboxPolicy({
+        reviewLevel,
+        sessionWorkspacePath,
+        novelWorkspacePath,
+    })
     // Rewrite the managed MCP config block before spawning the app-server so config.toml
     // (read at process startup) always reflects the current code. Under manual review our
     // first-party tools prompt the human; other modes pre-approve so calls are
@@ -1264,6 +1277,7 @@ export async function runNovelCodexTurn(input: {
                 model: modelId,
                 serviceTier,
                 cwd: sessionWorkspacePath,
+                runtimeWorkspaceRoots,
                 approvalPolicy: reviewOptions.approvalPolicy,
                 approvalsReviewer: reviewOptions.approvalsReviewer,
                 sandbox,
@@ -1273,6 +1287,7 @@ export async function runNovelCodexTurn(input: {
                 model: modelId,
                 serviceTier,
                 cwd: sessionWorkspacePath,
+                runtimeWorkspaceRoots,
                 approvalPolicy: reviewOptions.approvalPolicy,
                 approvalsReviewer: reviewOptions.approvalsReviewer,
                 sandbox,
@@ -1385,6 +1400,8 @@ export async function runNovelCodexTurn(input: {
             const turnResponse = await client.request<{ turn: { id: string } }>('turn/start', {
                 threadId,
                 cwd: sessionWorkspacePath,
+                runtimeWorkspaceRoots,
+                sandboxPolicy,
                 model: modelId,
                 serviceTier,
                 effort: reasoningEffort,
@@ -1569,8 +1586,11 @@ export async function runNovelCodexTurn(input: {
                         emitEvent(event)
                     }
 
-                    if (!assistantText) {
-                        assistantText += getMessageTextFromThreadItem(item)
+                    const completedText = getMessageTextFromThreadItem(item)
+                    if (completedText) {
+                        const reconciled = mergeCompletedAssistantText(assistantText, completedText)
+                        if (reconciled.delta) input.stream?.onAssistantDelta?.(reconciled.delta)
+                        assistantText = reconciled.assistantText
                     }
                     return
                 }
@@ -1714,7 +1734,12 @@ export async function runNovelCodexCompaction(input: {
         : await ensureCodexConnectionHome(input.ownerId, connection.id)
     const reviewLevel = normalizeCodexReviewLevel(input.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL
     const reviewOptions = getCodexRuntimeReviewOptions(reviewLevel)
+    const novelWorkspacePath = getNovelWorkspacePath(input.ownerId, input.novelId)
     const sandbox = getCodexRuntimeSandbox(reviewLevel)
+    const runtimeWorkspaceRoots = getCodexRuntimeWorkspaceRoots({
+        sessionWorkspacePath,
+        novelWorkspacePath,
+    })
     client = await CodexAppServerClient.create(codexHome, (createdClient) => {
         client = createdClient
         activeRunHandle.client = createdClient
@@ -1737,6 +1762,7 @@ export async function runNovelCodexCompaction(input: {
             model: modelId,
             serviceTier,
             cwd: sessionWorkspacePath,
+            runtimeWorkspaceRoots,
             approvalPolicy: reviewOptions.approvalPolicy,
             approvalsReviewer: reviewOptions.approvalsReviewer,
             sandbox,

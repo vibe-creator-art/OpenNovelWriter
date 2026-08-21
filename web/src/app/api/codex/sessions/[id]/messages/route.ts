@@ -11,6 +11,7 @@ import {
     reserveActiveCodexRun,
     runNovelCodexTurn,
 } from '@/lib/server/codex-app-server'
+import { mergeCompletedAssistantText } from '@/lib/server/codex-assistant-text'
 import { readSkill } from '@/lib/server/skill-storage'
 import { getNovelWorkspaceTermFileMap } from '@/lib/server/novel-workspace'
 import { seedSkillSessionArtifact } from '@/lib/server/codex-skill-session'
@@ -601,10 +602,19 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                     await Promise.all([goalPersistence, turnPersistence])
                     contextWindow = result.contextWindow ?? contextWindow
 
-                    const hasAssistantMessage = streamedMessages.slice(optimisticMessages.length).some((message) => message.role === 'assistant')
-                    if (
+                    const turnAssistantMessages = streamedMessages
+                        .slice(optimisticMessages.length)
+                        .filter((message) => message.role === 'assistant')
+                    const streamedAssistantText = turnAssistantMessages.map((message) => message.content).join('')
+                    const reconciledAssistant = mergeCompletedAssistantText(streamedAssistantText, result.assistantText)
+                    if (result.status === 'completed' && reconciledAssistant.delta) {
+                        const segmentId = createCodexMessageId('codex_assistant')
+                        const segmentCreatedAt = new Date().toISOString()
+                        appendAssistantDeltaMessage(streamedMessages, reconciledAssistant.delta, segmentId, segmentCreatedAt)
+                        send('assistant_delta', { id: segmentId, delta: reconciledAssistant.delta, createdAt: segmentCreatedAt })
+                    } else if (
                         result.status === 'completed' &&
-                        !hasAssistantMessage &&
+                        turnAssistantMessages.length === 0 &&
                         !result.goalCleared &&
                         result.goal?.status !== 'active' &&
                         result.goal?.status !== 'paused'

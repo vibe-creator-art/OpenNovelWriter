@@ -88,7 +88,8 @@ import {
     hasMeaningfulCodexRateLimits,
 } from '@/lib/codex-rate-limits'
 import { cn } from '@/lib/utils'
-import { renderSimpleMarkdown } from '@/lib/simple-markdown'
+import { collapseRepeatedAssistantText } from '@/lib/collapse-repeated-text'
+import { collectWebReferences, renderSimpleMarkdown, renderWebReferenceList } from '@/lib/simple-markdown'
 import { plainTextToSnippetHtml } from '@/lib/snippet-html'
 import { type WriteNavTarget } from '@/components/editor/plan-view'
 import { actApi, chapterApi, materialApi, outlineApi, sceneEditApi, skillApi, snippetApi, type Act, type Chapter, type MaterialSummary, type OutlineSummary, type SceneEditStatus, type Skill, type Snippet } from '@/lib/api'
@@ -1569,10 +1570,12 @@ function splitArtifactBlocks(content: string): CodexMarkdownBlock[] {
 }
 
 function CodexMarkdown({ content, embedLlm = true }: { content: string; embedLlm?: boolean }) {
+    const collapsedContent = useMemo(() => collapseRepeatedAssistantText(content), [content])
     const blocks = useMemo(
-        () => (embedLlm ? splitArtifactBlocks(content) : [{ type: 'md', text: content } as CodexMarkdownBlock]),
-        [content, embedLlm]
+        () => (embedLlm ? splitArtifactBlocks(collapsedContent) : [{ type: 'md', text: collapsedContent } as CodexMarkdownBlock]),
+        [collapsedContent, embedLlm]
     )
+    const webReferences = useMemo(() => collectWebReferences(collapsedContent), [collapsedContent])
     const onNavigate = useContext(CodexNavContext)
 
     const handleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -1595,7 +1598,7 @@ function CodexMarkdown({ content, embedLlm = true }: { content: string; embedLlm
                 'prose-code:rounded prose-code:bg-muted/80 prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.9em]',
                 'prose-code:before:content-none prose-code:after:content-none',
                 'prose-blockquote:my-3 prose-blockquote:border-l-2 prose-blockquote:border-border prose-blockquote:pl-4',
-                'prose-a:text-primary prose-strong:text-inherit prose-headings:text-inherit',
+                'prose-a:text-primary prose-strong:text-inherit prose-headings:text-inherit prose-sup:text-inherit',
                 '[&_a]:break-all [&_a]:[overflow-wrap:anywhere]',
                 '[&_code]:break-words [&_code]:[overflow-wrap:anywhere]',
                 '[&_em]:break-words [&_em]:[overflow-wrap:anywhere]',
@@ -1611,9 +1614,12 @@ function CodexMarkdown({ content, embedLlm = true }: { content: string; embedLlm
                     ) : block.type === 'image' ? (
                         <CodexImageArtifactRef key={`image-${index}`} target={block.target} label={block.label} />
                     ) : (
-                        <Fragment key={`md-${index}`}>{renderSimpleMarkdown(block.text)}</Fragment>
+                        <Fragment key={`md-${index}`}>
+                            {renderSimpleMarkdown(block.text, { includeWebReferenceList: false, webReferences })}
+                        </Fragment>
                     )
                 )}
+                {renderWebReferenceList(webReferences)}
             </ImageViewerBoundary>
         </div>
     )

@@ -16,13 +16,14 @@ import {
     type ReactFlowInstance,
     useStore,
 } from '@xyflow/react'
-import { BookText, CalendarDays, ChevronDown, LayoutGrid, MapPin, Network, Shapes, UserRound } from 'lucide-react'
+import { BookText, CalendarDays, ChartSpline, Check, ChevronDown, LayoutGrid, MapPin, Network, Shapes, Table2, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
+    DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
@@ -43,6 +44,27 @@ import type { TermEntry } from '@/components/editor/terms/types'
 import { RelationshipGraphEdge } from '@/components/editor/relationship-graph-edge'
 import { buildRelationshipGraphLayout } from '@/components/editor/relationship-graph-layout'
 import type { TermGraphEdge, TermGraphNode } from '@/components/editor/relationship-graph-types'
+import { DailyWordChart } from '@/components/editor/daily-word-chart'
+
+const HEATMAP_TOP_PRESETS = [10, 15, 20] as const
+type HeatmapTopCount = (typeof HEATMAP_TOP_PRESETS)[number]
+type HeatmapTermSelection =
+    | { mode: 'top'; n: HeatmapTopCount }
+    | { mode: 'custom'; ids: string[] }
+
+function readHeatmapSelection(raw: string | null): HeatmapTermSelection | null {
+    if (!raw) return null
+    try {
+        const value = JSON.parse(raw) as { mode?: unknown; n?: unknown; ids?: unknown }
+        if (value?.mode === 'top' && (value.n === 10 || value.n === 15 || value.n === 20)) {
+            return { mode: 'top', n: value.n }
+        }
+        if (value?.mode === 'custom' && Array.isArray(value.ids)) {
+            return { mode: 'custom', ids: value.ids.filter((id): id is string => typeof id === 'string') }
+        }
+    } catch {}
+    return null
+}
 
 type TimelineScene = {
     id: string
@@ -259,7 +281,11 @@ export function MiddlePanelReview({
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [dayRange, setDayRange] = useState<30 | 90 | 'all'>(30)
-    const [selectedTermIdsOverride, setSelectedTermIdsOverride] = useState<string[] | null>(null)
+    const [dailyView, setDailyView] = useState<'table' | 'chart'>(() => {
+        if (typeof window === 'undefined') return 'table'
+        return window.localStorage.getItem('review_daily_view') === 'chart' ? 'chart' : 'table'
+    })
+    const [selectionOverride, setSelectionOverride] = useState<{ key: string; selection: HeatmapTermSelection } | null>(null)
     const storageKey = `review_heatmap_terms_${novelId}`
 
     useEffect(() => {
@@ -313,30 +339,28 @@ export function MiddlePanelReview({
         return { totalByTermId, sceneCountsByTermId }
     }, [activeEntries, timeline])
 
-    const defaultSelectedTermIds = useMemo(() => {
-        if (activeEntries.length === 0) return []
-        const stored = typeof window === 'undefined' ? null : window.localStorage.getItem(storageKey)
-        if (stored) {
-            try {
-                const parsed = JSON.parse(stored)
-                if (Array.isArray(parsed)) {
-                    const valid = parsed.filter((id): id is string => typeof id === 'string' && activeEntries.some((entry) => entry.id === id))
-                    if (valid.length > 0) return valid
-                }
-            } catch {}
-        }
-        return activeEntries.slice().sort((a, b) =>
-            (mentionMatrix.totalByTermId.get(b.id) ?? 0) - (mentionMatrix.totalByTermId.get(a.id) ?? 0)
-            || a.title.localeCompare(b.title)
-        ).slice(0, 10).map((entry) => entry.id)
-    }, [activeEntries, mentionMatrix.totalByTermId, storageKey])
+    const rankedEntries = useMemo(() => activeEntries.slice().sort((a, b) =>
+        (mentionMatrix.totalByTermId.get(b.id) ?? 0) - (mentionMatrix.totalByTermId.get(a.id) ?? 0)
+        || a.title.localeCompare(b.title)
+    ), [activeEntries, mentionMatrix.totalByTermId])
+    const storedSelection = useMemo(() => {
+        if (typeof window === 'undefined') return null
+        return readHeatmapSelection(window.localStorage.getItem(storageKey))
+    }, [storageKey])
+    const selection = (selectionOverride?.key === storageKey ? selectionOverride.selection : null)
+        ?? storedSelection
+        ?? { mode: 'top', n: 10 }
 
-    const selectedTermIds = selectedTermIdsOverride ?? defaultSelectedTermIds
+    const persistSelection = useCallback((next: HeatmapTermSelection) => {
+        setSelectionOverride({ key: storageKey, selection: next })
+        window.localStorage.setItem(storageKey, JSON.stringify(next))
+    }, [storageKey])
 
-    useEffect(() => {
-        if (selectedTermIdsOverride === null) return
-        window.localStorage.setItem(storageKey, JSON.stringify(selectedTermIdsOverride))
-    }, [selectedTermIdsOverride, storageKey])
+    const selectedTermIds = useMemo(() => {
+        if (selection.mode === 'top') return rankedEntries.slice(0, selection.n).map((entry) => entry.id)
+        const activeIds = new Set(activeEntries.map((entry) => entry.id))
+        return selection.ids.filter((id) => activeIds.has(id))
+    }, [activeEntries, rankedEntries, selection])
 
     const selectedEntries = useMemo(() => selectedTermIds
         .map((id) => activeEntries.find((entry) => entry.id === id) ?? null)
@@ -365,14 +389,48 @@ export function MiddlePanelReview({
                 </div>
 
                 <Card className="gap-4 py-5">
-                    <CardHeader className="gap-1 px-5 sm:flex sm:flex-row sm:items-start sm:justify-between">
-                        <CardTitle>{t('dailyTitle')}</CardTitle>
+                    <CardHeader className="gap-1 px-5 sm:flex sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-2.5">
+                            <CardTitle>{t('dailyTitle')}</CardTitle>
+                            <div className="flex rounded-lg border p-0.5">
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={dailyView === 'table' ? 'secondary' : 'ghost'}
+                                    className="h-7 w-7 px-0"
+                                    aria-label={t('tableView')}
+                                    aria-pressed={dailyView === 'table'}
+                                    onClick={() => {
+                                        setDailyView('table')
+                                        window.localStorage.setItem('review_daily_view', 'table')
+                                    }}
+                                >
+                                    <Table2 className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={dailyView === 'chart' ? 'secondary' : 'ghost'}
+                                    className="h-7 w-7 px-0"
+                                    aria-label={t('chartView')}
+                                    aria-pressed={dailyView === 'chart'}
+                                    onClick={() => {
+                                        setDailyView('chart')
+                                        window.localStorage.setItem('review_daily_view', 'chart')
+                                    }}
+                                >
+                                    <ChartSpline className="h-3.5 w-3.5" />
+                                </Button>
+                            </div>
+                        </div>
                         <div className="mt-3 flex rounded-lg border p-0.5 sm:mt-0">
                             {([30, 90, 'all'] as const).map((range) => <Button key={range} size="sm" variant={dayRange === range ? 'secondary' : 'ghost'} className="h-7 px-2.5" onClick={() => setDayRange(range)}>{range === 'all' ? t('all') : t('days', { count: range })}</Button>)}
                         </div>
                     </CardHeader>
                     <CardContent className="px-5">
-                        {visibleDays.length === 0 ? <div className="rounded-xl border border-dashed py-12 text-center text-sm text-muted-foreground">{t('dailyEmpty')}</div> : (
+                        {visibleDays.length === 0 ? <div className="rounded-xl border border-dashed py-12 text-center text-sm text-muted-foreground">{t('dailyEmpty')}</div> : dailyView === 'chart' ? (
+                            <DailyWordChart days={visibleDays} range={dayRange} />
+                        ) : (
                             <div className="overflow-hidden rounded-xl border">
                                 <div className="grid grid-cols-[1fr_1fr_1fr] bg-muted/60 px-4 py-2.5 text-xs font-semibold text-muted-foreground"><span>{t('date')}</span><span className="text-right">{t('dailyChange')}</span><span className="text-right">{t('endingTotal')}</span></div>
                                 {visibleDays.map((day) => <div key={day.dateKey} className="grid grid-cols-[1fr_1fr_1fr] border-t px-4 py-3 text-sm"><span>{day.dateKey}</span><span className={cn('text-right font-medium tabular-nums', day.netWordCount > 0 ? 'text-emerald-600' : day.netWordCount < 0 ? 'text-rose-600' : 'text-muted-foreground')}>{formatSigned(day.netWordCount)}</span><span className="text-right tabular-nums">{day.endingWordCount.toLocaleString()}</span></div>)}
@@ -386,9 +444,45 @@ export function MiddlePanelReview({
                         <CardTitle>{t('heatmapTitle')}</CardTitle>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="mt-3 gap-2 sm:mt-0">{t('displayTerms', { count: selectedTermIds.length })}<ChevronDown className="h-3.5 w-3.5" /></Button></DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="max-h-[420px] w-72 overflow-y-auto">
-                                <DropdownMenuLabel>{t('chooseTerms')}</DropdownMenuLabel><DropdownMenuSeparator />
-                                {activeEntries.map((entry) => <DropdownMenuCheckboxItem key={entry.id} checked={selectedTermIds.includes(entry.id)} onCheckedChange={(checked) => setSelectedTermIdsOverride((current) => { const base = current ?? selectedTermIds; return checked ? [...base, entry.id] : base.filter((id) => id !== entry.id) })}><span className="min-w-0 flex-1 truncate">{entry.title}</span><span className="ml-2 text-xs tabular-nums text-muted-foreground">{mentionMatrix.totalByTermId.get(entry.id) ?? 0}</span></DropdownMenuCheckboxItem>)}
+                            <DropdownMenuContent align="end" className="max-h-[420px] w-72 overflow-y-auto p-0">
+                                <div className="sticky top-0 z-10 bg-popover p-1 pb-0">
+                                    <DropdownMenuLabel>{t('chooseTerms')}</DropdownMenuLabel>
+                                    {HEATMAP_TOP_PRESETS.map((n) => {
+                                        const checked = selection.mode === 'top' && selection.n === n
+                                        return (
+                                            <DropdownMenuItem
+                                                key={n}
+                                                className="pl-8"
+                                                onSelect={() => persistSelection({ mode: 'top', n })}
+                                            >
+                                                {checked ? (
+                                                    <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+                                                        <Check className="size-4" />
+                                                    </span>
+                                                ) : null}
+                                                {t('topTerms', { count: n })}
+                                            </DropdownMenuItem>
+                                        )
+                                    })}
+                                    <DropdownMenuSeparator />
+                                </div>
+                                <div className="p-1 pt-0">
+                                    {rankedEntries.map((entry) => (
+                                        <DropdownMenuCheckboxItem
+                                            key={entry.id}
+                                            checked={selectedTermIds.includes(entry.id)}
+                                            onCheckedChange={(checked) => {
+                                                const nextIds = checked === true
+                                                    ? selectedTermIds.includes(entry.id) ? selectedTermIds : [...selectedTermIds, entry.id]
+                                                    : selectedTermIds.filter((id) => id !== entry.id)
+                                                persistSelection({ mode: 'custom', ids: nextIds })
+                                            }}
+                                        >
+                                            <span className="min-w-0 flex-1 truncate">{entry.title}</span>
+                                            <span className="ml-2 text-xs tabular-nums text-muted-foreground">{mentionMatrix.totalByTermId.get(entry.id) ?? 0}</span>
+                                        </DropdownMenuCheckboxItem>
+                                    ))}
+                                </div>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </CardHeader>
