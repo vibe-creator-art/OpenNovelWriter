@@ -97,8 +97,11 @@
         "welcome": "欢迎，{username}",
         "importNovel": "导入小说",
         "importing": "导入中...",
+        "more": "更多",
+        "settings": "设置",
         "importOptions": {
             "fromNovelCrafter": "Import from NC",
+            "fromNovelCrafterUnavailable": "从 NC 导入（仅电脑）",
             "fromTavernCard": "从酒馆卡导入"
         },
         "importErrors": {
@@ -134,7 +137,8 @@
     },
     "novelCard": {
         "edit": "编辑",
-        "delete": "删除"
+        "delete": "删除",
+        "menu": "更多"
     },
     "novel": {
         "form": {
@@ -282,6 +286,8 @@
             "formatDocx": "Word（.docx）",
             "includeActTitles": "包含卷标题",
             "includeActTitlesHint": "关闭后只输出章标题和正文。",
+            "numberedHeadings": "卷、章编号",
+            "numberedHeadingsHint": "在标题前加上「第X卷」「第X章」。关闭后只输出原标题。",
             "sceneDividerLabel": "场分隔",
             "sceneDividerAsterisks": "星号（* * *）",
             "sceneDividerHeadings": "标题（场 1、场 2……）",
@@ -567,6 +573,13 @@
             "agents": "Agent",
             "review": "审阅",
             "storyState": "剧情状态"
+        },
+        "mobile": {
+            "back": "返回书架",
+            "settings": "设置",
+            "paneLeft": "左栏",
+            "paneMiddle": "工作区",
+            "paneRight": "右栏"
         },
         "reviewDashboard": {
             "loading": "正在分析小说……",
@@ -997,6 +1010,7 @@
         "view": {
             "everything": "全部",
             "viewEntireAct": "查看整卷",
+            "backToActs": "返回卷列表",
             "chapters": "章",
             "chapter": "章"
         },

@@ -60,7 +60,12 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg",
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed z-50 grid min-w-0 gap-4 overflow-x-hidden overflow-y-auto rounded-lg border p-6 shadow-lg duration-200 outline-none",
+          // Phone: pin to the viewport. Do not use left/top 50% + translate — that
+          // plus a wide panel (settings) paints the dialog off-screen.
+          "top-[max(0.5rem,env(safe-area-inset-top,0px))] right-2 bottom-[max(0.5rem,env(safe-area-inset-bottom,0px))] left-2 w-auto max-w-none translate-x-0 translate-y-0",
+          // Desktop: original centered modal. Zoom stays here so it cannot override translate on the phone.
+          "md:top-[50%] md:right-auto md:bottom-auto md:left-[50%] md:w-full md:translate-x-[-50%] md:translate-y-[-50%] md:overflow-x-visible md:data-[state=open]:zoom-in-95 md:data-[state=closed]:zoom-out-95 sm:max-w-lg",
           className
         )}
         {...props}

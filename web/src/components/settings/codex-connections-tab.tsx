@@ -419,17 +419,17 @@ export function CodexConnectionsTab() {
     }
 
     return (
-        <div className="grid min-h-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="grid min-h-0 min-w-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
             <Card className="min-h-0">
-                <CardHeader className="flex-row items-center justify-between">
-                    <CardTitle>{t('connectionsListTitle')}</CardTitle>
-                    <Button size="sm" variant="outline" onClick={() => startDraft('custom')}><Plus className="h-4 w-4" />{t('newConnection')}</Button>
+                <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+                    <CardTitle className="min-w-0 truncate">{t('connectionsListTitle')}</CardTitle>
+                    <Button size="sm" variant="outline" className="shrink-0" onClick={() => startDraft('custom')}><Plus className="h-4 w-4" />{t('newConnection')}</Button>
                 </CardHeader>
                 <CardContent className="p-0">
-                    <ScrollArea className="h-[620px] px-3 pb-3">
+                    <ScrollArea className="h-auto md:h-[620px] px-3 pb-3">
                         <div className="space-y-2">
                             {connections.map((connection) => (
-                                <div key={connection.id} className={`flex h-16 items-center gap-2 rounded-lg border p-2 ${selectedId === connection.id ? 'border-primary bg-muted/50' : ''}`}>
+                                <div key={connection.id} className={`flex min-w-0 items-center gap-2 rounded-lg border p-2 ${selectedId === connection.id ? 'border-primary bg-muted/50' : ''}`}>
                                     <button
                                         type="button"
                                         onClick={() => void selectConnection(connection.id)}
@@ -438,10 +438,10 @@ export function CodexConnectionsTab() {
                                         <div className="truncate font-medium">{connection.name}</div>
                                         <div className="mt-1 text-xs text-muted-foreground">{connection.providerType === 'custom' ? t('providerTypes.custom') : t('providerTypes.openaiOfficial')}</div>
                                     </button>
-                                    <div className="flex w-24 shrink-0 justify-end">
+                                    <div className="flex shrink-0 justify-end">
                                         {connection.isActive
                                             ? <Badge>{t('active')}</Badge>
-                                            : <Button size="sm" variant="ghost" onClick={() => void activate(connection)}>{t('enable')}</Button>}
+                                            : <Button size="sm" variant="ghost" className="px-2" onClick={() => void activate(connection)}>{t('enable')}</Button>}
                                     </div>
                                 </div>
                             ))}

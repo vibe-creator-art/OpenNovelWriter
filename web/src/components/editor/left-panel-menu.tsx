@@ -119,7 +119,7 @@ export function LeftPanelMenu({
     return (
         <>
             <aside
-                className="border-r bg-card shrink-0 flex flex-col overflow-hidden"
+                className="border-r bg-card shrink-0 flex flex-col overflow-hidden max-md:!w-full"
                 style={{ width: sidebarWidth }}
             >
                 <div className="border-b">
@@ -345,7 +345,7 @@ export function LeftPanelMenu({
             </aside>
 
             <div
-                className="w-1 hover:bg-primary/20 cursor-col-resize shrink-0 transition-colors"
+                className="w-1 hover:bg-primary/20 cursor-col-resize shrink-0 transition-colors max-md:hidden"
                 onMouseDown={onStartResize}
             />
         </>

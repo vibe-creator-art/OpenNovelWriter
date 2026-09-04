@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { AuthPageShell, authInputClassName, authLinkClassName, authSubmitButtonClassName } from '@/components/auth-page-shell'
 import { authApi } from '@/lib/api'
 import { registrationEnabled } from '@/lib/registration'
 import { useAuthStore } from '@/lib/store'
@@ -38,7 +39,7 @@ export default function LoginPage() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 p-4">
+        <AuthPageShell>
             <Card className="w-full max-w-md">
                 <CardHeader className="space-y-1">
                     <CardTitle className="text-2xl font-bold text-center">{t('title')}</CardTitle>
@@ -60,6 +61,7 @@ export default function LoginPage() {
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 placeholder={t('usernamePlaceholder')}
+                                className={authInputClassName}
                                 required
                             />
                         </div>
@@ -71,31 +73,32 @@ export default function LoginPage() {
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 placeholder={t('passwordPlaceholder')}
+                                className={authInputClassName}
                                 required
                             />
                         </div>
                     </CardContent>
                     <CardFooter className="flex flex-col space-y-4 pt-4">
-                        <Button type="submit" className="w-full" disabled={loading}>
+                        <Button type="submit" className={authSubmitButtonClassName} disabled={loading}>
                             {loading ? t('submitting') : t('submit')}
                         </Button>
                         <p className="text-sm text-center text-muted-foreground">
                             {registrationEnabled ? (
                                 <>
                                     {t('noAccount')}{' '}
-                                    <Link href="/register" className="text-primary hover:underline">
+                                    <Link href="/register" className={authLinkClassName}>
                                         {t('register')}
                                     </Link>
                                     <span className="px-2">·</span>
                                 </>
                             ) : null}
-                            <Link href="/forgot-password" className="text-primary hover:underline">
+                            <Link href="/forgot-password" className={authLinkClassName}>
                                 {t('forgotPassword')}
                             </Link>
                         </p>
                     </CardFooter>
                 </form>
             </Card>
-        </div>
+        </AuthPageShell>
     )
 }

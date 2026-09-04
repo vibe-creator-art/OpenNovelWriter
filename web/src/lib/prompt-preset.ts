@@ -36,14 +36,6 @@ function asTrimmedString(value: unknown): string | null {
     return trimmed ? trimmed : null
 }
 
-function safeJsonParse(value: string): unknown {
-    try {
-        return JSON.parse(value)
-    } catch {
-        return null
-    }
-}
-
 function normalizePromptPresetKey(value: unknown): PromptPresetKey | null {
     const trimmed = asTrimmedString(value)?.toLowerCase() ?? null
     if (!trimmed) return null
@@ -87,10 +79,6 @@ function normalizePromptPresetMetadata(value: unknown): { ok: true; metadata: Pr
             exportedAt: typeof obj.exportedAt === 'string' && obj.exportedAt.trim() ? obj.exportedAt : new Date().toISOString(),
         },
     }
-}
-
-export function toPromptPresetKey(value: string): PromptPresetKey | null {
-    return normalizePromptPresetKey(value)
 }
 
 export function createPromptPresetKey(value: string): PromptPresetKey {
@@ -139,10 +127,4 @@ export function parsePromptPresetAsset(value: unknown): PromptPresetParseResult 
             bundle: bundle.bundle,
         },
     }
-}
-
-export function parsePromptPresetAssetFromText(text: string): PromptPresetParseResult {
-    const trimmed = text.trim()
-    if (!trimmed) return { ok: false, detail: 'Prompt preset JSON is empty.' }
-    return parsePromptPresetAsset(safeJsonParse(trimmed))
 }

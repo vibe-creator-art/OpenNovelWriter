@@ -38,14 +38,6 @@ function asTrimmedString(value: unknown): string | null {
     return trimmed ? trimmed : null
 }
 
-function safeJsonParse(value: string): unknown {
-    try {
-        return JSON.parse(value)
-    } catch {
-        return null
-    }
-}
-
 function normalizeAgentPresetKey(value: unknown): AgentPresetKey | null {
     const trimmed = asTrimmedString(value)?.toLowerCase() ?? null
     return trimmed && AGENT_PRESET_KEY_RE.test(trimmed) ? trimmed : null
@@ -71,10 +63,6 @@ function hashStringToBase36(value: string) {
         hash = Math.imul(hash, 16777619)
     }
     return (hash >>> 0).toString(36)
-}
-
-export function toAgentPresetKey(value: string): AgentPresetKey | null {
-    return normalizeAgentPresetKey(value)
 }
 
 export function createAgentPresetKey(value: string): AgentPresetKey {
@@ -137,10 +125,4 @@ export function parseAgentPresetAsset(value: unknown): AgentPresetParseResult {
             agent,
         },
     }
-}
-
-export function parseAgentPresetAssetFromText(text: string): AgentPresetParseResult {
-    const trimmed = text.trim()
-    if (!trimmed) return { ok: false, detail: 'Agent preset JSON is empty.' }
-    return parseAgentPresetAsset(safeJsonParse(trimmed))
 }

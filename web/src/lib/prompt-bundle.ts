@@ -68,20 +68,6 @@ export function parsePromptBundle(value: unknown):
     return parsePromptBundleFromJsonValue(value)
 }
 
-export function parsePromptBundleFromClipboardText(text: string):
-    | { ok: true; bundle: PromptBundleV1 }
-    | { ok: false; detail: string } {
-    const raw = text.trim()
-    if (!raw) return { ok: false, detail: 'Clipboard is empty' }
-    if (!raw.startsWith(PROMPT_BUNDLE_CLIPBOARD_PREFIX)) {
-        return { ok: false, detail: 'Clipboard does not contain a prompt bundle' }
-    }
-
-    const json = raw.slice(PROMPT_BUNDLE_CLIPBOARD_PREFIX.length).trim()
-    const parsed = safeJsonParse(json)
-    return parsePromptBundleFromJsonValue(parsed)
-}
-
 export function parsePromptBundleFromText(text: string):
     | { ok: true; bundle: PromptBundleV1 }
     | { ok: false; detail: string } {

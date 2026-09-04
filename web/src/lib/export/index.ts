@@ -14,6 +14,10 @@ export { assembleManuscript, sceneProse, splitParagraphs } from './assemble'
 export {
     defaultActTitle,
     defaultChapterTitle,
+    actNumberLabel,
+    chapterNumberLabel,
+    numberedActTitle,
+    numberedChapterTitle,
     sceneHeading,
     SCENE_ASTERISK_DIVIDER,
 } from './labels'

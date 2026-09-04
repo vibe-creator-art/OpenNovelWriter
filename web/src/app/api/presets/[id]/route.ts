@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { isPresetAuthoringEnabled } from '@/lib/preset-authoring'
-import { serializePromptPresetJson } from '@/lib/prompt-preset'
+import { getNextPromptPresetRevision, serializePromptPresetJson } from '@/lib/prompt-preset'
 import { buildPromptPresetAssetFromOwnedPrompt } from '@/lib/server/prompt-preset-helpers'
 import { loadBuiltinPromptPresetRegistryEntry, BUILTIN_PROMPT_PRESET_ASSET_DIR } from '@/presets'
 
@@ -77,7 +77,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             presetId: entry.summary.presetId,
             name,
             description,
-            revision: Math.round((entry.summary.revision + 0.1) * 10) / 10,
+            revision: getNextPromptPresetRevision(entry.summary.revision),
         })
         if (!built.ok) {
             return NextResponse.json({ detail: built.detail }, { status: built.status })

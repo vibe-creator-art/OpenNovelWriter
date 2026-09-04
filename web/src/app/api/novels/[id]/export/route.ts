@@ -50,6 +50,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }
 
         const includeActTitles = body.includeActTitles !== false
+        const numberedHeadings = body.numberedHeadings !== false
         const sceneDivider = isSceneDivider(body.sceneDivider) ? body.sceneDivider : 'asterisks'
 
         const novel = await prisma.novel.findFirst({
@@ -86,12 +87,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             return NextResponse.json({ detail: 'Select at least one chapter' }, { status: 400 })
         }
 
+        const chapterOrder = await prisma.chapter.findMany({
+            where: { novelId: novel.id },
+            orderBy: [{ actNumber: 'asc' }, { order: 'asc' }],
+            select: { id: true },
+        })
+        const chapterNumberById = new Map(chapterOrder.map((chapter, index) => [chapter.id, index + 1]))
+        const chapters = novel.chapters.map((chapter) => ({
+            ...chapter,
+            chapterNumber: chapterNumberById.get(chapter.id) ?? chapter.order,
+        }))
+
         const blocks = assembleManuscript(
             novel.acts,
-            novel.chapters,
-            novel.chapters.map((chapter) => chapter.id),
+            chapters,
+            chapters.map((chapter) => chapter.id),
             {
                 includeActTitles,
+                numberedHeadings,
                 sceneDivider,
                 language: novel.language || 'en',
             },

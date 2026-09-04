@@ -300,28 +300,6 @@ export function parseCodexProviderModelsJson(value: string | null | undefined): 
     }
 }
 
-export function validateCodexCustomSettings(settings: CodexCustomProviderSettings) {
-    const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '')
-    if (!baseUrl) throw new Error('Missing Codex upstream base URL.')
-    if (!settings.apiKey.trim()) throw new Error('Missing Codex upstream API key.')
-
-    const models = normalizeCodexProviderModels(settings.models)
-    if (models.length === 0) throw new Error('Add at least one Codex model.')
-
-    const defaultModelId = settings.defaultModelId.trim()
-    if (!models.some((model) => model.id === defaultModelId)) {
-        throw new Error('The default Codex model must be present in the model list.')
-    }
-
-    return {
-        apiKey: settings.apiKey.trim(),
-        baseUrl,
-        upstreamFormat: settings.upstreamFormat,
-        defaultModelId,
-        models,
-    }
-}
-
 function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
     return (
         value === 'none' ||

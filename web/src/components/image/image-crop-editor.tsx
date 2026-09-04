@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -39,10 +39,31 @@ export function ImageCropEditor({
     onCancel,
 }: ImageCropEditorProps) {
     const t = useTranslations('imageEditor')
+    const [box, setBox] = useState(() => {
+        if (typeof window === 'undefined') return { w: MAX_W, h: MAX_H }
+        return {
+            w: Math.max(160, Math.min(MAX_W, window.innerWidth - 48)),
+            h: Math.max(180, Math.min(MAX_H, window.innerHeight - 240)),
+        }
+    })
 
-    // Fixed viewport sized to the target aspect within a bounding box.
+    useEffect(() => {
+        const update = () => {
+            setBox({
+                w: Math.max(160, Math.min(MAX_W, window.innerWidth - 48)),
+                h: Math.max(180, Math.min(MAX_H, window.innerHeight - 240)),
+            })
+        }
+        update()
+        window.addEventListener('resize', update)
+        return () => window.removeEventListener('resize', update)
+    }, [])
+
+    // Fixed-aspect frame that shrinks on short phone screens; md+ stays 300×380.
     const viewport =
-        aspect >= 1 ? { w: MAX_W, h: MAX_W / aspect } : { w: MAX_H * aspect, h: MAX_H }
+        aspect >= 1
+            ? { w: Math.min(box.w, box.h * aspect), h: Math.min(box.w, box.h * aspect) / aspect }
+            : { w: Math.min(box.h, box.w / aspect) * aspect, h: Math.min(box.h, box.w / aspect) }
 
     const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
     const [scale, setScale] = useState(1)

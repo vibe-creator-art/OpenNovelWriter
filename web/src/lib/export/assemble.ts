@@ -1,5 +1,11 @@
 import { htmlToText } from '@/lib/html-to-text'
-import { defaultActTitle, defaultChapterTitle, sceneHeading } from './labels'
+import {
+    defaultActTitle,
+    defaultChapterTitle,
+    numberedActTitle,
+    numberedChapterTitle,
+    sceneHeading,
+} from './labels'
 import type {
     AssembleOptions,
     ExportAct,
@@ -58,22 +64,37 @@ export function assembleManuscript(
         .sort((a, b) => (a.actNumber !== b.actNumber ? a.actNumber - b.actNumber : a.order - b.order))
 
     const actTitleByNumber = new Map(acts.map((act) => [act.number, act.title]))
+    const chapterNumberById = new Map(
+        [...chapters]
+            .sort((a, b) => (a.actNumber !== b.actNumber ? a.actNumber - b.actNumber : a.order - b.order))
+            .map((chapter, index) => [chapter.id, index + 1]),
+    )
     const blocks: ManuscriptBlock[] = []
     let lastAct: number | null = null
 
     for (const chapter of chosen) {
+        const chapterNumber = (
+            typeof chapter.chapterNumber === 'number' && chapter.chapterNumber > 0
+                ? chapter.chapterNumber
+                : chapterNumberById.get(chapter.id)
+        ) ?? Math.max(chapter.order, 1)
+
         if (options.includeActTitles && chapter.actNumber !== lastAct) {
             const stored = actTitleByNumber.get(chapter.actNumber)
             blocks.push({
                 type: 'act-title',
-                text: stored?.trim() || defaultActTitle(options.language, chapter.actNumber),
+                text: options.numberedHeadings
+                    ? numberedActTitle(options.language, chapter.actNumber, stored)
+                    : (stored?.trim() || defaultActTitle(options.language, chapter.actNumber)),
             })
             lastAct = chapter.actNumber
         }
 
         blocks.push({
             type: 'chapter-title',
-            text: chapter.title.trim() || defaultChapterTitle(options.language, chapter.order),
+            text: options.numberedHeadings
+                ? numberedChapterTitle(options.language, chapterNumber, chapter.title)
+                : (chapter.title.trim() || defaultChapterTitle(options.language, chapterNumber)),
         })
         blocks.push(...sceneBlocks(chapter.scenes ?? [], options))
     }

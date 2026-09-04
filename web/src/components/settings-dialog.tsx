@@ -30,14 +30,14 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[980px] p-0 gap-0 max-h-[85vh] overflow-y-auto">
-                <DialogHeader className="px-6 pt-6 pb-4">
+            <DialogContent className="sm:max-w-[980px] p-0 gap-0 max-h-[85vh] overflow-y-auto max-md:max-h-none max-md:flex max-md:flex-col max-md:overflow-hidden">
+                <DialogHeader className="shrink-0 px-4 pt-6 pb-4 pr-12 md:px-6">
                     <DialogTitle className="text-xl font-semibold">{t('title')}</DialogTitle>
                 </DialogHeader>
 
                 {/* Tabs */}
-                <div className="border-b px-6">
-                    <div className="flex gap-1">
+                <div className="min-w-0 shrink-0 overflow-x-auto border-b px-4 md:px-6">
+                    <div className="flex min-w-max gap-1">
                         <TabButton
                             active={activeTab === 'codex-connections'}
                             onClick={() => setActiveTab('codex-connections')}
@@ -66,7 +66,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </div>
 
                 {/* Content */}
-                <div className="px-6 py-6 min-h-[300px]">
+                <div className="min-h-[300px] min-w-0 px-4 py-4 md:px-6 md:py-6 max-md:min-h-0 max-md:flex-1 max-md:overflow-x-hidden max-md:overflow-y-auto">
                     {activeTab === 'codex-connections' && <CodexConnectionsTab />}
                     {activeTab === 'ai-connections' && <AIConnectionsTab />}
                     {activeTab === 'other-connections' && <OtherConnectionsTab />}
@@ -89,7 +89,7 @@ function TabButton({ active, onClick, icon, label }: TabButtonProps) {
         <button
             onClick={onClick}
             className={`
-                flex items-center gap-2 px-4 py-3 text-sm font-medium
+                flex shrink-0 items-center gap-2 whitespace-nowrap px-3 py-3 text-sm font-medium md:px-4
                 border-b-2 transition-colors
                 ${active
                     ? 'border-primary text-primary'

@@ -79,16 +79,6 @@ export function getLlmBindableModelSetIds(modelSets: readonly ModelSetLike[], al
     return allowedSetIds
 }
 
-export function getPrimaryModelGroupId(modelGroupIds?: readonly string[] | null) {
-    if (!Array.isArray(modelGroupIds)) return null
-    for (const groupId of modelGroupIds) {
-        if (typeof groupId !== 'string') continue
-        const trimmed = groupId.trim()
-        if (trimmed) return trimmed
-    }
-    return null
-}
-
 export function attachModelGroupSelection(params: {
     selection: ModelBindingSelection
     groupId: string

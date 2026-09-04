@@ -28,6 +28,9 @@ import { useInfoPanelStore } from '@/components/editor/info-panel-store'
 import { useSceneEditsStore } from '@/components/editor/scene-edits-store'
 import { ManuscriptReviewToolbar } from '@/components/editor/manuscript-review'
 import { CodexPet } from '@/components/editor/codex-pet'
+import { EditorMobileHeader, type MobileEditorPane } from '@/components/editor/editor-mobile-header'
+import { useIsMobile } from '@/hooks/use-is-mobile'
+import { cn } from '@/lib/utils'
 import { SCENE_EDITS_CHANGED_EVENT } from '@/components/editor/scene-edit-events'
 import { OPEN_TERM_ENTRY_EVENT, type OpenTermEntryEventDetail, type TermEntryPanelTab } from '@/components/editor/terms/term-entry-events'
 import { dispatchWriteJump } from '@/components/editor/write-jump-events'
@@ -45,6 +48,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
     ChevronLeft,
+    ChevronRight,
     ChevronDown,
     BookOpen,
     Check,
@@ -143,6 +147,7 @@ export default function EditorPage({ params }: EditorPageProps) {
     const [sidebarWidth, setSidebarWidth] = useState(272) // Keep labels visible while freeing more space for the editor and right panel
     const [focusMode, setFocusMode] = useState(false)
     const [sidebarTab, setSidebarTab] = useState<'outline' | 'codex' | 'chapterOutline' | 'term' | 'snippets' | 'chats'>('outline')
+    const [mobilePane, setMobilePane] = useState<MobileEditorPane>('middle')
     const [requestedOpenSnippetId, setRequestedOpenSnippetId] = useState<string | null>(null)
     const [requestedOpenOutlineTarget, setRequestedOpenOutlineTarget] = useState<RequestedOutlineTarget | null>(null)
     const [requestedOpenTermEntry, setRequestedOpenTermEntry] = useState<RequestedTermEntry | null>(null)
@@ -184,6 +189,8 @@ export default function EditorPage({ params }: EditorPageProps) {
     // View filter state
     const [viewFilter, setViewFilter] = useState<ViewFilter>('everything')
     const [selectedActNumber, setSelectedActNumber] = useState<number | null>(null)
+    const [viewFilterMenuAct, setViewFilterMenuAct] = useState<number | null>(null)
+    const isMobile = useIsMobile()
 
     // Expanded acts in sidebar
     const [expandedActs, setExpandedActs] = useState<Set<number>>(new Set())
@@ -224,6 +231,7 @@ export default function EditorPage({ params }: EditorPageProps) {
     const editorScrollRef = useRef<HTMLElement | null>(null)
     const editorScrollContentRef = useRef<HTMLDivElement | null>(null)
     const hasRestoredViewState = useRef(false)
+    const [viewStateReady, setViewStateReady] = useState(false)
     const hasInitializedViewStatePersistenceRef = useRef(false)
     const pendingScrollChapterIdRef = useRef<string | null>(null)
     const pendingWriteScrollTopRef = useRef<number | null>(null)
@@ -406,6 +414,9 @@ export default function EditorPage({ params }: EditorPageProps) {
 
     const loadNovel = useCallback(async () => {
         if (!novelId) return
+        hasRestoredViewState.current = false
+        hasInitializedViewStatePersistenceRef.current = false
+        setViewStateReady(false)
         try {
             const data = await novelApi.get(novelId)
             setNovel(data)
@@ -762,9 +773,20 @@ export default function EditorPage({ params }: EditorPageProps) {
             } catch {
                 // Ignore invalid persisted state
             }
+        } else {
+            const latestActNumber = chapters.reduce<number | null>((latest, chapter) => {
+                if (latest === null || chapter.actNumber > latest) return chapter.actNumber
+                return latest
+            }, null)
+            if (latestActNumber !== null) {
+                setViewFilter('act')
+                setSelectedActNumber(latestActNumber)
+                setSelectedChapterId(null)
+            }
         }
 
         hasRestoredViewState.current = true
+        setViewStateReady(true)
     }, [novelId, loading, chapters])
 
     // Ensure focused act is expanded
@@ -1124,9 +1146,9 @@ export default function EditorPage({ params }: EditorPageProps) {
         })
     }
 
-    if (!isHydrated || loading || !token) {
+    if (!isHydrated || loading || !token || !viewStateReady) {
         return (
-            <div className="min-h-screen flex items-center justify-center">
+            <div className="min-h-dvh flex items-center justify-center">
                 <div className="text-lg">{tCommon('loading')}</div>
             </div>
         )
@@ -1148,11 +1170,202 @@ export default function EditorPage({ params }: EditorPageProps) {
         || activeTab === 'agents'
         || activeTab === 'storyState'
 
+    const renderWriteChromeTools = () => !isStandaloneTab ? (
+        <>
+            <DropdownMenu
+                onOpenChange={(open) => {
+                    if (!open) setViewFilterMenuAct(null)
+                }}
+            >
+                <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-9 max-w-[8.5rem] gap-1 shrink-0 md:h-8 md:max-w-none">
+                        <span className="truncate">{viewFilterLabel}</span>
+                        <ChevronDown className="h-4 w-4 shrink-0" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                    align={isMobile ? 'start' : 'end'}
+                    className="w-56 max-md:w-[min(20rem,calc(100vw-1.5rem))]"
+                >
+                    {isMobile && viewFilterMenuAct !== null ? (
+                        <>
+                            <DropdownMenuItem
+                                className="min-h-11"
+                                onSelect={(event) => {
+                                    event.preventDefault()
+                                    setViewFilterMenuAct(null)
+                                }}
+                            >
+                                <ChevronLeft className="h-4 w-4" />
+                                <span className="truncate">{getActDisplayTitle(viewFilterMenuAct)}</span>
+                                <span className="sr-only">{t('view.backToActs')}</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                className="min-h-11"
+                                onClick={() => {
+                                    setViewFilter('act')
+                                    setSelectedActNumber(viewFilterMenuAct)
+                                    setSelectedChapterId(null)
+                                }}
+                            >
+                                {viewFilter === 'act' && selectedActNumber === viewFilterMenuAct && !selectedChapterId && (
+                                    <Check className="h-4 w-4 mr-2" />
+                                )}
+                                <span className={viewFilter === 'act' && selectedActNumber === viewFilterMenuAct && !selectedChapterId ? '' : 'ml-6'}>
+                                    {t('view.viewEntireAct')}
+                                </span>
+                            </DropdownMenuItem>
+                            {(chaptersByAct[viewFilterMenuAct] || []).length > 0 && <DropdownMenuSeparator />}
+                            {(chaptersByAct[viewFilterMenuAct] || []).map((chapter) => (
+                                <DropdownMenuItem
+                                    key={chapter.id}
+                                    className="min-h-11"
+                                    onClick={() => {
+                                        setViewFilter('chapter')
+                                        setSelectedActNumber(viewFilterMenuAct)
+                                        setSelectedChapterId(chapter.id)
+                                    }}
+                                >
+                                    {viewFilter === 'chapter' && selectedChapterId === chapter.id && (
+                                        <Check className="h-4 w-4 mr-2" />
+                                    )}
+                                    <span className={viewFilter === 'chapter' && selectedChapterId === chapter.id ? '' : 'ml-6'}>
+                                        {chapter.title}
+                                    </span>
+                                </DropdownMenuItem>
+                            ))}
+                        </>
+                    ) : (
+                        <>
+                            <DropdownMenuItem
+                                className="max-md:min-h-11"
+                                onClick={() => {
+                                    setViewFilter('everything')
+                                    setSelectedActNumber(null)
+                                    setSelectedChapterId(null)
+                                }}
+                            >
+                                {viewFilter === 'everything' && <Check className="h-4 w-4 mr-2" />}
+                                <span className={viewFilter === 'everything' ? '' : 'ml-6'}>{t('view.everything')}</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {actNumbers.map((actNum) => {
+                                const actChapters = chaptersByAct[actNum] || []
+                                const isActSelected =
+                                    (viewFilter === 'act' && selectedActNumber === actNum) ||
+                                    (viewFilter === 'chapter' && selectedChapterId !== null && selectedActNumber === actNum)
+                                if (isMobile) {
+                                    return (
+                                        <DropdownMenuItem
+                                            key={actNum}
+                                            className={cn('min-h-11', isActSelected && 'bg-muted')}
+                                            onSelect={(event) => {
+                                                event.preventDefault()
+                                                setViewFilterMenuAct(actNum)
+                                            }}
+                                        >
+                                            {isActSelected && (
+                                                <Check className="h-4 w-4 mr-2" />
+                                            )}
+                                            <span className={cn('min-w-0 truncate', isActSelected ? '' : 'ml-6')}>
+                                                {getActDisplayTitle(actNum)}
+                                            </span>
+                                            <span className="ml-auto shrink-0 text-muted-foreground text-xs">
+                                                {actChapters.length} {actChapters.length === 1 ? t('view.chapter') : t('view.chapters')}
+                                            </span>
+                                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                        </DropdownMenuItem>
+                                    )
+                                }
+                                return (
+                                    <DropdownMenuSub key={actNum}>
+                                        <DropdownMenuSubTrigger
+                                            className={isActSelected ? 'bg-muted' : ''}
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                setViewFilter('act')
+                                                setSelectedActNumber(actNum)
+                                                setSelectedChapterId(null)
+                                            }}
+                                        >
+                                            {isActSelected && (
+                                                <Check className="h-4 w-4 mr-2" />
+                                            )}
+                                            <span className={isActSelected ? '' : 'ml-6'}>
+                                                {getActDisplayTitle(actNum)}
+                                            </span>
+                                            <span className="ml-auto text-muted-foreground text-xs mr-2">
+                                                {actChapters.length} {actChapters.length === 1 ? t('view.chapter') : t('view.chapters')}
+                                            </span>
+                                        </DropdownMenuSubTrigger>
+                                        <DropdownMenuSubContent className="w-56">
+                                            <DropdownMenuItem
+                                                onClick={() => {
+                                                    setViewFilter('act')
+                                                    setSelectedActNumber(actNum)
+                                                    setSelectedChapterId(null)
+                                                }}
+                                            >
+                                                {viewFilter === 'act' && selectedActNumber === actNum && !selectedChapterId && (
+                                                    <Check className="h-4 w-4 mr-2" />
+                                                )}
+                                                <span className={viewFilter === 'act' && selectedActNumber === actNum && !selectedChapterId ? '' : 'ml-6'}>
+                                                    {t('view.viewEntireAct')}
+                                                </span>
+                                            </DropdownMenuItem>
+                                            {actChapters.length > 0 && <DropdownMenuSeparator />}
+                                            {actChapters.map((chapter) => (
+                                                <DropdownMenuItem
+                                                    key={chapter.id}
+                                                    onClick={() => {
+                                                        setViewFilter('chapter')
+                                                        setSelectedActNumber(actNum)
+                                                        setSelectedChapterId(chapter.id)
+                                                    }}
+                                                >
+                                                    {viewFilter === 'chapter' && selectedChapterId === chapter.id && (
+                                                        <Check className="h-4 w-4 mr-2" />
+                                                    )}
+                                                    <span className={viewFilter === 'chapter' && selectedChapterId === chapter.id ? '' : 'ml-6'}>
+                                                        {chapter.title}
+                                                    </span>
+                                                </DropdownMenuItem>
+                                            ))}
+                                        </DropdownMenuSubContent>
+                                    </DropdownMenuSub>
+                                )
+                            })}
+                        </>
+                    )}
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground tabular-nums md:text-sm">
+                {totalWordCount.toLocaleString()} {tCommon('words')}
+            </span>
+            <WriteFormatMenu />
+        </>
+    ) : null
+
     return (
-        <div className="h-screen flex flex-col bg-background">
+        <div className="h-dvh flex flex-col bg-background">
+            {!focusMode && (
+                <EditorMobileHeader
+                    onBack={handleBackToBookshelf}
+                    onSettings={() => {
+                        setSettingsInitialTab('metadata')
+                        setSettingsOpen(true)
+                    }}
+                    pane={mobilePane}
+                    onPaneChange={setMobilePane}
+                    navTabs={navTabs}
+                    activeTab={activeTab}
+                    onActiveTabChange={(id) => handleActiveTabChange(id as NavTab)}
+                    writeTools={renderWriteChromeTools()}
+                />
+            )}
             {/* Header - hidden in focus mode */}
             {!focusMode && (
-                <header className="h-14 border-b bg-card flex items-center px-4 gap-2 shrink-0">
+                <header className="hidden md:flex h-14 border-b bg-card items-center px-4 gap-2 shrink-0">
                     {/* Back button and novel info */}
                     <Button variant="ghost" size="icon" onClick={handleBackToBookshelf}>
                         <ChevronLeft className="h-5 w-5" />
@@ -1211,104 +1424,8 @@ export default function EditorPage({ params }: EditorPageProps) {
 
                     {!isStandaloneTab && (
                         <>
-                            {/* View filter dropdown */}
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="outline" size="sm" className="gap-1">
-                                        {viewFilterLabel}
-                                        <ChevronDown className="h-4 w-4" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-56">
-                                    <DropdownMenuItem
-                                        onClick={() => {
-                                            setViewFilter('everything')
-                                            setSelectedActNumber(null)
-                                            setSelectedChapterId(null)
-                                        }}
-                                    >
-                                        {viewFilter === 'everything' && <Check className="h-4 w-4 mr-2" />}
-                                        <span className={viewFilter === 'everything' ? '' : 'ml-6'}>{t('view.everything')}</span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    {actNumbers.map((actNum) => {
-                                        const actChapters = chaptersByAct[actNum] || []
-                                        const isActSelected =
-                                            (viewFilter === 'act' && selectedActNumber === actNum) ||
-                                            (viewFilter === 'chapter' && selectedActNumber === actNum)
-                                        return (
-                                            <DropdownMenuSub key={actNum}>
-                                                <DropdownMenuSubTrigger
-                                                    className={isActSelected ? 'bg-muted' : ''}
-                                                    onClick={(e) => {
-                                                        // Clicking directly on the subtrigger also triggers act focus
-                                                        e.preventDefault()
-                                                        setViewFilter('act')
-                                                        setSelectedActNumber(actNum)
-                                                        setSelectedChapterId(null)
-                                                    }}
-                                                >
-                                                    {isActSelected && (
-                                                        <Check className="h-4 w-4 mr-2" />
-                                                    )}
-                                                    <span className={isActSelected ? '' : 'ml-6'}>
-                                                        {getActDisplayTitle(actNum)}
-                                                    </span>
-                                                    <span className="ml-auto text-muted-foreground text-xs mr-2">
-                                                        {actChapters.length} {actChapters.length === 1 ? t('view.chapter') : t('view.chapters')}
-                                                    </span>
-                                                </DropdownMenuSubTrigger>
-                                                <DropdownMenuSubContent className="w-56">
-                                                    {/* Act focus option */}
-                                                    <DropdownMenuItem
-                                                        onClick={() => {
-                                                            setViewFilter('act')
-                                                            setSelectedActNumber(actNum)
-                                                            setSelectedChapterId(null)
-                                                        }}
-                                                    >
-                                                        {viewFilter === 'act' && selectedActNumber === actNum && !selectedChapterId && (
-                                                            <Check className="h-4 w-4 mr-2" />
-                                                        )}
-                                                        <span className={viewFilter === 'act' && selectedActNumber === actNum && !selectedChapterId ? '' : 'ml-6'}>
-                                                            {t('view.viewEntireAct')}
-                                                        </span>
-                                                    </DropdownMenuItem>
-                                                    {actChapters.length > 0 && <DropdownMenuSeparator />}
-                                                    {/* Individual chapters */}
-                                                    {actChapters.map((chapter) => (
-                                                        <DropdownMenuItem
-                                                            key={chapter.id}
-                                                            onClick={() => {
-                                                                setViewFilter('chapter')
-                                                                setSelectedActNumber(actNum)
-                                                                setSelectedChapterId(chapter.id)
-                                                            }}
-                                                        >
-                                                            {viewFilter === 'chapter' && selectedChapterId === chapter.id && (
-                                                                <Check className="h-4 w-4 mr-2" />
-                                                            )}
-                                                            <span className={viewFilter === 'chapter' && selectedChapterId === chapter.id ? '' : 'ml-6'}>
-                                                                {chapter.title}
-                                                            </span>
-                                                        </DropdownMenuItem>
-                                                    ))}
-                                                </DropdownMenuSubContent>
-                                            </DropdownMenuSub>
-                                        )
-                                    })}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-
-                            {/* Word count */}
-                            <span className="text-sm text-muted-foreground">
-                                {totalWordCount.toLocaleString()} {tCommon('words')}
-                            </span>
-
+                            {renderWriteChromeTools()}
                             <Separator orientation="vertical" className="h-6 mx-2" />
-
-                            {/* Format and Focus buttons */}
-                            <WriteFormatMenu />
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -1324,8 +1441,15 @@ export default function EditorPage({ params }: EditorPageProps) {
             )}
 
 	            <div className="flex-1 flex overflow-hidden relative">
-	                {/* Sidebar - hidden in focus mode */}
-	                {!focusMode && sidebarOpen && !isStandaloneTab && (
+	                {/* Sidebar - hidden in focus mode. Phone: full-screen when left pane is selected. */}
+	                {!focusMode && (
+	                <div
+	                    className={cn(
+	                        'max-md:z-20 max-md:min-h-0',
+	                        mobilePane === 'left' ? 'max-md:absolute max-md:inset-0 max-md:flex max-md:w-full' : 'max-md:hidden',
+	                        sidebarOpen && !isStandaloneTab ? 'md:flex' : 'md:hidden',
+	                    )}
+	                >
 	                    <LeftPanelMenu
 		                        sidebarWidth={sidebarWidth}
 		                        sidebarTab={sidebarTab}
@@ -1344,15 +1468,20 @@ export default function EditorPage({ params }: EditorPageProps) {
                         selectedChapterId={selectedChapterId}
 	                        editingChapterId={editingChapterId}
 	                        editingActNumber={editingActNumber}
-	                        onSidebarClose={() => setSidebarOpen(false)}
+	                        onSidebarClose={() => {
+	                            setSidebarOpen(false)
+	                            setMobilePane('middle')
+	                        }}
 	                        onSidebarTabChange={(tab) => {
                                 setSidebarTab(tab)
                                 if (tab === 'codex') {
                                     setRightSidebarOpen(true)
                                     setInfoPanelActiveTab('codex')
+                                    setMobilePane('right')
                                 } else if (tab === 'chats') {
                                     setRightSidebarOpen(true)
                                     setInfoPanelActiveTab('chat')
+                                    setMobilePane('right')
                                 }
                             }}
 	                        onToggleAct={toggleAct}
@@ -1360,6 +1489,8 @@ export default function EditorPage({ params }: EditorPageProps) {
                             setViewFilter('act')
                             setSelectedActNumber(actNum)
                             setSelectedChapterId(chapter.id)
+                            setMobilePane('middle')
+                            handleActiveTabChange('write')
 
                             const chapterId = chapter.id
                             let attempts = 0
@@ -1382,6 +1513,7 @@ export default function EditorPage({ params }: EditorPageProps) {
 	                        getActDisplayTitle={getActDisplayTitle}
 	                        getGlobalChapterIndex={getGlobalChapterIndex}
 	                    />
+	                </div>
 	                )}
 
 	                {/* Show sidebar button when hidden */}
@@ -1389,7 +1521,7 @@ export default function EditorPage({ params }: EditorPageProps) {
 	                    <Button
 	                        variant="ghost"
 	                        size="icon-sm"
-	                        className="absolute left-2 top-8 z-10"
+	                        className="absolute left-2 top-8 z-10 hidden md:inline-flex"
 	                        onClick={() => setSidebarOpen(true)}
 	                        title={t('sidebar.expand')}
 	                        aria-label={t('sidebar.expand')}
@@ -1403,7 +1535,7 @@ export default function EditorPage({ params }: EditorPageProps) {
 	                    <Button
 	                        variant="ghost"
 	                        size="icon-sm"
-	                        className="absolute right-2 top-8 z-10"
+	                        className="absolute right-2 top-8 z-10 hidden md:inline-flex"
 	                        onClick={() => setRightSidebarOpen(true)}
 	                        title={t('header.showInfoPanel')}
 	                        aria-label={t('header.showInfoPanel')}
@@ -1413,7 +1545,7 @@ export default function EditorPage({ params }: EditorPageProps) {
 	                )}
 
 		                {/* Main Editor - Scrollable chapters view */}
-		                <div className="flex-1 min-w-0 relative overflow-hidden">
+		                <div className={cn('flex-1 min-w-0 relative overflow-hidden', mobilePane !== 'middle' && 'max-md:hidden')}>
 		                    <main
 		                        ref={editorScrollRef}
 		                        className="absolute inset-0 overflow-auto bg-background onw-editor-scrollbar"
@@ -1546,28 +1678,42 @@ export default function EditorPage({ params }: EditorPageProps) {
                 </div>
 
                 {/* Right Sidebar */}
-                {!focusMode && rightSidebarOpen && !isStandaloneTab && (
+                {!focusMode && (
+                <div
+                    className={cn(
+                        'max-md:z-20 max-md:min-h-0',
+                        mobilePane === 'right' ? 'max-md:absolute max-md:inset-0 max-md:flex max-md:w-full' : 'max-md:hidden',
+                        rightSidebarOpen && !isStandaloneTab ? 'md:flex' : 'md:hidden',
+                    )}
+                >
                     <RightPanel
                         novelId={novelId ?? undefined}
                         width={rightSidebarWidth}
-                        onClose={() => setRightSidebarOpen(false)}
+                        onClose={() => {
+                            setRightSidebarOpen(false)
+                            setMobilePane('middle')
+                        }}
                         onWidthChange={setRightSidebarWidth}
                         onNavigateToWrite={navigateToWriteTarget}
                     />
+                </div>
                 )}
             </div>
 
             {novelId && novel?.codexPetEnabled && activeTab !== 'storyState' && (
-                <CodexPet
-                    novelId={novelId}
-                    petId={novel.codexPetId}
-                    onOpenSession={() => {
-                        handleActiveTabChange('write')
-                        setFocusMode(false)
-                        setRightSidebarOpen(true)
-                        setInfoPanelActiveTab('codex')
-                    }}
-                />
+                <div className="max-md:hidden">
+                    <CodexPet
+                        novelId={novelId}
+                        petId={novel.codexPetId}
+                        onOpenSession={() => {
+                            handleActiveTabChange('write')
+                            setFocusMode(false)
+                            setRightSidebarOpen(true)
+                            setMobilePane('right')
+                            setInfoPanelActiveTab('codex')
+                        }}
+                    />
+                </div>
             )}
 
             {/* Novel Settings Dialog */}

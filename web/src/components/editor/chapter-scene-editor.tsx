@@ -697,12 +697,12 @@ export function ChapterSceneEditor({
                     {/* Scene row: Editor (left) + Info Panel (right) */}
                     <div
                         className={cn(
-                            'flex gap-4 pr-1',
+                            'flex gap-4 pr-1 max-md:flex-col max-md:gap-3',
                             scenesWithPendingEdits.has(scene.id) && 'rounded-lg border-l-2 border-emerald-500/60 pl-1'
                         )}
                     >
                         {/* Left: Scene editor */}
-                        <div className="flex-1 min-w-0 pl-1">
+                        <div className="flex-1 min-w-0 pl-1 max-md:order-2 max-md:pl-0">
                             {novelId && <SceneReviewPanel novelId={novelId} sceneId={scene.id} />}
                             <SceneContinuationContextProvider
                                 value={{
@@ -790,9 +790,9 @@ export function ChapterSceneEditor({
                         </div>
 
                         {/* Right: Scene info panel - with group hover effect */}
-                        <div className="w-60 shrink-0 text-xs space-y-2 pt-1 group text-muted-foreground/60 hover:text-muted-foreground transition-colors">
-                            {/* Scene title and word count */}
-                            <div className="font-medium group-hover:text-foreground transition-colors">
+                        <div className="w-60 shrink-0 text-xs space-y-2 pt-1 group text-muted-foreground/60 hover:text-muted-foreground transition-colors max-md:order-1 max-md:w-full max-md:pt-0 max-md:text-muted-foreground">
+                            {/* Scene title and word count. Hidden for scene 1 on phone — chapter title already sits above. */}
+                            <div className={cn('font-medium group-hover:text-foreground transition-colors', index === 0 && 'max-md:hidden')}>
                                 {getChapterTitleDisplay()} - {sceneLabel} {index + 1}
                                 <span className="font-normal ml-2">
                                     – {scene.wordCount} {scene.wordCount === 1 ? tCommon('word') : tCommon('words')}
@@ -870,7 +870,7 @@ export function ChapterSceneEditor({
                                 placeholder={t('scene.addSummary')}
                                 matcher={termMentionMatcher}
                                 containerClassName={`rounded transition-colors ${editingSummaryId === scene.id ? 'bg-muted/50 text-foreground' : 'group-hover:bg-muted/30'}`}
-                                className="w-full text-xs border-transparent rounded px-2 py-1 resize-none outline-none cursor-text placeholder:text-muted-foreground/60"
+                                className="w-full text-base md:text-xs border-transparent rounded px-2 py-1 resize-none outline-none cursor-text placeholder:text-muted-foreground/60"
                                 rows={2}
                             />
 
@@ -964,10 +964,10 @@ export function ChapterSceneEditor({
                             )}
 
                             {/* Action buttons */}
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-4 max-md:flex-wrap max-md:gap-1">
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                        <button className="flex items-center gap-1 group-hover:hover:text-foreground px-2 py-1 rounded focus:outline-none data-[state=open]:bg-black data-[state=open]:text-white">
+                                        <button className="flex items-center gap-1 group-hover:hover:text-foreground px-2 py-1 rounded focus:outline-none data-[state=open]:bg-black data-[state=open]:text-white max-md:min-h-11 max-md:text-foreground">
                                             <MoreVertical className="h-3 w-3" />
                                             {t('actions.label')}
                                         </button>
@@ -1019,7 +1019,7 @@ export function ChapterSceneEditor({
                                 </DropdownMenu>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                        <button className="flex items-center gap-1 group-hover:hover:text-foreground px-2 py-1 rounded focus:outline-none data-[state=open]:bg-black data-[state=open]:text-white">
+                                        <button className="flex items-center gap-1 group-hover:hover:text-foreground px-2 py-1 rounded focus:outline-none data-[state=open]:bg-black data-[state=open]:text-white max-md:min-h-11 max-md:text-foreground">
                                             <Tag className="h-3 w-3" />
                                             {t('actions.labelBtn')}
                                         </button>
@@ -1069,7 +1069,7 @@ export function ChapterSceneEditor({
                                     }}
                                 >
                                     <DropdownMenuTrigger asChild>
-                                        <button className="flex items-center gap-1 group-hover:hover:text-foreground px-2 py-1 rounded focus:outline-none data-[state=open]:bg-black data-[state=open]:text-white">
+                                        <button className="flex items-center gap-1 group-hover:hover:text-foreground px-2 py-1 rounded focus:outline-none data-[state=open]:bg-black data-[state=open]:text-white max-md:min-h-11 max-md:text-foreground">
                                             <Plus className="h-3 w-3" />
                                             {t('actions.term')}
                                         </button>

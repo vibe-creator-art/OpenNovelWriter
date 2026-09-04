@@ -93,9 +93,6 @@ export const authApi = {
             { method: 'POST', body: JSON.stringify(data) },
             false
         ),
-
-    me: () =>
-        fetchApi<{ id: string; username: string; email: string }>('/auth/me'),
 }
 
 // Novel API

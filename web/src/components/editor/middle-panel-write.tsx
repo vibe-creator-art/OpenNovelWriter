@@ -278,15 +278,51 @@ export function MiddlePanelWrite({
         return (
         <div key={chapter.id} id={`chapter-${chapter.id}`} className="mb-16">
             {/* Chapter header row with aligned Actions */}
-            <div className="flex gap-6 mb-1 pr-2">
+            <div className="flex gap-6 mb-1 pr-2 max-md:flex-col max-md:gap-1">
                 {/* Left: Chapter index */}
-                <div className="flex-1 min-w-0 pl-2">
+                <div className="flex-1 min-w-0 pl-2 flex items-center justify-between gap-2">
                     <div className="text-base text-muted-foreground">
                         {t('chapter.label')} {getGlobalChapterIndex(chapter.id)}
                     </div>
+                    <div className="md:hidden">
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <button className="flex min-h-11 items-center gap-1 text-xs text-muted-foreground px-2 py-1 rounded focus:outline-none data-[state=open]:bg-black data-[state=open]:text-white">
+                                    <MoreVertical className="h-3 w-3" />
+                                    {t('actions.label')}
+                                </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => onOpenOutlineForChapter(chapter.id)}>
+                                    <ClipboardList className="h-4 w-4 mr-2" />
+                                    {t('outlines.action')}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => onInsertChapter(chapter, 'before')}>{t('chapter.insertBefore')}</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onInsertChapter(chapter, 'after')}>{t('chapter.insertAfter')}</DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem>{t('chapter.copyBeats')}</DropdownMenuItem>
+                                <DropdownMenuItem>{t('chapter.copyProse')}</DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    variant={canDeleteDirectly ? 'destructive' : 'default'}
+                                    className={canDeleteDirectly ? 'text-destructive' : 'text-muted-foreground'}
+                                    disabled={!canDeleteDirectly}
+                                    onClick={() => {
+                                        if (canDeleteDirectly) {
+                                            void onDeleteChapter(chapter)
+                                        }
+                                    }}
+                                >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    {tCommon('delete')}
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
                 </div>
                 {/* Right: Actions button - aligned with scene info panel */}
-                <div className="w-56 shrink-0">
+                <div className="w-56 shrink-0 max-md:hidden">
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <button className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded focus:outline-none data-[state=open]:bg-black data-[state=open]:text-white">
@@ -394,7 +430,7 @@ export function MiddlePanelWrite({
         const canDeleteDirectly = canDeleteActDirectly(actChapters)
 
         return (
-        <div className="flex gap-6 mb-6 pb-4 border-b border-dashed pr-2">
+        <div className="flex gap-6 mb-6 pb-4 border-b border-dashed pr-2 max-md:flex-col max-md:gap-3">
             {/* Left: Act info - centered content */}
             <div className="flex-1 min-w-0 flex flex-col items-center">
                 {/* Act number label */}
@@ -437,7 +473,7 @@ export function MiddlePanelWrite({
                 />
             </div>
             {/* Right: Act info panel - with group hover effect */}
-            <div className="w-56 shrink-0 text-xs space-y-2 pt-1 group text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+            <div className="w-56 shrink-0 text-xs space-y-2 pt-1 group text-muted-foreground/60 hover:text-muted-foreground transition-colors max-md:w-full max-md:text-muted-foreground">
                 {/* Act stats */}
                 <div className="font-medium group-hover:text-foreground transition-colors">
                     {t('act.label')} {getActDisplayIndex(actNum)}{actTitles[actNum] ? `: ${actTitles[actNum]}` : ''}
@@ -477,7 +513,7 @@ export function MiddlePanelWrite({
                     placeholder={t('act.addSummary')}
                     matcher={termMentionMatcher}
                     containerClassName={`rounded transition-colors ${editingActSummaryNumber === actNum ? 'bg-muted/50 text-foreground' : 'group-hover:bg-muted/30'}`}
-                    className="w-full text-xs border-transparent rounded px-2 py-1 resize-none outline-none cursor-text placeholder:text-muted-foreground/60"
+                    className="w-full text-base md:text-xs border-transparent rounded px-2 py-1 resize-none outline-none cursor-text placeholder:text-muted-foreground/60"
                     textareaClassName="onw-editor-scrollbar max-h-40 overflow-y-auto overscroll-contain"
                     style={{ maxHeight: '10rem', overflowY: 'auto' }}
                     rows={2}

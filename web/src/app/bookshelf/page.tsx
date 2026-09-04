@@ -21,6 +21,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { importNovelCrafterProject } from '@/lib/novelcrafter-import'
@@ -30,7 +31,7 @@ import {
     type ParsedTavernCard,
     type TavernMacroOptions,
 } from '@/lib/sillytavern-import'
-import { Plus, LogOut, BookOpen, Settings, ChevronDown, Import, Loader2 } from 'lucide-react'
+import { Plus, LogOut, BookOpen, Settings, ChevronDown, Import, Loader2, MoreHorizontal } from 'lucide-react'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { TavernImportDialog } from '@/components/tavern-import-dialog'
 
@@ -392,14 +393,14 @@ export default function BookshelfPage() {
 
     if (!isHydrated || !token) {
         return (
-            <div className="min-h-screen flex items-center justify-center">
+            <div className="min-h-dvh flex items-center justify-center">
                 <div className="text-lg">{tCommon('loading')}</div>
             </div>
         )
     }
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="min-h-dvh bg-background">
             {/* Loading Overlay */}
             <NovelLoadingOverlay
                 isVisible={loadingOverlayVisible}
@@ -408,31 +409,67 @@ export default function BookshelfPage() {
 
             {/* Header */}
             <header className="border-b bg-card sticky top-0 z-10">
-                <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <BookOpen className="h-6 w-6 text-primary" />
-                        <h1 className="text-xl font-bold">OpenNovelWriter</h1>
+                <div className="container mx-auto flex items-center justify-between gap-2 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:py-4">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <BookOpen className="h-6 w-6 shrink-0 text-primary" />
+                        <h1 className="truncate text-lg font-bold md:text-xl">OpenNovelWriter</h1>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <span className="text-sm text-muted-foreground">
+                    <div className="flex shrink-0 items-center gap-1 md:gap-4">
+                        <span className="hidden text-sm text-muted-foreground md:inline">
                             {t('welcome', { username: user?.username ?? '' })}
                         </span>
-                        <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)}>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-11 w-11 md:h-9 md:w-9"
+                            onClick={() => setSettingsOpen(true)}
+                        >
                             <Settings className="h-4 w-4" />
+                            <span className="sr-only">{t('settings')}</span>
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={handleLogout}>
+                        <Button variant="ghost" size="sm" className="hidden md:inline-flex" onClick={handleLogout}>
                             <LogOut className="h-4 w-4 mr-2" />
                             {tAuth('logout')}
                         </Button>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-11 w-11 md:hidden"
+                                    aria-label={t('more')}
+                                >
+                                    <MoreHorizontal className="h-5 w-5" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="min-w-48">
+                                <DropdownMenuItem
+                                    className="min-h-11"
+                                    disabled={importing}
+                                    onSelect={handleImportTavernCard}
+                                >
+                                    <Import className="h-4 w-4" />
+                                    {importing ? t('importing') : t('importOptions.fromTavernCard')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="min-h-11" disabled>
+                                    {t('importOptions.fromNovelCrafterUnavailable')}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="min-h-11" onSelect={handleLogout}>
+                                    <LogOut className="h-4 w-4" />
+                                    {tAuth('logout')}
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 </div>
             </header>
 
             {/* Main Content */}
-            <main className="container mx-auto px-4 py-8">
-                <div className="flex items-center justify-between mb-8">
-                    <h2 className="text-2xl font-bold">{t('title')}</h2>
-                    {renderPrimaryActions()}
+            <main className="container mx-auto px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] md:py-8 md:pb-8">
+                <div className="mb-4 flex items-center justify-between md:mb-8">
+                    <h2 className="text-xl font-bold md:text-2xl">{t('title')}</h2>
+                    <div className="hidden md:block">{renderPrimaryActions()}</div>
                 </div>
 
                 <input
@@ -468,10 +505,14 @@ export default function BookshelfPage() {
                         <p className="text-muted-foreground mb-4">
                             {t('empty')}
                         </p>
-                        {renderPrimaryActions()}
+                        <div className="hidden justify-center md:flex">{renderPrimaryActions()}</div>
+                        <Button className="h-11 md:hidden" onClick={openCreateDialog}>
+                            <Plus className="h-4 w-4 mr-2" />
+                            {t('createNovel')}
+                        </Button>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-6 lg:grid-cols-4">
                         {novels.map((novel) => (
                             <NovelCard
                                 key={novel.id}
@@ -518,6 +559,16 @@ export default function BookshelfPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <Button
+                type="button"
+                size="icon"
+                className="fixed z-40 h-14 w-14 rounded-full shadow-lg md:hidden right-[max(1rem,env(safe-area-inset-right,0px))] bottom-[max(1rem,env(safe-area-inset-bottom,0px))]"
+                onClick={openCreateDialog}
+                aria-label={t('createNovel')}
+            >
+                <Plus className="h-6 w-6" />
+            </Button>
 
             {/* Settings Dialog */}
             <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />

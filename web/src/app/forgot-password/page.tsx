@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { AuthPageShell, authInputClassName, authLinkClassName, authSubmitButtonClassName } from '@/components/auth-page-shell'
 import { authApi } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
 
@@ -84,7 +85,7 @@ export default function ForgotPasswordPage() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 p-4">
+        <AuthPageShell>
             <Card className="w-full max-w-md">
                 <CardHeader className="space-y-1">
                     <CardTitle className="text-2xl font-bold text-center">{t('title')}</CardTitle>
@@ -109,10 +110,11 @@ export default function ForgotPasswordPage() {
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 placeholder={t('usernamePlaceholder')}
+                                className={authInputClassName}
                                 required
                             />
                         </div>
-                        <Button type="button" variant="outline" className="w-full" disabled={requesting} onClick={() => void requestCode()}>
+                        <Button type="button" variant="outline" className={authSubmitButtonClassName} disabled={requesting} onClick={() => void requestCode()}>
                             {requesting ? t('requestingCode') : t('requestCode')}
                         </Button>
                         {codeSent && (
@@ -126,6 +128,7 @@ export default function ForgotPasswordPage() {
                                         placeholder={t('codePlaceholder')}
                                         inputMode="numeric"
                                         autoComplete="one-time-code"
+                                        className={authInputClassName}
                                         required
                                     />
                                 </div>
@@ -137,6 +140,7 @@ export default function ForgotPasswordPage() {
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
                                         placeholder={tRegister('passwordPlaceholder')}
+                                        className={authInputClassName}
                                         required
                                     />
                                 </div>
@@ -148,6 +152,7 @@ export default function ForgotPasswordPage() {
                                         value={confirmPassword}
                                         onChange={(e) => setConfirmPassword(e.target.value)}
                                         placeholder={tRegister('confirmPasswordPlaceholder')}
+                                        className={authInputClassName}
                                         required
                                     />
                                 </div>
@@ -156,18 +161,18 @@ export default function ForgotPasswordPage() {
                     </CardContent>
                     <CardFooter className="flex flex-col space-y-4 pt-4">
                         {codeSent && (
-                            <Button type="submit" className="w-full" disabled={resetting || code.length !== 6}>
+                            <Button type="submit" className={authSubmitButtonClassName} disabled={resetting || code.length !== 6}>
                                 {resetting ? t('submitting') : t('submit')}
                             </Button>
                         )}
                         <p className="text-sm text-center text-muted-foreground">
-                            <Link href="/login" className="text-primary hover:underline">
+                            <Link href="/login" className={authLinkClassName}>
                                 {t('backToLogin')}
                             </Link>
                         </p>
                     </CardFooter>
                 </form>
             </Card>
-        </div>
+        </AuthPageShell>
     )
 }

@@ -64,6 +64,7 @@ export function NovelExportTab({ novel, active }: NovelExportTabProps) {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
     const [format, setFormat] = useState<NovelExportFormat>('txt')
     const [includeActTitles, setIncludeActTitles] = useState(true)
+    const [numberedHeadings, setNumberedHeadings] = useState(true)
     const [sceneDivider, setSceneDivider] = useState<NovelExportSceneDivider>('asterisks')
     const [loading, setLoading] = useState(false)
     const [exporting, setExporting] = useState(false)
@@ -164,6 +165,7 @@ export function NovelExportTab({ novel, active }: NovelExportTabProps) {
                 chapterIds: Array.from(selectedIds),
                 format,
                 includeActTitles,
+                numberedHeadings,
                 sceneDivider,
             })
             const url = URL.createObjectURL(blob)
@@ -250,12 +252,21 @@ export function NovelExportTab({ novel, active }: NovelExportTabProps) {
                 </Select>
             </div>
 
-            <TreeCheckbox checked={includeActTitles} onCheckedChange={setIncludeActTitles}>
-                <span>
-                    <span className="block font-medium">{t('includeActTitles')}</span>
-                    <span className="block text-xs text-muted-foreground">{t('includeActTitlesHint')}</span>
-                </span>
-            </TreeCheckbox>
+            <div className="space-y-3">
+                <TreeCheckbox checked={includeActTitles} onCheckedChange={setIncludeActTitles}>
+                    <span>
+                        <span className="block font-medium">{t('includeActTitles')}</span>
+                        <span className="block text-xs text-muted-foreground">{t('includeActTitlesHint')}</span>
+                    </span>
+                </TreeCheckbox>
+
+                <TreeCheckbox checked={numberedHeadings} onCheckedChange={setNumberedHeadings}>
+                    <span>
+                        <span className="block font-medium">{t('numberedHeadings')}</span>
+                        <span className="block text-xs text-muted-foreground">{t('numberedHeadingsHint')}</span>
+                    </span>
+                </TreeCheckbox>
+            </div>
 
             <div className="space-y-2">
                 <Label>{t('sceneDividerLabel')}</Label>

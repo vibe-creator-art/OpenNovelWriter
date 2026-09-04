@@ -390,12 +390,41 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply bg-background text-foreground;
   }
 }
 
 @layer utilities {
+  /*
+   * Auth pages: phone gets safe-area + top-aligned scroll; md+ is the original
+   * centered p-4 card (padding 1rem, vertically centered).
+   */
+  .onw-auth-frame {
+    display: flex;
+    width: 100%;
+    min-height: 100dvh;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: max(1.5rem, env(safe-area-inset-top, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  }
+
+  @media (min-width: 768px) {
+    .onw-auth-frame {
+      align-items: center;
+      padding: 1rem;
+    }
+  }
+
+
+
   .onw-editor-scrollbar {
     --onw-scrollbar-size: 6px;
     scrollbar-width: thin;
@@ -507,6 +536,13 @@
     font-family: var(--onw-write-font-family);
     font-size: var(--onw-write-font-size);
     line-height: var(--onw-write-line-height);
+  }
+
+  @media (max-width: 767px) {
+    .onw-middle-panel-write .ProseMirror {
+      /* iOS auto-zooms focused fields under 16px. Floor the write size. */
+      font-size: max(1rem, var(--onw-write-font-size));
+    }
   }
 
   .onw-middle-panel-write .ProseMirror > p {

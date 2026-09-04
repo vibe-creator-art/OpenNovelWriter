@@ -36,97 +36,95 @@ import DarkIcon26 from './elevenlabs/dark'
 import LightIcon27 from './fireworks/light'
 import LightIcon28 from './gitee-ai/light'
 import DarkIcon28 from './gitee-ai/dark'
-import LightIcon29 from './github/light'
-import DarkIcon29 from './github/dark'
-import LightIcon30 from './github-copilot/light'
-import DarkIcon30 from './github-copilot/dark'
-import LightIcon31 from './google/light'
-import LightIcon32 from './gpustack/light'
-import LightIcon33 from './grok/light'
-import DarkIcon33 from './grok/dark'
-import LightIcon34 from './groq/light'
-import LightIcon35 from './huggingface/light'
-import LightIcon36 from './ideogram/light'
-import DarkIcon36 from './ideogram/dark'
-import LightIcon37 from './inceptionlabs/light'
-import DarkIcon37 from './inceptionlabs/dark'
-import LightIcon38 from './infini/light'
-import LightIcon39 from './inflection/light'
-import DarkIcon39 from './inflection/dark'
-import LightIcon40 from './intel/light'
-import LightIcon41 from './internlm/light'
-import DarkIcon41 from './internlm/dark'
-import LightIcon42 from './jimeng/light'
-import LightIcon43 from './jina/light'
-import LightIcon44 from './kling/light'
-import LightIcon45 from './kwaipilot/light'
-import LightIcon46 from './lanyun/light'
-import LightIcon47 from './liquid/light'
-import DarkIcon47 from './liquid/dark'
-import LightIcon48 from './lmstudio/light'
-import LightIcon49 from './longcat/light'
-import LightIcon50 from './meta/light'
-import LightIcon51 from './minimax/light'
-import DarkIcon51 from './minimax/dark'
-import LightIcon52 from './mistral/light'
-import LightIcon53 from './mixedbread/light'
-import LightIcon54 from './modelscope/light'
-import LightIcon55 from './moonshot/light'
-import DarkIcon55 from './moonshot/dark'
-import LightIcon56 from './netease-youdao/light'
-import LightIcon57 from './newapi/light'
-import LightIcon58 from './nomic/light'
-import DarkIcon58 from './nomic/dark'
-import LightIcon59 from './nousresearch/light'
-import DarkIcon59 from './nousresearch/dark'
-import LightIcon60 from './nvidia/light'
-import LightIcon61 from './ocoolai/light'
-import DarkIcon61 from './ocoolai/dark'
-import LightIcon62 from './ollama/light'
-import DarkIcon62 from './ollama/dark'
-import LightIcon63 from './openai/light'
-import DarkIcon63 from './openai/dark'
-import LightIcon64 from './opencode/light'
-import LightIcon65 from './openrouter/light'
-import DarkIcon65 from './openrouter/dark'
-import LightIcon66 from './perplexity/light'
-import LightIcon67 from './ph8/light'
-import LightIcon68 from './poe/light'
-import DarkIcon68 from './poe/dark'
-import LightIcon69 from './ppio/light'
-import LightIcon70 from './qiniu/light'
-import LightIcon71 from './radeon-cloud/light'
-import LightIcon72 from './recraft/light'
-import DarkIcon72 from './recraft/dark'
-import LightIcon73 from './relace/light'
-import DarkIcon73 from './relace/dark'
-import LightIcon74 from './riverflow/light'
-import DarkIcon74 from './riverflow/dark'
-import LightIcon75 from './runway/light'
-import DarkIcon75 from './runway/dark'
-import LightIcon76 from './silicon/light'
-import LightIcon77 from './sophnet/light'
-import LightIcon78 from './stability/light'
-import LightIcon79 from './step/light'
-import LightIcon80 from './streamlake/light'
-import LightIcon81 from './suno/light'
-import DarkIcon81 from './suno/dark'
-import LightIcon82 from './tencent-cloud-ti/light'
-import LightIcon83 from './tng/light'
-import LightIcon84 from './together/light'
-import LightIcon85 from './upstage/light'
-import LightIcon86 from './vercel/light'
-import DarkIcon86 from './vercel/dark'
-import LightIcon87 from './vertexai/light'
-import LightIcon88 from './volcengine/light'
-import LightIcon89 from './voyage/light'
-import DarkIcon89 from './voyage/dark'
-import LightIcon90 from './wenxin/light'
-import LightIcon91 from './xirang/light'
-import LightIcon92 from './z-ai/light'
-import DarkIcon92 from './z-ai/dark'
-import LightIcon93 from './zero-one/light'
-import LightIcon94 from './zhipu/light'
+import LightIcon29 from './github-copilot/light'
+import DarkIcon29 from './github-copilot/dark'
+import LightIcon30 from './google/light'
+import LightIcon31 from './gpustack/light'
+import LightIcon32 from './grok/light'
+import DarkIcon32 from './grok/dark'
+import LightIcon33 from './groq/light'
+import LightIcon34 from './huggingface/light'
+import LightIcon35 from './ideogram/light'
+import DarkIcon35 from './ideogram/dark'
+import LightIcon36 from './inceptionlabs/light'
+import DarkIcon36 from './inceptionlabs/dark'
+import LightIcon37 from './infini/light'
+import LightIcon38 from './inflection/light'
+import DarkIcon38 from './inflection/dark'
+import LightIcon39 from './intel/light'
+import LightIcon40 from './internlm/light'
+import DarkIcon40 from './internlm/dark'
+import LightIcon41 from './jimeng/light'
+import LightIcon42 from './jina/light'
+import LightIcon43 from './kling/light'
+import LightIcon44 from './kwaipilot/light'
+import LightIcon45 from './lanyun/light'
+import LightIcon46 from './liquid/light'
+import DarkIcon46 from './liquid/dark'
+import LightIcon47 from './lmstudio/light'
+import LightIcon48 from './longcat/light'
+import LightIcon49 from './meta/light'
+import LightIcon50 from './minimax/light'
+import DarkIcon50 from './minimax/dark'
+import LightIcon51 from './mistral/light'
+import LightIcon52 from './mixedbread/light'
+import LightIcon53 from './modelscope/light'
+import LightIcon54 from './moonshot/light'
+import DarkIcon54 from './moonshot/dark'
+import LightIcon55 from './netease-youdao/light'
+import LightIcon56 from './newapi/light'
+import LightIcon57 from './nomic/light'
+import DarkIcon57 from './nomic/dark'
+import LightIcon58 from './nousresearch/light'
+import DarkIcon58 from './nousresearch/dark'
+import LightIcon59 from './nvidia/light'
+import LightIcon60 from './ocoolai/light'
+import DarkIcon60 from './ocoolai/dark'
+import LightIcon61 from './ollama/light'
+import DarkIcon61 from './ollama/dark'
+import LightIcon62 from './openai/light'
+import DarkIcon62 from './openai/dark'
+import LightIcon63 from './opencode/light'
+import LightIcon64 from './openrouter/light'
+import DarkIcon64 from './openrouter/dark'
+import LightIcon65 from './perplexity/light'
+import LightIcon66 from './ph8/light'
+import LightIcon67 from './poe/light'
+import DarkIcon67 from './poe/dark'
+import LightIcon68 from './ppio/light'
+import LightIcon69 from './qiniu/light'
+import LightIcon70 from './radeon-cloud/light'
+import LightIcon71 from './recraft/light'
+import DarkIcon71 from './recraft/dark'
+import LightIcon72 from './relace/light'
+import DarkIcon72 from './relace/dark'
+import LightIcon73 from './riverflow/light'
+import DarkIcon73 from './riverflow/dark'
+import LightIcon74 from './runway/light'
+import DarkIcon74 from './runway/dark'
+import LightIcon75 from './silicon/light'
+import LightIcon76 from './sophnet/light'
+import LightIcon77 from './stability/light'
+import LightIcon78 from './step/light'
+import LightIcon79 from './streamlake/light'
+import LightIcon80 from './suno/light'
+import DarkIcon80 from './suno/dark'
+import LightIcon81 from './tencent-cloud-ti/light'
+import LightIcon82 from './tng/light'
+import LightIcon83 from './together/light'
+import LightIcon84 from './upstage/light'
+import LightIcon85 from './vercel/light'
+import DarkIcon85 from './vercel/dark'
+import LightIcon86 from './vertexai/light'
+import LightIcon87 from './volcengine/light'
+import LightIcon88 from './voyage/light'
+import DarkIcon88 from './voyage/dark'
+import LightIcon89 from './wenxin/light'
+import LightIcon90 from './xirang/light'
+import LightIcon91 from './z-ai/light'
+import DarkIcon91 from './z-ai/dark'
+import LightIcon92 from './zero-one/light'
+import LightIcon93 from './zhipu/light'
 
 export const PROVIDER_ICON_CATALOG: Record<string, ThemedIcon> = {
   "302ai": { light: LightIcon0 },
@@ -158,70 +156,69 @@ export const PROVIDER_ICON_CATALOG: Record<string, ThemedIcon> = {
   "elevenlabs": { light: LightIcon26, dark: DarkIcon26 },
   "fireworks": { light: LightIcon27 },
   "gitee-ai": { light: LightIcon28, dark: DarkIcon28 },
-  "github": { light: LightIcon29, dark: DarkIcon29 },
-  "github-copilot": { light: LightIcon30, dark: DarkIcon30 },
-  "google": { light: LightIcon31 },
-  "gpustack": { light: LightIcon32 },
-  "grok": { light: LightIcon33, dark: DarkIcon33 },
-  "groq": { light: LightIcon34 },
-  "huggingface": { light: LightIcon35 },
-  "ideogram": { light: LightIcon36, dark: DarkIcon36 },
-  "inceptionlabs": { light: LightIcon37, dark: DarkIcon37 },
-  "infini": { light: LightIcon38 },
-  "inflection": { light: LightIcon39, dark: DarkIcon39 },
-  "intel": { light: LightIcon40 },
-  "internlm": { light: LightIcon41, dark: DarkIcon41 },
-  "jimeng": { light: LightIcon42 },
-  "jina": { light: LightIcon43 },
-  "kling": { light: LightIcon44 },
-  "kwaipilot": { light: LightIcon45 },
-  "lanyun": { light: LightIcon46 },
-  "liquid": { light: LightIcon47, dark: DarkIcon47 },
-  "lmstudio": { light: LightIcon48 },
-  "longcat": { light: LightIcon49 },
-  "meta": { light: LightIcon50 },
-  "minimax": { light: LightIcon51, dark: DarkIcon51 },
-  "mistral": { light: LightIcon52 },
-  "mixedbread": { light: LightIcon53 },
-  "modelscope": { light: LightIcon54 },
-  "moonshot": { light: LightIcon55, dark: DarkIcon55 },
-  "netease-youdao": { light: LightIcon56 },
-  "newapi": { light: LightIcon57 },
-  "nomic": { light: LightIcon58, dark: DarkIcon58 },
-  "nousresearch": { light: LightIcon59, dark: DarkIcon59 },
-  "nvidia": { light: LightIcon60 },
-  "ocoolai": { light: LightIcon61, dark: DarkIcon61 },
-  "ollama": { light: LightIcon62, dark: DarkIcon62 },
-  "openai": { light: LightIcon63, dark: DarkIcon63 },
-  "opencode": { light: LightIcon64 },
-  "openrouter": { light: LightIcon65, dark: DarkIcon65 },
-  "perplexity": { light: LightIcon66 },
-  "ph8": { light: LightIcon67 },
-  "poe": { light: LightIcon68, dark: DarkIcon68 },
-  "ppio": { light: LightIcon69 },
-  "qiniu": { light: LightIcon70 },
-  "radeon-cloud": { light: LightIcon71 },
-  "recraft": { light: LightIcon72, dark: DarkIcon72 },
-  "relace": { light: LightIcon73, dark: DarkIcon73 },
-  "riverflow": { light: LightIcon74, dark: DarkIcon74 },
-  "runway": { light: LightIcon75, dark: DarkIcon75 },
-  "silicon": { light: LightIcon76 },
-  "sophnet": { light: LightIcon77 },
-  "stability": { light: LightIcon78 },
-  "step": { light: LightIcon79 },
-  "streamlake": { light: LightIcon80 },
-  "suno": { light: LightIcon81, dark: DarkIcon81 },
-  "tencent-cloud-ti": { light: LightIcon82 },
-  "tng": { light: LightIcon83 },
-  "together": { light: LightIcon84 },
-  "upstage": { light: LightIcon85 },
-  "vercel": { light: LightIcon86, dark: DarkIcon86 },
-  "vertexai": { light: LightIcon87 },
-  "volcengine": { light: LightIcon88 },
-  "voyage": { light: LightIcon89, dark: DarkIcon89 },
-  "wenxin": { light: LightIcon90 },
-  "xirang": { light: LightIcon91 },
-  "z-ai": { light: LightIcon92, dark: DarkIcon92 },
-  "zero-one": { light: LightIcon93 },
-  "zhipu": { light: LightIcon94 },
+  "github-copilot": { light: LightIcon29, dark: DarkIcon29 },
+  "google": { light: LightIcon30 },
+  "gpustack": { light: LightIcon31 },
+  "grok": { light: LightIcon32, dark: DarkIcon32 },
+  "groq": { light: LightIcon33 },
+  "huggingface": { light: LightIcon34 },
+  "ideogram": { light: LightIcon35, dark: DarkIcon35 },
+  "inceptionlabs": { light: LightIcon36, dark: DarkIcon36 },
+  "infini": { light: LightIcon37 },
+  "inflection": { light: LightIcon38, dark: DarkIcon38 },
+  "intel": { light: LightIcon39 },
+  "internlm": { light: LightIcon40, dark: DarkIcon40 },
+  "jimeng": { light: LightIcon41 },
+  "jina": { light: LightIcon42 },
+  "kling": { light: LightIcon43 },
+  "kwaipilot": { light: LightIcon44 },
+  "lanyun": { light: LightIcon45 },
+  "liquid": { light: LightIcon46, dark: DarkIcon46 },
+  "lmstudio": { light: LightIcon47 },
+  "longcat": { light: LightIcon48 },
+  "meta": { light: LightIcon49 },
+  "minimax": { light: LightIcon50, dark: DarkIcon50 },
+  "mistral": { light: LightIcon51 },
+  "mixedbread": { light: LightIcon52 },
+  "modelscope": { light: LightIcon53 },
+  "moonshot": { light: LightIcon54, dark: DarkIcon54 },
+  "netease-youdao": { light: LightIcon55 },
+  "newapi": { light: LightIcon56 },
+  "nomic": { light: LightIcon57, dark: DarkIcon57 },
+  "nousresearch": { light: LightIcon58, dark: DarkIcon58 },
+  "nvidia": { light: LightIcon59 },
+  "ocoolai": { light: LightIcon60, dark: DarkIcon60 },
+  "ollama": { light: LightIcon61, dark: DarkIcon61 },
+  "openai": { light: LightIcon62, dark: DarkIcon62 },
+  "opencode": { light: LightIcon63 },
+  "openrouter": { light: LightIcon64, dark: DarkIcon64 },
+  "perplexity": { light: LightIcon65 },
+  "ph8": { light: LightIcon66 },
+  "poe": { light: LightIcon67, dark: DarkIcon67 },
+  "ppio": { light: LightIcon68 },
+  "qiniu": { light: LightIcon69 },
+  "radeon-cloud": { light: LightIcon70 },
+  "recraft": { light: LightIcon71, dark: DarkIcon71 },
+  "relace": { light: LightIcon72, dark: DarkIcon72 },
+  "riverflow": { light: LightIcon73, dark: DarkIcon73 },
+  "runway": { light: LightIcon74, dark: DarkIcon74 },
+  "silicon": { light: LightIcon75 },
+  "sophnet": { light: LightIcon76 },
+  "stability": { light: LightIcon77 },
+  "step": { light: LightIcon78 },
+  "streamlake": { light: LightIcon79 },
+  "suno": { light: LightIcon80, dark: DarkIcon80 },
+  "tencent-cloud-ti": { light: LightIcon81 },
+  "tng": { light: LightIcon82 },
+  "together": { light: LightIcon83 },
+  "upstage": { light: LightIcon84 },
+  "vercel": { light: LightIcon85, dark: DarkIcon85 },
+  "vertexai": { light: LightIcon86 },
+  "volcengine": { light: LightIcon87 },
+  "voyage": { light: LightIcon88, dark: DarkIcon88 },
+  "wenxin": { light: LightIcon89 },
+  "xirang": { light: LightIcon90 },
+  "z-ai": { light: LightIcon91, dark: DarkIcon91 },
+  "zero-one": { light: LightIcon92 },
+  "zhipu": { light: LightIcon93 },
 }

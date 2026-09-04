@@ -97,8 +97,11 @@
         "welcome": "Welcome, {username}",
         "importNovel": "Import Novel",
         "importing": "Importing...",
+        "more": "More",
+        "settings": "Settings",
         "importOptions": {
             "fromNovelCrafter": "Import from NC",
+            "fromNovelCrafterUnavailable": "Import from NC (desktop only)",
             "fromTavernCard": "Import from Tavern Card"
         },
         "importErrors": {
@@ -134,7 +137,8 @@
     },
     "novelCard": {
         "edit": "Edit",
-        "delete": "Delete"
+        "delete": "Delete",
+        "menu": "More"
     },
     "novel": {
         "form": {
@@ -282,6 +286,8 @@
             "formatDocx": "Word (.docx)",
             "includeActTitles": "Include act titles",
             "includeActTitlesHint": "Turn this off to export only chapter titles and prose.",
+            "numberedHeadings": "Numbered headings",
+            "numberedHeadingsHint": "Prefix titles with “Act X” and “Chapter X”. Turn this off to export the original titles only.",
             "sceneDividerLabel": "Scene dividers",
             "sceneDividerAsterisks": "Asterisks (* * *)",
             "sceneDividerHeadings": "Headings (Scene 1, Scene 2, …)",
@@ -567,6 +573,13 @@
             "agents": "Agent",
             "review": "Review",
             "storyState": "Story State"
+        },
+        "mobile": {
+            "back": "Back to bookshelf",
+            "settings": "Settings",
+            "paneLeft": "Left tools",
+            "paneMiddle": "Workspace",
+            "paneRight": "Right tools"
         },
         "reviewDashboard": {
             "loading": "Analyzing the manuscript…",
@@ -997,6 +1010,7 @@
         "view": {
             "everything": "Everything",
             "viewEntireAct": "View Entire Act",
+            "backToActs": "Back to acts",
             "chapters": "chapters",
             "chapter": "chapter"
         },

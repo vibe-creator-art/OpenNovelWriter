@@ -8,7 +8,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { AuthPageShell, authInputClassName, authLinkClassName, authSubmitButtonClassName } from '@/components/auth-page-shell'
 import { authApi } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { registrationEnabled } from '@/lib/registration'
 import { useAuthStore } from '@/lib/store'
 
@@ -51,7 +53,7 @@ export default function RegisterPage() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 p-4">
+        <AuthPageShell>
             <Card className="w-full max-w-md">
                 <CardHeader className="space-y-1">
                     <CardTitle className="text-2xl font-bold text-center">{t('title')}</CardTitle>
@@ -74,6 +76,7 @@ export default function RegisterPage() {
                                     value={username}
                                     onChange={(e) => setUsername(e.target.value)}
                                     placeholder={t('usernamePlaceholder')}
+                                    className={authInputClassName}
                                     required
                                 />
                             </div>
@@ -85,6 +88,7 @@ export default function RegisterPage() {
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     placeholder={t('emailPlaceholder')}
+                                    className={authInputClassName}
                                     required
                                 />
                             </div>
@@ -96,6 +100,7 @@ export default function RegisterPage() {
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     placeholder={t('passwordPlaceholder')}
+                                    className={authInputClassName}
                                     required
                                 />
                             </div>
@@ -107,17 +112,18 @@ export default function RegisterPage() {
                                     value={confirmPassword}
                                     onChange={(e) => setConfirmPassword(e.target.value)}
                                     placeholder={t('confirmPasswordPlaceholder')}
+                                    className={authInputClassName}
                                     required
                                 />
                             </div>
                         </CardContent>
                         <CardFooter className="flex flex-col space-y-4 pt-3">
-                            <Button type="submit" className="w-full" disabled={loading}>
+                            <Button type="submit" className={authSubmitButtonClassName} disabled={loading}>
                                 {loading ? t('submitting') : t('submit')}
                             </Button>
                             <p className="text-sm text-center text-muted-foreground">
                                 {t('hasAccount')}{' '}
-                                <Link href="/login" className="text-primary hover:underline">
+                                <Link href="/login" className={authLinkClassName}>
                                     {t('login')}
                                 </Link>
                             </p>
@@ -128,12 +134,12 @@ export default function RegisterPage() {
                         <div className="w-full rounded-md bg-muted px-4 py-3 text-center text-sm text-muted-foreground">
                             {t('closed')}
                         </div>
-                        <Link href="/login" className="text-sm text-primary hover:underline">
+                        <Link href="/login" className={cn('text-sm', authLinkClassName)}>
                             {t('login')}
                         </Link>
                     </CardFooter>
                 )}
             </Card>
-        </div>
+        </AuthPageShell>
     )
 }

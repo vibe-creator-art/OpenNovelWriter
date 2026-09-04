@@ -69,13 +69,13 @@ export function RightPanel({
         <>
             {/* Right resize handle */}
             <div
-                className="w-1 hover:bg-primary/20 cursor-col-resize shrink-0 transition-colors"
+                className="w-1 hover:bg-primary/20 cursor-col-resize shrink-0 transition-colors max-md:hidden"
                 onMouseDown={handleStartResize}
             />
 
             {/* Right sidebar */}
 	            <aside
-	                className="min-h-0 overflow-hidden bg-background/80 border-l flex flex-col shrink-0"
+	                className="min-h-0 overflow-hidden bg-background/80 border-l flex flex-col shrink-0 max-md:!w-full"
 	                style={{ width }}
 	            >
 	                <div className="border-b">

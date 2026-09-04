@@ -257,7 +257,7 @@ export function WriteFormatMenu() {
             </DropdownMenuTrigger>
             <DropdownMenuContent
                 align="end"
-                className="w-[360px] p-4"
+                className="w-[360px] max-w-[calc(100vw-1rem)] p-4"
                 onInteractOutside={(event) => {
                     const target = event.target as HTMLElement | null
                     if (target?.closest?.('[data-slot="select-content"]')) {

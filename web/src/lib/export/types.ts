@@ -8,6 +8,7 @@ export type NovelExportRequest = {
     chapterIds: string[]
     format: NovelExportFormat
     includeActTitles?: boolean
+    numberedHeadings?: boolean
     sceneDivider?: NovelExportSceneDivider
 }
 
@@ -26,11 +27,13 @@ export type ExportChapter = {
     title: string
     actNumber: number
     order: number
+    chapterNumber?: number
     scenes: ExportScene[]
 }
 
 export type AssembleOptions = {
     includeActTitles: boolean
+    numberedHeadings: boolean
     sceneDivider: NovelExportSceneDivider
     language: string
 }

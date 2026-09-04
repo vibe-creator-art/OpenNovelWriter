@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "@xyflow/react/dist/style.css";
 import { I18nProvider } from "@/components/i18n-provider";
@@ -8,6 +8,13 @@ import { APP_COLOR_THEME_STORAGE_KEY } from "@/lib/app-theme";
 export const metadata: Metadata = {
   title: "OpenNovelWriter - AI 驱动小说创作平台",
   description: "一个类似 NovelCrafter 的开源 AI 驱动小说创作平台",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
 };
 
 const appThemeBootstrapScript = `

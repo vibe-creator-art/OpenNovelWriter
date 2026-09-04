@@ -145,7 +145,7 @@ const MODEL_ICON_PATTERNS: ReadonlyArray<[RegExp, string]> = [
 ]
 
 /**
- * Model ID regex → PROVIDER_ICON_CATALOG key.
+ * Model ID regex → provider icon key.
  * Used when a model has no dedicated model icon but its name implies a provider.
  * E.g. "deepseek-chat" → deepseek provider icon, "llama-3.1-70b" → meta provider icon.
  */
@@ -447,7 +447,6 @@ const PROVIDER_ICON_KEYS = new Set<string>([
   "elevenlabs",
   "fireworks",
   "gitee-ai",
-  "github",
   "github-copilot",
   "google",
   "gpustack",

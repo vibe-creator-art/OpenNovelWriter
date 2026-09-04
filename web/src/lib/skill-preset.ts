@@ -41,14 +41,6 @@ function asTrimmedString(value: unknown): string | null {
     return trimmed ? trimmed : null
 }
 
-function safeJsonParse(value: string): unknown {
-    try {
-        return JSON.parse(value)
-    } catch {
-        return null
-    }
-}
-
 function normalizeSkillPresetKey(value: unknown): SkillPresetKey | null {
     const trimmed = asTrimmedString(value)?.toLowerCase() ?? null
     return trimmed && SKILL_PRESET_KEY_RE.test(trimmed) ? trimmed : null
@@ -74,10 +66,6 @@ function hashStringToBase36(value: string) {
         hash = Math.imul(hash, 16777619)
     }
     return (hash >>> 0).toString(36)
-}
-
-export function toSkillPresetKey(value: string): SkillPresetKey | null {
-    return normalizeSkillPresetKey(value)
 }
 
 export function createSkillPresetKey(value: string): SkillPresetKey {
@@ -157,10 +145,4 @@ export function parseSkillPresetAsset(value: unknown): SkillPresetParseResult {
             skills,
         },
     }
-}
-
-export function parseSkillPresetAssetFromText(text: string): SkillPresetParseResult {
-    const trimmed = text.trim()
-    if (!trimmed) return { ok: false, detail: 'Skill preset JSON is empty.' }
-    return parseSkillPresetAsset(safeJsonParse(trimmed))
 }

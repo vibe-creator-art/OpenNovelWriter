@@ -1,5 +1,5 @@
 // Generated from CherryStudio provider-registry data.
-// Providers: ba4bb4de74be847b.
+// Providers: b3b73ceeb452801e.
 
 export const REGISTRY_PROVIDER_BASE_URLS: ReadonlyArray<readonly [string, string]> = [
   ["https://dashscope.aliyuncs.com/compatible-mode/v1", "dashscope"],
@@ -18,7 +18,6 @@ export const REGISTRY_PROVIDER_BASE_URLS: ReadonlyArray<readonly [string, string
   ["https://aihubmix.com/gemini/v1beta", "aihubmix"],
   ["https://api.deepseek.com/anthropic", "deepseek"],
   ["https://cli-chat-proxy.grok.com/v1", "grok-cli"],
-  ["https://models.github.ai/inference", "github"],
   ["https://api.minimaxi.com/anthropic", "minimax"],
   ["https://api.fireworks.ai/inference", "fireworks"],
   ["https://api.longcat.chat/anthropic", "longcat"],

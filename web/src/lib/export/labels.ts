@@ -38,6 +38,77 @@ export function defaultChapterTitle(language: string | null | undefined, number:
     }
 }
 
+export function actNumberLabel(language: string | null | undefined, number: number) {
+    switch (languageKey(language)) {
+        case 'zh':
+        case 'zh-TW':
+            return `第${number}卷`
+        case 'ja':
+            return `第${number}幕`
+        case 'ko':
+            return `${number}막`
+        default:
+            return `Act ${number}`
+    }
+}
+
+export function chapterNumberLabel(language: string | null | undefined, number: number) {
+    switch (languageKey(language)) {
+        case 'zh':
+        case 'zh-TW':
+        case 'ja':
+            return `第${number}章`
+        case 'ko':
+            return `${number}장`
+        default:
+            return `Chapter ${number}`
+    }
+}
+
+function isPlaceholderActTitle(title: string) {
+    return /^(?:卷\s*\d+|Act\s+\d+|幕\s+\d+|\d+막)$/i.test(title)
+}
+
+function isPlaceholderChapterTitle(title: string) {
+    return /^(?:章\s*\d+|Chapter\s+\d+|第\s*\d+\s*章|\d+장)$/i.test(title)
+}
+
+function joinNumberedTitle(
+    prefix: string,
+    title: string | null | undefined,
+    isPlaceholder: (title: string) => boolean,
+    language: string | null | undefined,
+) {
+    const trimmed = title?.trim() ?? ''
+    if (!trimmed || isPlaceholder(trimmed)) return prefix
+
+    const compactPrefix = prefix.replace(/\s+/g, '')
+    const compactTitle = trimmed.replace(/\s+/g, '')
+    if (compactTitle === compactPrefix || compactTitle.startsWith(compactPrefix)) return trimmed
+
+    const key = languageKey(language)
+    if (key === 'zh' || key === 'zh-TW' || key === 'ja' || key === 'ko') {
+        return `${prefix} ${trimmed}`
+    }
+    return `${prefix}: ${trimmed}`
+}
+
+export function numberedActTitle(
+    language: string | null | undefined,
+    number: number,
+    storedTitle: string | null | undefined,
+) {
+    return joinNumberedTitle(actNumberLabel(language, number), storedTitle, isPlaceholderActTitle, language)
+}
+
+export function numberedChapterTitle(
+    language: string | null | undefined,
+    number: number,
+    storedTitle: string | null | undefined,
+) {
+    return joinNumberedTitle(chapterNumberLabel(language, number), storedTitle, isPlaceholderChapterTitle, language)
+}
+
 export function sceneHeading(language: string | null | undefined, number: number) {
     switch (languageKey(language)) {
         case 'zh':

@@ -34,7 +34,7 @@ export function I18nProvider({ children }: I18nProviderProps) {
     // Show nothing while hydrating to avoid flash
     if (!isHydrated || !messages) {
         return (
-            <div className="min-h-screen flex items-center justify-center">
+            <div className="min-h-dvh flex items-center justify-center">
                 <div className="text-lg">Loading...</div>
             </div>
         )
