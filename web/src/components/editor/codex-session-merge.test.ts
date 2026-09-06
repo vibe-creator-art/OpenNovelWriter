@@ -3,7 +3,7 @@ import { describe, test } from 'node:test'
 
 import type { CodexSession } from '@/lib/api'
 
-const { mergeServerSession } = await import(new URL('./codex-session-merge.ts', import.meta.url).href)
+const { mergeRefreshedSession, mergeServerSession } = await import(new URL('./codex-session-merge.ts', import.meta.url).href)
 
 function createSession(overrides: Partial<CodexSession> = {}): CodexSession {
     return {
@@ -35,6 +35,13 @@ function createSession(overrides: Partial<CodexSession> = {}): CodexSession {
 }
 
 describe('mergeServerSession', () => {
+    test('ignores a delayed response older than a completed turn', () => {
+        const local = createSession({
+            updatedAt: '2026-08-05T00:00:03.000Z',
+            messages: [{ id: 'final', role: 'assistant', content: 'complete', createdAt: '2026-08-05T00:00:02.000Z' }],
+        })
+        assert.equal(mergeServerSession(local, createSession({ status: 'running' })), local)
+    })
     test('keeps an in-flight local run during an ordinary refresh', () => {
         const local = createSession({ status: 'running', messages: [{ id: 'stream', role: 'assistant', content: 'partial', createdAt: '2026-08-05T00:00:01.000Z' }] })
         const server = createSession({ status: 'idle', messages: [] })
@@ -90,5 +97,58 @@ describe('mergeServerSession', () => {
         assert.equal(merged.status, 'idle')
         assert.equal(merged.goal?.status, 'paused')
         assert.equal(merged.messages[0]?.content, '2')
+    })
+})
+
+describe('mergeRefreshedSession', () => {
+    const running = createSession({
+        status: 'running',
+        messages: [{ id: 'stream', role: 'assistant', content: 'progress', createdAt: '2026-08-05T00:00:01.000Z' }],
+        draftContent: 'next message',
+    })
+    const completed = createSession({
+        updatedAt: '2026-08-05T00:00:03.000Z',
+        messages: [{ id: 'stream', role: 'assistant', content: 'progress complete', createdAt: '2026-08-05T00:00:01.000Z' }],
+    })
+
+    test('does not overwrite stream completion delivered during the request', () => {
+        assert.equal(mergeRefreshedSession(completed, running, running, false), completed)
+    })
+
+    test('does not overwrite a new turn started during the request', () => {
+        assert.equal(mergeRefreshedSession(running, completed, completed, true), running)
+    })
+
+    test('does not roll back progress delivered during the request', () => {
+        const latest = { ...running, messages: completed.messages }
+        assert.equal(mergeRefreshedSession(latest, running, running, true), latest)
+    })
+
+    test('recovers completion when the stream has disconnected or stalled', () => {
+        for (const hasActiveStream of [false, true]) {
+            const merged = mergeRefreshedSession(running, completed, running, hasActiveStream)
+            assert.equal(merged.status, 'idle')
+            assert.deepEqual(merged.messages, completed.messages)
+            assert.equal(merged.draftContent, 'next message')
+        }
+    })
+
+    test('keeps progress when only an earlier checkpoint has been saved', () => {
+        const checkpoint = createSession({ status: 'running', updatedAt: completed.updatedAt })
+        const merged = mergeRefreshedSession(running, checkpoint, running, false)
+        assert.deepEqual(merged.messages, running.messages)
+        assert.equal(merged.status, 'running')
+    })
+
+    test('loads a newer saved turn when there is no live stream', () => {
+        const checkpoint = { ...completed, status: 'running' as const }
+        const merged = mergeRefreshedSession(running, checkpoint, running, false)
+        assert.deepEqual(merged.messages, completed.messages)
+    })
+
+    test('keeps an optimistic run when the server has not started it yet', () => {
+        const merged = mergeRefreshedSession(running, createSession(), running, true)
+        assert.equal(merged.status, 'running')
+        assert.deepEqual(merged.messages, running.messages)
     })
 })

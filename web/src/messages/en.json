@@ -846,6 +846,7 @@
             "subtitlePlaceholder": "Optional",
             "panel": {
                 "title": "Term entry details",
+                "backToList": "Back to terms",
                 "close": "Close",
                 "delete": "Delete entry",
                 "deleteConfirm": "Delete \"{title}\"? This action cannot be undone.",
@@ -1410,6 +1411,8 @@
             "addSummary": "Add summary...",
             "loadingScenes": "Loading scenes...",
             "startWriting": "Start writing...",
+            "commandHint": "Start writing, or press Tab for AI…",
+            "aiActions": "AI writing actions",
             "continueWriting": "Continue your story...",
             "continueStory": "Continue story",
             "creating": "Creating...",

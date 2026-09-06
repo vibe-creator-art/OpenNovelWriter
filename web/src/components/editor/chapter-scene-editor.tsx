@@ -722,7 +722,7 @@ export function ChapterSceneEditor({
                                 <TipTapEditor
                                     content={getSceneContent(scene)}
                                     onChange={(content) => handleContentChange(scene.id, content)}
-                                    placeholder={index === 0 ? t('scene.startWriting') : t('scene.continueWriting')}
+                                    placeholder={t('scene.commandHint')}
                                     termMentionMatcher={termMentionMatcher}
                                     onTermMentionClick={handleTermMentionClick}
                                     extraExtensions={sceneEditorExtraExtensions}
@@ -760,7 +760,6 @@ export function ChapterSceneEditor({
 
                                             editor
                                                 .chain()
-                                                .focus()
                                                 .insertContent({
                                                     type: 'sceneContinuation',
                                                     attrs: {
@@ -870,7 +869,7 @@ export function ChapterSceneEditor({
                                 placeholder={t('scene.addSummary')}
                                 matcher={termMentionMatcher}
                                 containerClassName={`rounded transition-colors ${editingSummaryId === scene.id ? 'bg-muted/50 text-foreground' : 'group-hover:bg-muted/30'}`}
-                                className="w-full text-base md:text-xs border-transparent rounded px-2 py-1 resize-none outline-none cursor-text placeholder:text-muted-foreground/60"
+                                className="w-full text-xs border-transparent rounded px-2 py-1 resize-none outline-none cursor-text placeholder:text-muted-foreground/60"
                                 rows={2}
                             />
 

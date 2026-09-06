@@ -15,7 +15,8 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { Archive, Check, ChevronDown, ChevronRight, Copy, History, MoreVertical, Trash2, X } from 'lucide-react'
+import { useIsMobile } from '@/hooks/use-is-mobile'
+import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, History, MoreVertical, Trash2, X } from 'lucide-react'
 import type { AnchorRect, TermCategoryView, TermEntry } from '@/components/editor/terms/types'
 import type { TermEntryPanelTab } from '@/components/editor/terms/term-entry-events'
 import { TERM_ENTRY_COLOR_IDS, getTermEntryColorClasses, getTermEntryColorId } from '@/components/editor/terms/term-entry-colors'
@@ -102,6 +103,7 @@ export function TermEntryFloatingPanel({
 }: TermEntryFloatingPanelProps) {
     const t = useTranslations('editor')
     const tCommon = useTranslations('common')
+    const isMobile = useIsMobile()
     const [activeTab, setActiveTab] = useState<TermEntryPanelTab>(initialTab ?? 'details')
     const [researchTab, setResearchTab] = useState<'notes' | 'external'>('notes')
     const [historyOpen, setHistoryOpen] = useState(false)
@@ -346,7 +348,7 @@ export function TermEntryFloatingPanel({
     return createPortal(
         <div
             className="fixed z-50"
-            style={{
+            style={isMobile ? { inset: 0 } : {
                 top: Math.max(8, anchorRect.top),
                 left: anchorRect.right,
                 height: Math.max(200, anchorRect.height),
@@ -356,8 +358,19 @@ export function TermEntryFloatingPanel({
             aria-label={t('terms.panel.title')}
             data-term-floating-panel="true"
         >
-            <div className="h-full w-full rounded-xl border bg-card shadow-2xl overflow-hidden flex flex-col">
-                <div className="p-4 pb-3">
+            <div className="h-full w-full rounded-xl border bg-card shadow-2xl overflow-hidden flex flex-col max-md:rounded-none max-md:border-0 max-md:pb-[env(safe-area-inset-bottom)]">
+                <div className="flex shrink-0 items-center border-b px-2 pt-[env(safe-area-inset-top)] md:hidden">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        className="min-h-11 gap-1 px-2"
+                        onClick={onClose}
+                    >
+                        <ChevronLeft className="size-5" />
+                        {t('terms.panel.backToList')}
+                    </Button>
+                </div>
+                <div className="shrink-0 p-4 pb-3 max-md:p-3 max-md:pb-0">
                     <div className="flex items-start gap-4">
                         <div className="min-w-0 flex-1 space-y-2">
                             <DropdownMenu modal={false}>
@@ -365,7 +378,7 @@ export function TermEntryFloatingPanel({
                                     <button
                                         type="button"
                                         className={cn(
-                                            'inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm transition-colors',
+                                            'inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm transition-colors max-md:min-h-11',
                                             'border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted/40 hover:border-foreground/20',
                                             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
                                         )}
@@ -414,7 +427,7 @@ export function TermEntryFloatingPanel({
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8"
+                                className="h-8 w-8 max-md:hidden"
                                 onClick={onClose}
                                 aria-label={t('terms.panel.close')}
                                 title={t('terms.panel.close')}
@@ -436,7 +449,7 @@ export function TermEntryFloatingPanel({
                                     <button
                                         type="button"
                                         className={cn(
-                                            'group relative h-20 w-20 rounded-xl border overflow-hidden flex items-center justify-center',
+                                            'group relative h-20 w-20 rounded-xl border overflow-hidden flex items-center justify-center max-md:size-16',
                                             entry.avatar ? 'bg-muted text-muted-foreground' : iconAccent ? `${colorClasses.subtleBg} ${colorClasses.subtleBorder}` : 'bg-muted'
                                         )}
                                         onClick={open}
@@ -473,8 +486,8 @@ export function TermEntryFloatingPanel({
 
                     <Separator className="mt-3" />
 
-                    <div className="mt-2 flex items-center gap-2">
-                        <div className="flex items-center gap-2">
+                    <div className="mt-2 flex min-w-0 items-center gap-2">
+                        <div className="flex items-center gap-2 max-md:min-w-0 max-md:flex-1 max-md:overflow-x-auto max-md:overscroll-x-contain">
                             {(
                                 [
                                     { id: 'details', label: t('terms.panel.tabs.details') },
@@ -491,7 +504,7 @@ export function TermEntryFloatingPanel({
                                     type="button"
                                     onClick={() => setActiveTab(tab.id)}
                                     className={cn(
-                                        'text-sm px-1.5 py-2 border-b-2 transition-colors',
+                                        'text-sm px-1.5 py-2 border-b-2 transition-colors max-md:min-h-11 max-md:shrink-0 max-md:whitespace-nowrap',
                                         activeTab === tab.id
                                             ? 'border-foreground text-foreground'
                                             : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -504,7 +517,7 @@ export function TermEntryFloatingPanel({
 
                         <DropdownMenu modal={false}>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="ml-auto h-8 w-8" aria-label={t('terms.panel.actions.label')}>
+                                <Button variant="ghost" size="icon" className="ml-auto h-8 w-8 shrink-0 max-md:size-11" aria-label={t('terms.panel.actions.label')}>
                                     <MoreVertical className="h-4 w-4" />
                                 </Button>
                             </DropdownMenuTrigger>
@@ -699,7 +712,7 @@ export function TermEntryFloatingPanel({
                 />
 
                 {footerField && (
-                    <div className="border-t px-4 py-2 flex items-center justify-between text-sm text-muted-foreground">
+                    <div className="shrink-0 border-t px-4 py-2 flex items-center justify-between text-sm text-muted-foreground max-md:flex-wrap max-md:gap-2">
                         <div>
                             {wordCount.toLocaleString()} {tCommon(wordCount === 1 ? 'word' : 'words')}
                         </div>

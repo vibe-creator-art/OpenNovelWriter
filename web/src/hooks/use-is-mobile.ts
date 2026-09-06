@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from 'react'
 
-/** Matches Tailwind `md` (768px). `< md` is the phone companion shell. */
+/** Phones keep the mobile layout at every width; other devices switch at 768px. */
 export const MOBILE_BREAKPOINT_PX = 768
 export const MOBILE_MEDIA_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`
 
@@ -17,17 +17,14 @@ function subscribe(onChange: () => void) {
 }
 
 function getSnapshot() {
-    return window.matchMedia(MOBILE_MEDIA_QUERY).matches
+    return document.documentElement.hasAttribute('data-phone-layout')
+        || window.matchMedia(MOBILE_MEDIA_QUERY).matches
 }
 
 function getServerSnapshot() {
     return false
 }
 
-/**
- * Phone vs desktop shell. SSR and the first client paint assume desktop so
- * `md+` layout never hydrates into the mobile chrome.
- */
 export function useIsMobile() {
     return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }

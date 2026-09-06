@@ -257,8 +257,9 @@ export default function EditorPage({ params }: EditorPageProps) {
     }, [params])
 
     const captureWriteScrollTop = useCallback(() => {
+        if (pendingWriteScrollTopRef.current !== null) return pendingWriteScrollTopRef.current
         const root = editorScrollRef.current
-        if (!root) return lastWriteScrollTopRef.current
+        if (!root || root.getClientRects().length === 0) return lastWriteScrollTopRef.current
         const next = Math.max(0, root.scrollTop)
         lastWriteScrollTopRef.current = next
         return next
@@ -414,17 +415,11 @@ export default function EditorPage({ params }: EditorPageProps) {
 
     const loadNovel = useCallback(async () => {
         if (!novelId) return
-        hasRestoredViewState.current = false
-        hasInitializedViewStatePersistenceRef.current = false
-        setViewStateReady(false)
         try {
             const data = await novelApi.get(novelId)
             setNovel(data)
             setChapters(data.chapters || [])
             setChapterContents({})
-
-            // Default to collapsed; expand only when focused
-            setExpandedActs(new Set())
         } catch (error) {
             console.error('Failed to load novel:', error)
         } finally {
@@ -468,10 +463,15 @@ export default function EditorPage({ params }: EditorPageProps) {
         }
     }, [novelId])
 
-    // Load novel and chapters
+    // Initialize the view on entry; background data refreshes keep it mounted.
     useEffect(() => {
         if (token && novelId) {
-            loadNovel()
+            hasRestoredViewState.current = false
+            hasInitializedViewStatePersistenceRef.current = false
+            setViewStateReady(false)
+            setLoading(true)
+            setExpandedActs(new Set())
+            void loadNovel()
         }
     }, [token, novelId, loadNovel])
 
@@ -832,12 +832,14 @@ export default function EditorPage({ params }: EditorPageProps) {
     useEffect(() => {
         if (typeof window === 'undefined') return
         if (activeTab !== 'write') return
+        if (!viewStateReady) return
         if (!editorScrollRef.current) return
 
         const root = editorScrollRef.current
         let timeoutId: number | null = null
 
         const handleScroll = () => {
+            if (root.getClientRects().length === 0 || pendingWriteScrollTopRef.current !== null) return
             const nextScrollTop = Math.max(0, root.scrollTop)
             lastWriteScrollTopRef.current = nextScrollTop
 
@@ -849,18 +851,18 @@ export default function EditorPage({ params }: EditorPageProps) {
             }, 120)
         }
 
-        handleScroll()
         root.addEventListener('scroll', handleScroll, { passive: true })
 
         return () => {
             if (timeoutId !== null) window.clearTimeout(timeoutId)
             root.removeEventListener('scroll', handleScroll)
         }
-    }, [activeTab, novelId, persistEditorViewState])
+    }, [activeTab, novelId, persistEditorViewState, viewStateReady])
 
     // Track last visible chapter in the scroll container
     useEffect(() => {
         if (typeof window === 'undefined') return
+        if (!viewStateReady) return
         if (!editorScrollRef.current) return
         if (chapters.length === 0) return
 
@@ -890,18 +892,20 @@ export default function EditorPage({ params }: EditorPageProps) {
         chapterElements.forEach(el => observer.observe(el))
 
         return () => observer.disconnect()
-    }, [chapters, viewFilter, selectedActNumber, selectedChapterId])
+    }, [chapters, viewFilter, selectedActNumber, selectedChapterId, viewStateReady])
 
     // Restore write scroll position when returning to the write tab or reopening the editor
     useEffect(() => {
         if (activeTab !== 'write') return
+        if (!viewStateReady) return
+        if (isMobile && mobilePane !== 'middle') return
         if (pendingManuscriptNavRef.current) return
 
         if (pendingWriteScrollTopRef.current !== null) {
             const targetScrollTop = pendingWriteScrollTopRef.current
             const frame = window.requestAnimationFrame(() => {
                 const root = editorScrollRef.current
-                if (!root) return
+                if (!root || root.getClientRects().length === 0) return
                 root.scrollTo({ top: targetScrollTop, behavior: 'auto' })
                 lastWriteScrollTopRef.current = Math.max(0, root.scrollTop)
                 pendingWriteScrollTopRef.current = null
@@ -918,7 +922,7 @@ export default function EditorPage({ params }: EditorPageProps) {
         element.scrollIntoView({ behavior: 'auto', block: 'start' })
         lastWriteScrollTopRef.current = editorScrollRef.current?.scrollTop ?? lastWriteScrollTopRef.current
         pendingScrollChapterIdRef.current = null
-    }, [activeTab, viewFilter, selectedActNumber, selectedChapterId, chapters])
+    }, [activeTab, viewFilter, selectedActNumber, selectedChapterId, chapters, viewStateReady, isMobile, mobilePane])
 
     const runPendingManuscriptNav = useCallback(() => {
         const pending = pendingManuscriptNavRef.current
@@ -1474,15 +1478,16 @@ export default function EditorPage({ params }: EditorPageProps) {
 	                        }}
 	                        onSidebarTabChange={(tab) => {
                                 setSidebarTab(tab)
-                                if (tab === 'codex') {
-                                    setRightSidebarOpen(true)
-                                    setInfoPanelActiveTab('codex')
-                                    setMobilePane('right')
-                                } else if (tab === 'chats') {
+                                if (tab === 'chats') {
                                     setRightSidebarOpen(true)
                                     setInfoPanelActiveTab('chat')
                                     setMobilePane('right')
                                 }
+                            }}
+                            onOpenCodex={() => {
+                                setRightSidebarOpen(true)
+                                setInfoPanelActiveTab('codex')
+                                setMobilePane('right')
                             }}
 	                        onToggleAct={toggleAct}
 	                        onChapterClick={(chapter, actNum) => {

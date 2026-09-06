@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Check, ChevronDown, ChevronUp, RotateCcw, Zap } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,7 @@ import {
 } from '@/lib/api'
 import { CODEX_NATIVE_PROVIDER_MODELS } from '@/lib/codex-config'
 import { cn } from '@/lib/utils'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 
 const ADVANCED_MODE_KEY = 'codex.modelPicker.advanced'
 const GENERIC_CUSTOM_EFFORTS: CodexReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
@@ -67,6 +68,42 @@ function findPresetIndex(modelId: string, effort: CodexReasoningEffort) {
 function getModelEfforts(model: CodexModelCatalogEntry | undefined) {
     if (!model) return GENERIC_CUSTOM_EFFORTS
     return model.supportedReasoningEfforts
+}
+
+function ModelPickerSubmenu({ label, value, className, children }: {
+    label: string
+    value: ReactNode
+    className: string
+    children: ReactNode
+}) {
+    const isMobile = useIsMobile()
+    const [expanded, setExpanded] = useState(false)
+    const triggerContent = <><span className="shrink-0">{label}</span>{value}</>
+
+    if (isMobile) {
+        return (
+            <>
+                <DropdownMenuItem
+                    aria-expanded={expanded}
+                    onSelect={(event) => {
+                        event.preventDefault()
+                        setExpanded((current) => !current)
+                    }}
+                >
+                    {triggerContent}
+                    <ChevronDown className={cn('ml-auto', expanded && 'rotate-180')} />
+                </DropdownMenuItem>
+                {expanded && <div role="group" aria-label={label} className="pl-2">{children}</div>}
+            </>
+        )
+    }
+
+    return (
+        <DropdownMenuSub>
+            <DropdownMenuSubTrigger>{triggerContent}</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className={className}>{children}</DropdownMenuSubContent>
+        </DropdownMenuSub>
+    )
 }
 
 type CodexModelPickerProps = {
@@ -195,74 +232,72 @@ export function CodexModelPicker({
                 </Button>
             </DropdownMenuTrigger>
             {advanced ? (
-                <DropdownMenuContent align="end" className="w-56 p-1">
-                    <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                            <span>{t('codex.model')}</span>
-                            <span className="ml-auto text-muted-foreground">
+                <DropdownMenuContent align="end" collisionPadding={8} className="w-56 max-w-[calc(100vw-1rem)] p-1">
+                    <ModelPickerSubmenu
+                        label={t('codex.model')}
+                        value={
+                            <span className="ml-auto min-w-0 truncate text-muted-foreground">
                                 {formatModelLabel(modelId, selectedModel?.displayName)}
                             </span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-52">
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">{t('codex.model')}</div>
-                            {modelOptions.map((model) => (
-                                <DropdownMenuItem key={model.id} onSelect={() => selectModel(model)}>
-                                    <span>{formatModelLabel(model.id, model.displayName)}</span>
-                                    {modelId.toLowerCase() === model.id.toLowerCase() && <Check className="ml-auto" />}
-                                </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                            <span>{t('codex.effort')}</span>
+                        }
+                        className="w-52"
+                    >
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">{t('codex.model')}</div>
+                        {modelOptions.map((model) => (
+                            <DropdownMenuItem key={model.id} onSelect={() => selectModel(model)}>
+                                <span className="min-w-0 break-words">{formatModelLabel(model.id, model.displayName)}</span>
+                                {modelId.toLowerCase() === model.id.toLowerCase() && <Check className="ml-auto" />}
+                            </DropdownMenuItem>
+                        ))}
+                    </ModelPickerSubmenu>
+                    <ModelPickerSubmenu
+                        label={t('codex.effort')}
+                        value={
                             <span className={cn('ml-auto text-muted-foreground', reasoningEffort === 'ultra' && 'codex-ultra-text')}>
                                 {t(`codex.reasoningEfforts.${reasoningEffort}`)}
                             </span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-56">
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">{t('codex.effort')}</div>
-                            {effortOptions.map((effort) => (
-                                <DropdownMenuItem key={effort} onSelect={() => onChange({ reasoningEffort: effort })} className="items-start">
+                        }
+                        className="w-56"
+                    >
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">{t('codex.effort')}</div>
+                        {effortOptions.map((effort) => (
+                            <DropdownMenuItem key={effort} onSelect={() => onChange({ reasoningEffort: effort })} className="items-start">
+                                <div>
+                                    <div>{t(`codex.reasoningEfforts.${effort}`)}</div>
+                                    {(effort === 'max' || effort === 'ultra') && (
+                                        <div className={cn('text-xs leading-5', effort === 'ultra' ? 'codex-ultra-text' : 'text-blue-500')}>
+                                            {t('codex.usageLimitWarning')}
+                                        </div>
+                                    )}
+                                </div>
+                                {reasoningEffort === effort && <Check className="ml-auto mt-0.5" />}
+                            </DropdownMenuItem>
+                        ))}
+                    </ModelPickerSubmenu>
+                    {showServiceTier && (
+                        <ModelPickerSubmenu
+                            label={t('codex.speed')}
+                            value={<span className="ml-auto text-muted-foreground">{t(`codex.serviceTiers.${serviceTier}`)}</span>}
+                            className="w-64"
+                        >
+                            {(['standard', 'fast'] as CodexServiceTier[]).map((tier) => (
+                                <DropdownMenuItem
+                                    key={tier}
+                                    className="items-start"
+                                    onSelect={() => onChange({ serviceTier: tier })}
+                                >
                                     <div>
-                                        <div>{t(`codex.reasoningEfforts.${effort}`)}</div>
-                                        {(effort === 'max' || effort === 'ultra') && (
-                                            <div className={cn('text-xs leading-5', effort === 'ultra' ? 'codex-ultra-text' : 'text-blue-500')}>
-                                                {t('codex.usageLimitWarning')}
-                                            </div>
-                                        )}
+                                        <div>{t(`codex.serviceTiers.${tier}`)}</div>
+                                        <div className="text-xs leading-5 text-muted-foreground">
+                                            {tier === 'fast'
+                                                ? fastModeDescription
+                                                : t('codex.serviceTierDescriptions.standard')}
+                                        </div>
                                     </div>
-                                    {reasoningEffort === effort && <Check className="ml-auto mt-0.5" />}
+                                    {serviceTier === tier && <Check className="ml-auto mt-0.5" />}
                                 </DropdownMenuItem>
                             ))}
-                        </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    {showServiceTier && (
-                        <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
-                                <span>{t('codex.speed')}</span>
-                                <span className="ml-auto text-muted-foreground">{t(`codex.serviceTiers.${serviceTier}`)}</span>
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="w-64">
-                                {(['standard', 'fast'] as CodexServiceTier[]).map((tier) => (
-                                    <DropdownMenuItem
-                                        key={tier}
-                                        className="items-start"
-                                        onSelect={() => onChange({ serviceTier: tier })}
-                                    >
-                                        <div>
-                                            <div>{t(`codex.serviceTiers.${tier}`)}</div>
-                                            <div className="text-xs leading-5 text-muted-foreground">
-                                                {tier === 'fast'
-                                                    ? fastModeDescription
-                                                    : t('codex.serviceTierDescriptions.standard')}
-                                            </div>
-                                        </div>
-                                        {serviceTier === tier && <Check className="ml-auto mt-0.5" />}
-                                    </DropdownMenuItem>
-                                ))}
-                            </DropdownMenuSubContent>
-                        </DropdownMenuSub>
+                        </ModelPickerSubmenu>
                     )}
                     <DropdownMenuSeparator />
                     {(modelId !== 'gpt-5.6-sol' || reasoningEffort !== 'high') && (

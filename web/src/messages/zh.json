@@ -846,6 +846,7 @@
             "subtitlePlaceholder": "可选",
             "panel": {
                 "title": "词条详情",
+                "backToList": "返回词条列表",
                 "close": "关闭",
                 "delete": "删除词条",
                 "deleteConfirm": "确定要删除「{title}」吗？此操作无法撤销。",
@@ -1410,6 +1411,8 @@
             "addSummary": "添加摘要...",
             "loadingScenes": "加载场中...",
             "startWriting": "开始写作...",
+            "commandHint": "开始写作，或按 Tab 打开 AI 菜单…",
+            "aiActions": "AI 写作",
             "continueWriting": "继续您的故事...",
             "continueStory": "继续故事",
             "creating": "创建中...",

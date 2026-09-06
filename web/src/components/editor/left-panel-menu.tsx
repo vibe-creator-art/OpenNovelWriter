@@ -47,6 +47,7 @@ interface LeftPanelMenuProps {
     // Callbacks
     onSidebarClose: () => void
     onSidebarTabChange: (tab: 'outline' | 'codex' | 'chapterOutline' | 'term' | 'snippets' | 'chats') => void
+    onOpenCodex: () => void
     onToggleAct: (actNumber: number) => void
     onChapterClick: (chapter: ChapterWithScenes, actNumber: number) => void
     onNavigateToManuscript: (chapterId: string, sceneId?: string, termId?: string, target?: 'manuscript' | 'summary') => void
@@ -77,6 +78,7 @@ export function LeftPanelMenu({
     editingActNumber,
     onSidebarClose,
     onSidebarTabChange,
+    onOpenCodex,
     onToggleAct,
     onChapterClick,
     onNavigateToManuscript,
@@ -307,7 +309,7 @@ export function LeftPanelMenu({
                     <LeftPanelCodex
                         novelId={novelId}
                         isCompact={isCompact}
-                        onOpenCodex={() => onSidebarTabChange('codex')}
+                        onOpenCodex={onOpenCodex}
                     />
                 )}
 

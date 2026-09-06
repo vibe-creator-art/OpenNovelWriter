@@ -31,7 +31,7 @@ import type { PendingImageAttachment } from '@/components/image/use-image-attach
 import { dispatchNovelRefreshRequested } from '@/lib/novel-refresh-events'
 import { emitSceneEditsChanged } from '@/components/editor/scene-edit-events'
 import { emitContinuationPanelRemoved } from '@/lib/continuation-panel-events'
-import { mergeServerSession } from '@/components/editor/codex-session-merge'
+import { mergeRefreshedSession, mergeServerSession } from '@/components/editor/codex-session-merge'
 import {
     completionReadAtOnDraftChange,
     completionReadAtOnInteraction,
@@ -646,8 +646,8 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         const pendingLoad = sessionLoadPromises.get(novelKey)
         if (pendingLoad) return pendingLoad
 
-        const sessionIdsAtStart = new Set(
-            (get().sessionsByNovel[novelKey]?.sessions ?? []).map((session) => session.id)
+        const sessionsAtStart = new Map(
+            (get().sessionsByNovel[novelKey]?.sessions ?? []).map((session) => [session.id, session])
         )
         const loadPromise = (async () => {
             set((state) => {
@@ -662,24 +662,34 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
 
             try {
                 const result = await codexSessionApi.list(novelKey)
+                const recoveredRuns = new Map<string, AbortController>()
                 set((state) => {
                     const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
                     const currentById = new Map(current.sessions.map((session) => [session.id, session]))
                     const serverSessions = result.sessions.filter((session) => !deletedSessionIds.has(session.id))
                     const serverIds = new Set(serverSessions.map((session) => session.id))
-                    // Prefer server for connection/model/messages. Local only wins for the live
-                    // composer draft and in-flight running turns — otherwise a connection switch
-                    // rebind never reaches the UI because stale local sessions stick forever.
                     const sessions = sortSessions([
-                        ...serverSessions.map((session) => mergeServerSession(currentById.get(session.id), session)),
+                        ...serverSessions.map((session) => mergeRefreshedSession(
+                            currentById.get(session.id),
+                            session,
+                            sessionsAtStart.get(session.id),
+                            activeRunControllers.has(session.id)
+                        )),
                         ...current.sessions.filter(
-                            (session) => !serverIds.has(session.id) && !sessionIdsAtStart.has(session.id)
+                            (session) => !serverIds.has(session.id) && !sessionsAtStart.has(session.id)
                         ),
                     ])
                     const selectedSessionId =
                         current.selectedSessionId && sessions.some((session) => session.id === current.selectedSessionId)
                             ? current.selectedSessionId
                             : sessions[0]?.id ?? null
+                    const pendingApprovalsBySession = { ...state.pendingApprovalsBySession }
+                    sessions.forEach((session) => {
+                        if (session.status === 'running') return
+                        pendingApprovalsBySession[session.id] = null
+                        const controller = activeRunControllers.get(session.id)
+                        if (controller) recoveredRuns.set(session.id, controller)
+                    })
                     const imageAttachmentsBySession = { ...state.imageAttachmentsBySession }
                     sessions.forEach((session) => {
                         if (!Object.hasOwn(imageAttachmentsBySession, session.id)) {
@@ -687,6 +697,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                         }
                     })
                     return {
+                        pendingApprovalsBySession,
                         imageAttachmentsBySession,
                         sessionsByNovel: {
                             ...state.sessionsByNovel,
@@ -700,6 +711,10 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                             },
                         },
                     }
+                })
+                recoveredRuns.forEach((controller, sessionId) => {
+                    finishClientRun(sessionId, controller)
+                    controller.abort()
                 })
             } catch (error) {
                 console.error('Failed to load Codex sessions:', error)
@@ -1151,6 +1166,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             await codexSessionApi.streamGoalResume(sessionId, {
                 signal: controller.signal,
                 onEvent: (event) => {
+                    if (activeRunControllers.get(sessionId) !== controller) return
                     if (event.type === 'done' || event.type === 'error') finishClientRun(sessionId, controller)
                     const detail = applyCodexStreamEvent(set, novelKey, sessionId, event)
                     if (detail) streamError = detail
@@ -1324,6 +1340,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 artifactFiles: options?.artifactFiles,
                 responseAnnotations: options?.responseAnnotations,
                 onEvent: (event) => {
+                    if (activeRunControllers.get(sessionId) !== controller) return
                     if (event.type === 'done' || event.type === 'error') {
                         finishClientRun(sessionId, controller)
                     }
@@ -1374,6 +1391,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             await codexSessionApi.streamCompaction(sessionId, {
                 signal: controller.signal,
                 onEvent: (event) => {
+                    if (activeRunControllers.get(sessionId) !== controller) return
                     if (event.type === 'done' || event.type === 'error') {
                         finishClientRun(sessionId, controller)
                     }

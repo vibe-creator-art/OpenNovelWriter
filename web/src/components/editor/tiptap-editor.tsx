@@ -16,6 +16,7 @@ import type { TermMentionMatcher } from '@/components/editor/terms/term-mentions
 import { EMPTY_TERM_MENTION_MATCHER } from '@/components/editor/terms/term-mentions-utils'
 import { TermMentionsExtension, termMentionsPluginKey } from '@/components/editor/terms/term-mentions-extension'
 import { EditorCommandMenu, type EditorCommandMenuItem } from '@/components/editor/editor-command-menu'
+import { MobileEditorCommands } from '@/components/editor/mobile-editor-commands'
 
 interface TipTapEditorProps {
     content: string
@@ -337,8 +338,11 @@ export function TipTapEditor({
 
     return (
         <div className="w-full" onClickCapture={handleClickCapture} onKeyDownCapture={handleKeyDownCapture}>
-            <EditorContent editor={editor} className="w-full" />
+            <EditorContent editor={editor} className={cn('w-full', commandMenu && 'onw-manuscript-editor')} />
             {showSelectionFormatMenu && editor && <SelectionFormatMenu editor={editor} />}
+            {commandMenu && editor && (
+                <MobileEditorCommands editor={editor} items={commandMenu.items} onSelect={commandMenu.onSelect} />
+            )}
             {commandMenu && (
                 <EditorCommandMenu
                     open={commandMenuOpen}
@@ -347,6 +351,7 @@ export function TipTapEditor({
                     onSelect={(id) => {
                         setCommandMenuOpen(false)
                         if (!editor) return
+                        editor.commands.focus()
                         commandMenu.onSelect(id, editor)
                     }}
                     onClose={() => setCommandMenuOpen(false)}

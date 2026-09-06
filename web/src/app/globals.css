@@ -4,6 +4,24 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Phones keep the mobile layout in both orientations. */
+@custom-variant md {
+  @media (width >= 48rem) {
+    &:where(html:not([data-phone-layout]) *) {
+      @slot;
+    }
+  }
+}
+
+@custom-variant max-md {
+  @media (width < 48rem) {
+    @slot;
+  }
+  &:where(html[data-phone-layout] *) {
+    @slot;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -416,8 +434,8 @@
     padding-left: max(1rem, env(safe-area-inset-left, 0px));
   }
 
-  @media (min-width: 768px) {
-    .onw-auth-frame {
+  .onw-auth-frame {
+    @variant md {
       align-items: center;
       padding: 1rem;
     }
@@ -538,8 +556,18 @@
     line-height: var(--onw-write-line-height);
   }
 
-  @media (max-width: 767px) {
-    .onw-middle-panel-write .ProseMirror {
+  .onw-manuscript-editor .ProseMirror-focused p.is-empty::before {
+    @variant md {
+      content: attr(data-placeholder);
+      color: var(--muted-foreground);
+      float: left;
+      height: 0;
+      pointer-events: none;
+    }
+  }
+
+  .onw-middle-panel-write .ProseMirror {
+    @variant max-md {
       /* iOS auto-zooms focused fields under 16px. Floor the write size. */
       font-size: max(1rem, var(--onw-write-font-size));
     }

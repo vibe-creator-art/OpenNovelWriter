@@ -3371,11 +3371,26 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         })
     }
 
-    // Always refetch when entering a novel: zustand keeps sessions across
-    // bookshelf ↔ editor navigation, so a connection-switch rebind would
-    // otherwise never appear (local cache preferred the old model forever).
+    // Refresh on return and while tasks run so interrupted streams can recover.
     useEffect(() => {
-        void loadSessions(novelId, { force: true })
+        const refresh = () => {
+            if (document.visibilityState === 'hidden') return
+            void loadSessions(novelId, { force: true })
+        }
+        refresh()
+        const timer = window.setInterval(() => {
+            const sessions = useEditorCodexStore.getState().sessionsByNovel[novelId?.trim() || '__default__']?.sessions
+            if (sessions?.some((session) => session.status === 'running')) refresh()
+        }, 5000)
+        document.addEventListener('visibilitychange', refresh)
+        window.addEventListener('pageshow', refresh)
+        window.addEventListener('online', refresh)
+        return () => {
+            window.clearInterval(timer)
+            document.removeEventListener('visibilitychange', refresh)
+            window.removeEventListener('pageshow', refresh)
+            window.removeEventListener('online', refresh)
+        }
     }, [loadSessions, novelId])
 
     // Same when the active connection changes while this panel stays mounted.
@@ -4689,7 +4704,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
 
             <div
                 ref={scrollRef}
-                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain"
                 onWheel={() => {
                     if (selectedSession) markSessionRead(novelId, selectedSession.id)
                 }}

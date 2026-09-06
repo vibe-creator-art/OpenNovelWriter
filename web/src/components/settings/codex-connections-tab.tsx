@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
@@ -419,14 +418,14 @@ export function CodexConnectionsTab() {
     }
 
     return (
-        <div className="grid min-h-0 min-w-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-            <Card className="min-h-0">
-                <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+        <div className="grid min-h-0 min-w-0 grid-cols-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+            <Card className="min-h-0 min-w-0">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
                     <CardTitle className="min-w-0 truncate">{t('connectionsListTitle')}</CardTitle>
                     <Button size="sm" variant="outline" className="shrink-0" onClick={() => startDraft('custom')}><Plus className="h-4 w-4" />{t('newConnection')}</Button>
                 </CardHeader>
                 <CardContent className="p-0">
-                    <ScrollArea className="h-auto md:h-[620px] px-3 pb-3">
+                    <div className="h-auto overflow-y-auto px-3 pb-3 md:h-[620px]">
                         <div className="space-y-2">
                             {connections.map((connection) => (
                                 <div key={connection.id} className={`flex min-w-0 items-center gap-2 rounded-lg border p-2 ${selectedId === connection.id ? 'border-primary bg-muted/50' : ''}`}>
@@ -447,11 +446,11 @@ export function CodexConnectionsTab() {
                             ))}
                             {!loading && connections.length === 0 && <div className="p-4 text-sm text-muted-foreground">{t('noConnections')}</div>}
                         </div>
-                    </ScrollArea>
+                    </div>
                 </CardContent>
             </Card>
 
-            <Card className="min-h-0">
+            <Card className="min-h-0 min-w-0">
                 <CardHeader><CardTitle>{form.id ? form.name : t('draftTitle')}</CardTitle></CardHeader>
                 <CardContent>
                     {loading ? <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{t('loading')}</div> : (
