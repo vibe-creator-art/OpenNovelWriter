@@ -59,6 +59,13 @@ export function MobileEditorCommands({ editor, items, onSelect }: {
         }
     }, [focused, isMobile])
 
+    const openCommands = () => {
+        selectionRef.current = editor.state.selection.getBookmark()
+        selectedCommandRef.current = null
+        setOpen(true)
+        editor.commands.blur()
+    }
+
     if (!isMobile || items.length === 0) return null
 
     return (
@@ -76,13 +83,12 @@ export function MobileEditorCommands({ editor, items, onSelect }: {
                         className="min-h-11 gap-2 px-4"
                         aria-label={t('aiActions')}
                         aria-haspopup="dialog"
-                        onPointerDown={(event) => event.preventDefault()}
-                        onClick={() => {
-                            selectionRef.current = editor.state.selection.getBookmark()
-                            selectedCommandRef.current = null
-                            setOpen(true)
-                            editor.commands.blur()
+                        onPointerDown={(event) => {
+                            if (event.button !== 0 || !event.isPrimary) return
+                            event.preventDefault()
+                            openCommands()
                         }}
+                        onClick={openCommands}
                     >
                         <Sparkles className="size-4" />
                         AI

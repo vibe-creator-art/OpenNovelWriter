@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 
 const [, , command, ...args] = process.argv
@@ -8,6 +9,15 @@ if (!command) {
 
 const require = createRequire(import.meta.url)
 const nextBin = require.resolve('next/dist/bin/next')
+
+if (command === 'build') {
+  console.log('Refreshing generated build files...')
+  await rm(new URL('../.next/dev/types/', import.meta.url), {
+    recursive: true,
+    force: true,
+    maxRetries: 3,
+  })
+}
 
 const child = spawn(process.execPath, [nextBin, command, ...args], {
   stdio: ['inherit', 'pipe', 'pipe'],
