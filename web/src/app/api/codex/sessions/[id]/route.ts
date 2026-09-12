@@ -1,6 +1,8 @@
+import { getLiveCodexMessages } from '@/lib/server/codex-live-messages'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
+import { isCodexFastModeAllowed } from '@/lib/codex-config'
 import {
     normalizeCodexComposerMode,
     normalizeCodexReasoningEffort,
@@ -13,6 +15,7 @@ import {
     serializeCodexSession,
 } from '@/lib/server/codex-session'
 import { deleteCodexSession } from '@/lib/server/codex-session-deletion'
+import { updateActiveCodexServiceTier } from '@/lib/server/codex-app-server'
 import {
     rawDeleteContinuationDraft,
     stripContinuationPanelMarker,
@@ -31,6 +34,15 @@ async function getRouteId(params: Promise<unknown>) {
         : ''
 }
 
+export async function GET(request: NextRequest, { params }: RouteContext) {
+    const user = await getCurrentUser(request)
+    if (!user) return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 })
+    const id = await getRouteId(params)
+    const session = await prisma.codexSession.findFirst({ where: { id, ownerId: user.userId } })
+    if (!session) return NextResponse.json({ detail: 'Codex session not found' }, { status: 404 })
+    return NextResponse.json({ session: serializeCodexSession(session, getLiveCodexMessages(id)) })
+}
+
 export async function PATCH(request: NextRequest, { params }: RouteContext) {
     try {
         const user = await getCurrentUser(request)
@@ -39,7 +51,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         const id = await getRouteId(params)
         const existing = await prisma.codexSession.findFirst({
             where: { id, ownerId: user.userId },
-            select: { id: true },
+            select: { id: true, modelId: true, novelId: true, codexConnectionId: true },
         })
         if (!existing) return NextResponse.json({ detail: 'Codex session not found' }, { status: 404 })
 
@@ -50,7 +62,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
             reviewLevel?: string
             modelId?: string
             reasoningEffort?: string
-            serviceTier?: string
+            serviceTier?: 'standard' | 'fast'
             composerMode?: string
             draftContent?: string
             draftAttachmentsJson?: string
@@ -111,6 +123,31 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
             data.draftArtifactsJson = JSON.stringify(
                 parseCodexDraftArtifacts(JSON.stringify(body.draftArtifacts))
             )
+        }
+
+        if (data.serviceTier) {
+            if (data.serviceTier === 'fast') {
+                const [connection, novel] = await Promise.all([
+                    prisma.codexConnection.findFirst({
+                        where: existing.codexConnectionId
+                            ? { id: existing.codexConnectionId, ownerId: user.userId }
+                            : { ownerId: user.userId, isActive: true },
+                        orderBy: { createdAt: 'asc' },
+                    }),
+                    prisma.novel.findFirstOrThrow({
+                        where: { id: existing.novelId, ownerId: user.userId },
+                        select: { codexCustomFastModeEnabled: true },
+                    }),
+                ])
+                if (!isCodexFastModeAllowed(connection, novel.codexCustomFastModeEnabled)) {
+                    data.serviceTier = 'standard'
+                }
+            }
+            await updateActiveCodexServiceTier({
+                sessionId: id,
+                modelId: data.modelId ?? existing.modelId,
+                serviceTier: data.serviceTier,
+            })
         }
 
         const session = await prisma.codexSession.update({

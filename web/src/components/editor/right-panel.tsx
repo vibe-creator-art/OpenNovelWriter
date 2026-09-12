@@ -23,16 +23,22 @@ import { type WriteNavTarget } from '@/components/editor/plan-view'
 interface RightPanelProps {
     novelId?: string
     width: number
+    expanded: boolean
+    canExpand: boolean
     onClose: () => void
     onWidthChange: (width: number) => void
+    onExpandedChange: (expanded: boolean) => void
     onNavigateToWrite?: (target: WriteNavTarget) => void
 }
 
 export function RightPanel({
     novelId,
     width,
+    expanded,
+    canExpand,
     onClose,
     onWidthChange,
+    onExpandedChange,
     onNavigateToWrite,
 }: RightPanelProps) {
     const t = useTranslations('editor')
@@ -45,14 +51,34 @@ export function RightPanel({
     const handleStartResize = (e: React.MouseEvent) => {
         e.preventDefault()
         isResizingRight.current = true
-        const startX = e.clientX
-        const startWidth = width
+        let anchorX = e.clientX
+        let anchorWidth = width
+        let dragExpanded = expanded
+        let leftmostX = e.clientX
 
         const handleMouseMove = (moveEvent: MouseEvent) => {
             if (!isResizingRight.current) return
-            const delta = startX - moveEvent.clientX // Reversed because right sidebar
-            const newWidth = Math.max(180, Math.min(520, startWidth + delta))
-            onWidthChange(newWidth)
+            const x = moveEvent.clientX
+            if (dragExpanded) {
+                leftmostX = Math.min(leftmostX, x)
+                if (x - leftmostX < 32) return
+                dragExpanded = false
+                anchorX = x
+                anchorWidth = 520
+                onExpandedChange(false)
+                onWidthChange(520)
+                return
+            }
+
+            const nextWidth = anchorWidth + anchorX - x
+            if (canExpand && nextWidth >= 520 + 32) {
+                dragExpanded = true
+                leftmostX = x
+                onWidthChange(520)
+                onExpandedChange(true)
+                return
+            }
+            onWidthChange(Math.max(180, Math.min(520, nextWidth)))
         }
 
         const handleMouseUp = () => {
@@ -76,7 +102,7 @@ export function RightPanel({
             {/* Right sidebar */}
 	            <aside
 	                className="min-h-0 overflow-hidden bg-background/80 border-l flex flex-col shrink-0 max-md:!w-full"
-	                style={{ width }}
+	                style={{ width: expanded ? 520 + 256 : width }}
 	            >
 	                <div className="border-b">
 	                    <div className="grid grid-cols-4">

@@ -6,10 +6,10 @@ import { getPrismaClient } from '@/lib/db'
 import { encryptApiKey } from '@/lib/server/ai-credentials'
 import { syncCodexConnectionCoreAgents } from '@/lib/server/codex-agent-sync'
 import { readCodexRateLimits, syncCodexConnectionAuthState } from '@/lib/server/codex-app-server'
-import { deleteCodexConnectionHome, readCodexConnectionFiles, writeCodexConnectionFiles } from '@/lib/server/codex-connection-storage'
+import { readCodexConnectionFiles, writeCodexConnectionFiles } from '@/lib/server/codex-connection-storage'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
-import { rebindDraftCodexSessionsToConnection } from '@/lib/server/codex-session-rebind'
+import { deleteCodexConnectionPreservingSessions, rebindDraftCodexSessionsToConnection } from '@/lib/server/codex-session-rebind'
 import { syncCodexConnectionSkills } from '@/lib/server/codex-skill-sync'
 import { serializeCodexConnection } from '@/lib/server/codex-connection-serialize'
 
@@ -113,9 +113,13 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     const { id } = await context.params
     const connection = await getOwnedConnection(user.userId, id)
     if (!connection) return NextResponse.json({ detail: 'Not found' }, { status: 404 })
-    await prisma.codexConnection.delete({ where: { id } })
-    await deleteCodexConnectionHome(user.userId, id)
-    return NextResponse.json({ message: 'Deleted' })
+    try {
+        await deleteCodexConnectionPreservingSessions(connection)
+        return NextResponse.json({ message: 'Deleted' })
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to delete Codex connection.'
+        return NextResponse.json({ detail: message }, { status: 409 })
+    }
 }
 
 function parseCustomUpdate(body: Record<string, unknown>, existingEncryptedApiKey: string | null) {

@@ -59,6 +59,7 @@ export function detectCherryStudioModelTypes(
 }
 
 export function isImageGenerationModel(input: CherryStudioDetectionInput): boolean {
+    if (/^gpt-image-2-5-(sunburst|flare)$/.test(normalizeModelId(input.modelId))) return true
     const flags = lookupRegistryFlags(input)
     return flags !== undefined && (flags & REGISTRY_FLAG.imageGeneration) !== 0
 }

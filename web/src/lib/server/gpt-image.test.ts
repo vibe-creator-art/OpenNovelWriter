@@ -13,7 +13,7 @@ import {
     validateGptImageSize,
 } from './gpt-image'
 
-test('validates GPT Image 2 sizes and normalizes direct requests', () => {
+test('validates GPT Image 2.5 sizes and normalizes direct requests', () => {
     assert.equal(validateGptImageSize('auto'), 'auto')
     assert.equal(validateGptImageSize('2048x1152'), '2048x1152')
     assert.throws(() => validateGptImageSize('1025x1024'), /multiples of 16/)
@@ -34,13 +34,38 @@ test('validates GPT Image 2 sizes and normalizes direct requests', () => {
         images: [{ path: 'image-inputs/layout.png', role: 'composition reference' }],
         mask: null,
         size: 'auto',
-        quality: 'high',
+        quality: 'auto',
         n: 1,
         background: null,
         outputFormat: 'png',
         outputCompression: null,
         moderation: null,
+        inputFidelity: null,
     }])
+})
+
+test('supports GPT Image 2.5 quality, transparency, fidelity, and image sources', () => {
+    const batch = normalizeGptImageBatch({
+        quality: 'xhigh',
+        background: 'transparent',
+        inputFidelity: 'high',
+        items: [
+            { prompt: 'Edit the scene.', images: [{ imageUrl: 'https://example.com/source.png' }] },
+            { prompt: 'Edit again.', quality: 'max', inputFidelity: 'low', outputFormat: 'webp', images: [{ fileId: 'file-source' }], mask: { fileId: 'file-mask' } },
+        ],
+    })
+    assert.equal(batch.items[0].quality, 'xhigh')
+    assert.equal(batch.items[0].inputFidelity, 'high')
+    assert.equal(batch.items[1].quality, 'max')
+    assert.equal(batch.items[1].inputFidelity, 'low')
+    assert.equal(batch.items[1].background, 'transparent')
+    assert.deepEqual(batch.items[1].mask, { fileId: 'file-mask' })
+    assert.throws(() => normalizeGptImageDirect({ prompt: 'test', background: 'transparent', outputFormat: 'jpeg' }), /require png or webp/)
+    assert.throws(() => normalizeGptImageDirect({ prompt: 'test', inputFidelity: 'auto' }), /inputFidelity/)
+    for (const image of [{}, { path: 'a.png', fileId: 'file-a' }, { imageUrl: 'https://example.com/a.png', fileId: 'file-a' }]) {
+        assert.throws(() => normalizeGptImageDirect({ prompt: 'test', images: [image] }), /exactly one/)
+    }
+    assert.throws(() => normalizeGptImageDirect({ prompt: 'test', images: [{ imageUrl: 'file:///tmp/a.png' }] }), /HTTP\(S\)/)
 })
 
 test('applies batch defaults, item overrides, and image count limits', () => {
@@ -131,6 +156,9 @@ test('calls generation and edit endpoints and writes reusable image artifacts', 
                 label: 'Cover edit',
                 prompt: 'Make the storm more dramatic.',
                 images: [{ path: 'image-inputs/source.png', role: 'edit target' }],
+                quality: 'max',
+                background: 'transparent',
+                inputFidelity: 'high',
             }),
         }, provider)
 
@@ -155,7 +183,7 @@ test('calls generation and edit endpoints and writes reusable image artifacts', 
             model: 'upstream-image-model',
             prompt: 'A storm over an ancient city.',
             size: 'auto',
-            quality: 'high',
+            quality: 'auto',
             n: 1,
             output_format: 'png',
         })
@@ -167,6 +195,55 @@ test('calls generation and edit endpoints and writes reusable image artifacts', 
         assert.match(multipart, /upstream-image-model/)
         assert.match(multipart, /Input image roles:/)
         assert.match(multipart, /Image 1: edit target/)
+        assert.match(multipart, /name="quality"\r\n\r\nmax/)
+        assert.match(multipart, /name="background"\r\n\r\ntransparent/)
+        assert.match(multipart, /name="input_fidelity"\r\n\r\nhigh/)
+
+        const dataUrl = `data:image/png;base64,${Buffer.from('inline-image').toString('base64')}`
+        for (const [index, sources] of [
+            [{ imageUrl: 'https://example.com/source.png' }, { fileId: 'file-source' }],
+            [{ path: 'image-inputs/source.png' }, { imageUrl: dataUrl }],
+        ].entries()) {
+            await generateCodexImageArtifactsWithProvider({
+                ownerId: 'owner-1',
+                sessionId: 'session-1',
+                directoryPath: path.join(artifactsRoot, 'images', `remote-${index}`),
+                batch: normalizeGptImageDirect({
+                    prompt: 'Edit the scene.',
+                    images: sources,
+                    mask: index === 0 ? { fileId: 'file-mask' } : { imageUrl: dataUrl },
+                    quality: 'xhigh',
+                    inputFidelity: index === 0 ? 'low' : undefined,
+                    background: 'transparent',
+                    outputFormat: 'webp',
+                    outputCompression: 80,
+                }),
+            }, provider)
+            const request = requests[index + 2]
+            assert.equal(request.url, '/images/edits')
+            assert.equal(request.authorization, 'Bearer test-image-key')
+            assert.match(request.contentType, /^application\/json/)
+            assert.deepEqual(JSON.parse(request.body.toString('utf8')), {
+                model: 'upstream-image-model',
+                prompt: 'Edit the scene.',
+                size: 'auto',
+                quality: 'xhigh',
+                n: 1,
+                background: 'transparent',
+                output_format: 'webp',
+                output_compression: 80,
+                ...(index === 0 ? { input_fidelity: 'low' } : {}),
+                images: index === 0
+                    ? [{ image_url: 'https://example.com/source.png' }, { file_id: 'file-source' }]
+                    : [{ image_url: `data:image/png;base64,${Buffer.from('source-image').toString('base64')}` }, { image_url: dataUrl }],
+                mask: index === 0 ? { file_id: 'file-mask' } : { image_url: dataUrl },
+            })
+            const remoteManifest = JSON.parse(await fs.readFile(path.join(artifactsRoot, 'images', `remote-${index}`, 'manifest.json'), 'utf8'))
+            assert.deepEqual(remoteManifest.items[0].references, index === 0
+                ? sources
+                : [{ file: 'image-inputs/source.png' }, { imageUrl: dataUrl }])
+        }
+        assert.equal(requests.length, 4)
     } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()))
         if (previousDataDir === undefined) delete process.env.OPENNOVELWRITER_DATA_DIR

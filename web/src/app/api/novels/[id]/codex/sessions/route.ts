@@ -3,7 +3,6 @@ import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
 import {
     DEFAULT_CODEX_REVIEW_LEVEL,
-    DEFAULT_CODEX_REASONING_EFFORT,
     DEFAULT_CODEX_SERVICE_TIER,
     normalizeCodexComposerMode,
     normalizeCodexReviewLevel,
@@ -15,8 +14,9 @@ import {
     parseCodexDraftArtifacts,
     parseCodexDraftAttachments,
     serializeCodexSession,
+    serializeCodexSessionSummary,
 } from '@/lib/server/codex-session'
-import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import { getNewCodexSessionModelSettings, isCodexFastModeAllowed } from '@/lib/codex-config'
 import { getActiveCodexRun } from '@/lib/server/codex-app-server'
 import { seedSkillSessionArtifact } from '@/lib/server/codex-skill-session'
 import { pruneCodexSessionsForCategory } from '@/lib/server/codex-session-pruning'
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
             )
         }
 
-        return NextResponse.json({ sessions: sessions.map(serializeCodexSession) })
+        return NextResponse.json({ sessions: sessions.map((session) => serializeCodexSessionSummary(session)) })
     } catch (error) {
         console.error('List Codex sessions error:', error)
         return NextResponse.json({ detail: 'Internal server error' }, { status: 500 })
@@ -95,6 +95,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 id: true,
                 codexSessionAutoCleanup: true,
                 codexSessionRetentionLimit: true,
+                codexCustomFastModeEnabled: true,
             },
         })
         if (!novel) return NextResponse.json({ detail: 'Novel not found' }, { status: 404 })
@@ -108,10 +109,16 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             select: {
                 id: true,
                 defaultModelId: true,
+                providerType: true,
+                authStatus: true,
+                authType: true,
             },
         })
-        const activeConnectionModel = activeConnection?.defaultModelId?.trim() || DEFAULT_CODEX_MODEL
-        const serviceTier = normalizeCodexServiceTier(body?.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
+        const defaults = getNewCodexSessionModelSettings(activeConnection, category)
+        const requestedModelId = normalizeCodexStringId(body?.modelId)
+        const serviceTier = isCodexFastModeAllowed(activeConnection, novel.codexCustomFastModeEnabled)
+            ? normalizeCodexServiceTier(body?.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
+            : DEFAULT_CODEX_SERVICE_TIER
 
         const now = new Date()
         const session = await prisma.codexSession.create({
@@ -121,8 +128,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 title: normalizeCodexStringId(body?.title),
                 titleManuallyEdited: body?.titleManuallyEdited === true,
                 reviewLevel: normalizeCodexReviewLevel(body?.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL,
-                modelId: normalizeCodexStringId(body?.modelId) ?? activeConnectionModel,
-                reasoningEffort: normalizeCodexReasoningEffort(body?.reasoningEffort) ?? DEFAULT_CODEX_REASONING_EFFORT,
+                modelId: requestedModelId ?? defaults.modelId,
+                reasoningEffort: normalizeCodexReasoningEffort(body?.reasoningEffort)
+                    ?? (requestedModelId ? 'high' : defaults.reasoningEffort),
                 serviceTier,
                 composerMode: normalizeCodexComposerMode(body?.composerMode) ?? 'default',
                 draftContent: normalizeCodexString(body?.draftContent),

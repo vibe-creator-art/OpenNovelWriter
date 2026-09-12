@@ -152,7 +152,7 @@ npm run build
 
 ## 致谢
 
-感谢 [CC Switch](https://github.com/farion1231/cc-switch) 项目。OpenNovelWriter 的 Codex connection 切换逻辑参考了 CC Switch 的代码。
+感谢 [CC Switch](https://github.com/farion1231/cc-switch) 项目为 OpenNovelWriter 的 Codex 连接切换与 DeepSeek 模型配置提供代码和模型目录参考。
 
 ## License
 
@@ -290,4 +290,4 @@ If you deploy with pm2, systemd, Docker, or another process manager, restart the
 
 ## Acknowledgements
 
-Thanks to [CC Switch](https://github.com/farion1231/cc-switch). OpenNovelWriter's Codex connection switching logic was based on its code.
+Thanks to [CC Switch](https://github.com/farion1231/cc-switch), whose code and model catalog informed OpenNovelWriter's Codex connection switching and DeepSeek model configuration.

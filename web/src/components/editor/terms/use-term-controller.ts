@@ -113,6 +113,7 @@ export function useTermController({
     const pendingSaveRef = useRef<StoredTerms | null>(null)
     const hasLoadedFromServerRef = useRef(false)
     const skipNextPersistRef = useRef(false)
+    const [loadStatus, setLoadStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
 
     const setMentionEntries = useTermEntriesStore((s) => s.setEntries)
     const setMentionEntriesStatus = useTermEntriesStore((s) => s.setStatus)
@@ -320,10 +321,12 @@ export function useTermController({
                 }))
 
                 hasLoadedFromServerRef.current = true
+                setLoadStatus('loaded')
             } catch (error) {
                 console.error('Failed to load terms from server:', error)
                 if (canceled) return
                 hasLoadedFromServerRef.current = true
+                setLoadStatus((current) => current === 'loaded' ? current : 'error')
             }
         }
 
@@ -1066,6 +1069,7 @@ export function useTermController({
         rootRef,
         anchorRect,
         termState,
+        loadStatus,
         setTermState,
         sortBy: termState.sortBy,
         setSortBy,

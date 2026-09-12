@@ -1,3 +1,6 @@
+import { registerLiveCodexMessages } from '@/lib/server/codex-live-messages'
+import { projectCodexRunEvent } from '@/lib/server/codex-message-projection'
+import type { CodexWorkMetadata } from '@/lib/codex-work-events'
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -26,6 +29,7 @@ import {
     createCodexMessageId,
     createCodexSessionTitle,
     normalizeCodexString,
+    normalizeCodexStringId,
     normalizeCodexComposerMode,
     parseCodexThreadGoal,
     parseCodexSessionMessages,
@@ -71,7 +75,7 @@ function encodeSse(event: string, data: unknown) {
     return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 }
 
-type CodexRouteRunEvent = {
+type CodexRouteRunEvent = CodexWorkMetadata & {
     id: string
     kind: string
     title: string
@@ -118,6 +122,8 @@ function upsertEventMessage(messages: CodexSessionMessage[], event: CodexRouteRu
         id: event.id,
         role: 'event',
         kind: event.kind,
+        workStatus: event.workStatus,
+        toolInput: event.toolInput,
         content: [event.title, event.content].filter(Boolean).join('\n\n'),
         attachments: event.attachments ?? [],
         ...(event.responseAnnotations?.length ? { responseAnnotations: event.responseAnnotations } : {}),
@@ -160,19 +166,23 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
     const body = await request.json().catch(() => null)
     const resumeGoal = body?.resumeGoal === true
+    const messageId = normalizeCodexStringId(body?.messageId)
     const content = normalizeCodexString(body?.content).trim()
+    const attachments = normalizeManagedAttachmentUrls(body?.attachments)
+    const responseAnnotations = normalizeCodexResponseAnnotations(body?.responseAnnotations)
     const currentGoal = parseCodexThreadGoal(existing.goalJson)
     if (resumeGoal && (!existing.codexThreadId || !currentGoal || currentGoal.status === 'complete')) {
         return NextResponse.json({ detail: 'This session has no paused goal to resume.' }, { status: 409 })
     }
-    if (!resumeGoal && !content) {
+    if (!resumeGoal && !content && ((attachments.length === 0 && responseAnnotations.length === 0) || existing.composerMode === 'goal')) {
         return NextResponse.json({ detail: 'Message content is required.' }, { status: 400 })
+    }
+    if (!resumeGoal && !messageId) {
+        return NextResponse.json({ detail: 'Message id is required.' }, { status: 400 })
     }
     if (!resumeGoal && existing.composerMode === 'goal' && currentGoal === null && content.length > 4000) {
         return NextResponse.json({ detail: 'Goal objective must contain at most 4,000 characters.' }, { status: 400 })
     }
-    const attachments = normalizeManagedAttachmentUrls(body?.attachments)
-    const responseAnnotations = normalizeCodexResponseAnnotations(body?.responseAnnotations)
     const artifactFiles = Array.isArray(body?.artifactFiles)
         ? [...new Set((body.artifactFiles as unknown[]).filter((value): value is string =>
             typeof value === 'string' && /^[^/\\]+\.json$/i.test(value)
@@ -420,7 +430,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const currentMessages = parseCodexSessionMessages(existing.messagesJson)
         const sentAsGoal = !resumeGoal && existing.composerMode === 'goal' && currentGoal === null
         const userMessage: CodexSessionMessage = {
-            id: createCodexMessageId('codex_user'),
+            id: messageId!,
             role: 'user',
             content,
             attachments,
@@ -490,6 +500,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                     }
                 }
                 const streamedMessages = [...optimisticMessages]
+                const releaseLiveMessages = registerLiveCodexMessages(id, streamedMessages)
                 let assistantSegmentId: string | null = null
                 let assistantSegmentCreatedAt: string | null = null
                 let goalPersistence = Promise.resolve()
@@ -539,6 +550,17 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                                     createdAt: notification.createdAt,
                                 })
                             },
+                            onReasoningDelta: (event) => {
+                                const existing = streamedMessages.find((message) => message.id === event.id)
+                                if (existing) {
+                                    existing.content += event.delta
+                                } else {
+                                    assistantSegmentId = null
+                                    assistantSegmentCreatedAt = null
+                                    streamedMessages.push({ id: event.id, role: 'event', kind: 'reasoning', workStatus: 'running', content: event.delta, createdAt: event.createdAt })
+                                }
+                                send('reasoning_delta', event)
+                            },
                             onPlanDelta: (event) => {
                                 // Same rule as onEvent: later deltas accumulate into the existing
                                 // plan message, so only the first one breaks the assistant segment.
@@ -562,10 +584,16 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                                     assistantSegmentCreatedAt = null
                                 }
                                 upsertEventMessage(streamedMessages, event)
-                                send('event', event)
+                                send('event', projectCodexRunEvent(event))
                             },
                             onApprovalRequest: (approval) => {
                                 send('approval_request', { approval })
+                            },
+                            onUserInputRequest: (request) => {
+                                send('user_input_request', { request })
+                            },
+                            onUserInputResolved: (id) => {
+                                send('user_input_resolved', { id })
                             },
                             onContextWindow: (nextContextWindow) => {
                                 contextWindow = nextContextWindow
@@ -648,6 +676,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
                     send('done', { session: serializeCodexSession(session) })
                 } catch (error) {
+                    await Promise.allSettled([goalPersistence, turnPersistence])
                     if (isCodexRunInterruptedError(error)) {
                         const session = await prisma.codexSession.update({
                             where: { id },
@@ -665,7 +694,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                     const message = error instanceof Error ? error.message : 'Codex run failed.'
                     const failedAt = new Date()
                     const failedMessages: CodexSessionMessage[] = [
-                        ...optimisticMessages,
+                        ...streamedMessages,
                         {
                             id: createCodexMessageId('codex_error'),
                             role: 'event',
@@ -687,6 +716,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
                     send('error', { session: serializeCodexSession(session), detail: message })
                 } finally {
+                    releaseLiveMessages()
                     finishActiveCodexRun(activeRun)
                     close()
                 }

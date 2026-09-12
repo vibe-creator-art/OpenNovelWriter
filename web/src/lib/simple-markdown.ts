@@ -59,6 +59,7 @@ export type WebReference = {
 }
 
 export type RenderSimpleMarkdownOptions = {
+    renderAnnotationRef?: (index: number, key: string) => ReactNode
     /** Render an inline `[label](llm:<target>)` reference (a Codex model-reply embed). */
     renderLlmRef?: (target: string, label: string, key: string) => ReactNode
     /** Render an inline `[label](model:<groupId>)` mention chip. */
@@ -665,6 +666,10 @@ function findBareUrlHtmlMatch(
 function getNextInlineMatch(text: string, startIndex: number): InlineMatch | null {
     const matches = [
         findRegexMatch(text, startIndex, /`([^`\n]+)`/g, 0, (match, key) => createElement('code', { key }, match[1])),
+        activeInlineOptions?.renderAnnotationRef
+            ? findRegexMatch(text, startIndex, /:codex-annotation\{index="([1-9]\d*)"\}/g, 1, (match, key) =>
+                activeInlineOptions!.renderAnnotationRef!(Number(match[1]), key))
+            : null,
         findRegexMatch(text, startIndex, new RegExp(INLINE_IMAGE_RE), 1, (match, key) =>
             createElement('img', {
                 key,

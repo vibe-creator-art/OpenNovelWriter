@@ -7,6 +7,7 @@ import { deleteNovelWorkspace, ensureNovelWorkspace } from '@/lib/server/novel-w
 import { parseCodexSessionRetentionLimit } from '@/lib/codex-session-retention'
 import { petExists } from '@/lib/server/pet-storage'
 import { loadRetrievalGroup } from '@/lib/server/retrieval-models'
+import { skipCodexUserInputForNovel } from '@/lib/server/codex-user-input-bridge'
 
 interface RouteParams {
     params: Promise<{ id: string }>
@@ -85,6 +86,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             retrievalTopK,
             codexSessionAutoCleanup,
             codexSessionRetentionLimit,
+            codexUserInputEnabled,
+            codexShowReasoning,
+            codexCustomFastModeEnabled,
             codexPetEnabled,
             codexPetId,
         } = body
@@ -106,6 +110,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         const shouldUpdateCodexSessionAutoCleanup = Object.prototype.hasOwnProperty.call(body, 'codexSessionAutoCleanup')
         const shouldUpdateCodexSessionRetentionLimit = Object.prototype.hasOwnProperty.call(body, 'codexSessionRetentionLimit')
         const shouldUpdateCodexPetEnabled = Object.prototype.hasOwnProperty.call(body, 'codexPetEnabled')
+        const shouldUpdateCodexUserInputEnabled = Object.prototype.hasOwnProperty.call(body, 'codexUserInputEnabled')
+        const shouldUpdateCodexShowReasoning = Object.prototype.hasOwnProperty.call(body, 'codexShowReasoning')
+        const shouldUpdateCodexCustomFastModeEnabled = Object.prototype.hasOwnProperty.call(body, 'codexCustomFastModeEnabled')
         const shouldUpdateCodexPetId = Object.prototype.hasOwnProperty.call(body, 'codexPetId')
 
         // Check ownership
@@ -140,6 +147,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         }
         if (shouldUpdateCodexPetEnabled && typeof codexPetEnabled !== 'boolean') {
             return NextResponse.json({ detail: 'Invalid Codex pet enabled setting' }, { status: 400 })
+        }
+        if (shouldUpdateCodexUserInputEnabled && typeof codexUserInputEnabled !== 'boolean') {
+            return NextResponse.json({ detail: 'Invalid Codex clarification setting' }, { status: 400 })
+        }
+        if (shouldUpdateCodexShowReasoning && typeof codexShowReasoning !== 'boolean') {
+            return NextResponse.json({ detail: 'Invalid Codex reasoning display setting' }, { status: 400 })
+        }
+        if (shouldUpdateCodexCustomFastModeEnabled && typeof codexCustomFastModeEnabled !== 'boolean') {
+            return NextResponse.json({ detail: 'Invalid Codex custom Fast mode setting' }, { status: 400 })
         }
         if (
             shouldUpdateCodexPetId
@@ -242,11 +258,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                     ? codexSessionAutoCleanup
                     : existing.codexSessionAutoCleanup,
                 codexSessionRetentionLimit: parsedCodexSessionRetentionLimit,
+                codexUserInputEnabled: shouldUpdateCodexUserInputEnabled ? codexUserInputEnabled : existing.codexUserInputEnabled,
+                codexShowReasoning: shouldUpdateCodexShowReasoning ? codexShowReasoning : existing.codexShowReasoning,
+                codexCustomFastModeEnabled: shouldUpdateCodexCustomFastModeEnabled ? codexCustomFastModeEnabled : existing.codexCustomFastModeEnabled,
                 codexPetEnabled: shouldUpdateCodexPetEnabled ? codexPetEnabled : existing.codexPetEnabled,
                 codexPetId: shouldUpdateCodexPetId ? codexPetId : existing.codexPetId,
                 },
             }),
         ])
+
+        if (!novel.codexUserInputEnabled) skipCodexUserInputForNovel(novel.id)
 
         // Orphaned cover files (replaced or cleared here) are reclaimed by the
         // startup image GC — see lib/server/image-gc.ts.

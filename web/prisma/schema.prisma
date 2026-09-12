@@ -54,6 +54,9 @@ model Novel {
   retrievalTopK Int @default(10)
   codexSessionAutoCleanup Boolean @default(false)
   codexSessionRetentionLimit Int @default(10)
+  codexUserInputEnabled Boolean @default(true)
+  codexShowReasoning Boolean @default(false)
+  codexCustomFastModeEnabled Boolean @default(false)
   codexPetEnabled Boolean @default(false)
   codexPetId String @default("xixi")
   ownerId     String

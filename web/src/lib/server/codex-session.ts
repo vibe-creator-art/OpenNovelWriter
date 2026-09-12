@@ -1,3 +1,6 @@
+import { projectCodexMessage } from '@/lib/server/codex-message-projection'
+import { getCodexSessionPreviewTitle, getCodexSessionPreviewText } from '@/lib/codex-message-preview'
+import type { CodexWorkMetadata } from '@/lib/codex-work-events'
 import type { Prisma } from '@/generated/prisma/client'
 import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
 import { normalizeCodexResponseAnnotations, type CodexResponseAnnotation } from '@/lib/codex-response-annotations'
@@ -26,7 +29,7 @@ export const DEFAULT_CODEX_REVIEW_LEVEL: CodexReviewLevel = 'user_review'
 export const DEFAULT_CODEX_REASONING_EFFORT: CodexReasoningEffort = 'high'
 export const DEFAULT_CODEX_SERVICE_TIER: CodexServiceTier = 'standard'
 
-export type CodexSessionMessage = {
+export type CodexSessionMessage = CodexWorkMetadata & {
     id: string
     role: CodexSessionMessageRole
     content: string
@@ -254,6 +257,8 @@ export function parseCodexSessionMessages(value: string | null | undefined): Cod
                     content,
                     kind,
                     contextWindow,
+                    ...(record.workStatus === 'running' || record.workStatus === 'completed' || record.workStatus === 'failed' || record.workStatus === 'declined' ? { workStatus: record.workStatus } : {}),
+                    ...(typeof record.toolInput === 'string' ? { toolInput: record.toolInput } : {}),
                     attachments,
                     jsonArtifacts,
                     ...(responseAnnotations.length ? { responseAnnotations } : {}),
@@ -310,7 +315,9 @@ export function parseCodexDraftArtifacts(value: string | null | undefined): Code
     }
 }
 
-export function serializeCodexSession(record: CodexSessionRecord) {
+export function serializeCodexSessionSummary(record: CodexSessionRecord, messages = parseCodexSessionMessages(record.messagesJson)) {
+    const preview = { ...record, messages }
+
     return {
         id: record.id,
         category: normalizeCodexSessionCategory(record.category) ?? 'general',
@@ -334,7 +341,17 @@ export function serializeCodexSession(record: CodexSessionRecord) {
         ownerId: record.ownerId,
         createdAt: record.createdAt.toISOString(),
         updatedAt: record.updatedAt.toISOString(),
-        messages: parseCodexSessionMessages(record.messagesJson),
+        messageCount: messages.length,
+        previewTitle: getCodexSessionPreviewTitle(preview, '').slice(0, 60),
+        previewText: getCodexSessionPreviewText(preview, '').slice(0, 240),
+    }
+}
+
+export function serializeCodexSession(record: CodexSessionRecord, messages = parseCodexSessionMessages(record.messagesJson)) {
+    return {
+        ...serializeCodexSessionSummary(record, messages),
+        historyLoaded: true,
+        messages: messages.map(projectCodexMessage),
     }
 }
 

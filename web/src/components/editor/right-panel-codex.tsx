@@ -1,7 +1,6 @@
 'use client'
 
 import { type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject, Fragment, createContext, useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import {
     ArrowUp,
@@ -23,7 +22,7 @@ import {
     Layers,
     ListChecks,
     ListTree,
-    MessageSquareQuote,
+    Loader2,
     Paperclip,
     Pause,
     Pin,
@@ -46,16 +45,33 @@ import {
     X,
     Zap,
 } from 'lucide-react'
+import { REMOVE_IMAGE_AREA_PROMPT } from '@/components/editor/codex-image-mask'
+import { CodexUserInputPanel } from '@/components/editor/codex-user-input'
+import { CodexReasoningBlock } from '@/components/editor/codex-reasoning-block'
+import { useCodexNovelSettings } from '@/components/editor/use-codex-novel-settings'
+import { COMMENT_IMAGE_ATTACHMENT_PREFIX, ImageCommentSummary, formatImageComments } from '@/components/editor/codex-image-comments'
 import { AttachmentStrip } from '@/components/image/attachment-strip'
 import { UserImage } from '@/components/image/user-image'
 import { ImageThumbnails } from '@/components/image/image-thumbnails'
+import {
+    CodexImageEditButton,
+    CodexImageCatalogContext,
+    CodexImageEditContext,
+    CodexImageEditorCanvas,
+    type CodexImageEditorHandle,
+    CodexImageLatestTurn,
+    EDITING_IMAGE_ATTACHMENT_PREFIX,
+    REMOVE_IMAGE_BACKGROUND_PROMPT,
+    useCodexImageCatalog,
+    type CodexEditingImage,
+} from '@/components/editor/codex-image-editor'
 import {
     ImageViewerBoundary,
     ImageViewerDialog,
     ImageViewerExtraActionsProvider,
 } from '@/components/image/image-viewer-dialog'
 import { TermGalleryImportButton } from '@/components/editor/terms/term-gallery-import-button'
-import { useImageAttachments, type ImageAttachmentError } from '@/components/image/use-image-attachments'
+import { ATTACHMENT_MAX_COUNT, useImageAttachments, type ImageAttachmentError, type ImagePointComment } from '@/components/image/use-image-attachments'
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -69,20 +85,23 @@ import {
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useEditorCodexStore } from '@/components/editor/editor-codex-store'
+import { CodexSendError, useEditorCodexStore } from '@/components/editor/editor-codex-store'
 import { ModelGroupLogoIcon } from '@/components/ai/model-group-logo-icon'
 import { type ModelGroup } from '@/lib/ai-store'
 import { useAuthStore } from '@/lib/store'
 import {
-    DEFAULT_CODEX_MODEL,
+    DEFAULT_CODEX_CHAT_SETTINGS,
     isAuthenticatedChatGptCodexConnection,
-    isNativeCodexModelId,
+    isCodexFastModeAllowed,
+    isGptCodexModelId,
 } from '@/lib/codex-config'
 import {
     modelSupportsCodexFastMode,
     setStickyCodexFastMode,
 } from '@/lib/codex-fast-mode-preference'
 import { getLatestContextWindowFromMessages } from '@/lib/codex-context-window'
+import { getCodexSessionPreviewTitle } from '@/lib/codex-message-preview'
+import { NOVEL_REFRESH_REQUESTED_EVENT, type NovelRefreshRequestedEventDetail } from '@/lib/novel-refresh-events'
 import {
     getCodexRateLimitSummary,
     hasMeaningfulCodexRateLimits,
@@ -94,16 +113,21 @@ import { plainTextToSnippetHtml } from '@/lib/snippet-html'
 import { type WriteNavTarget } from '@/components/editor/plan-view'
 import { actApi, chapterApi, materialApi, outlineApi, sceneEditApi, skillApi, snippetApi, type Act, type Chapter, type MaterialSummary, type OutlineSummary, type SceneEditStatus, type Skill, type Snippet } from '@/lib/api'
 import { normalizeSkillCategory } from '@/lib/skills'
-import type { CodexResponseAnnotation } from '@/lib/codex-response-annotations'
+import { getCodexAnnotationReferences, type CodexResponseAnnotation } from '@/lib/codex-response-annotations'
+import { CodexAnnotationReference, CodexResponseAnnotationsProvider, ResponseAnnotationSummary, SelectableCodexResponse } from './codex-response-annotations'
 import { useStoredTermEntries } from '@/components/editor/terms/use-stored-term-entries'
 import type { TermEntry } from '@/components/editor/terms/types'
 import { CodexSkillTweakDialog, type CodexRenderedBlock } from '@/components/editor/codex-skill-tweak-dialog'
 import { CodexModelPicker } from '@/components/editor/codex-model-picker'
+import { CodexSessionIdContext } from '@/components/editor/codex-session-context'
+import type { SceneEditHunk, SceneEditToolResult } from '@/lib/codex-scene-edit'
+import { CodexWorkEventGroup, type WorkGroupStates, type ChangeWorkGroup } from '@/components/editor/codex-work-events'
 import { CodexTurnNavigator, type CodexTurnNavigatorEntry } from '@/components/editor/codex-turn-navigator'
 import { emitSceneEditsChanged, SCENE_EDITS_CHANGED_EVENT } from '@/components/editor/scene-edit-events'
 import {
     codexApi,
     codexSessionApi,
+    uploadApi,
     type CodexApprovalOption,
     type CodexApprovalRequest,
     type CodexConnectionSummary,
@@ -767,21 +791,9 @@ function isWorkEvent(message: CodexSessionMessage) {
         message.kind === 'command' ||
         message.kind === 'tool' ||
         message.kind === 'file' ||
-        message.kind === 'web_search'
+        message.kind === 'web_search' ||
+        message.kind === 'image_view'
     )
-}
-
-function formatWorkEventSummary(messages: CodexSessionMessage[]) {
-    const commands = messages.filter((message) => message.kind === 'command').length
-    const tools = messages.filter((message) => message.kind === 'tool').length
-    const files = messages.filter((message) => message.kind === 'file').length
-    const webSearches = messages.filter((message) => message.kind === 'web_search').length
-    const parts: string[] = []
-    if (commands) parts.push(`${commands} command${commands === 1 ? '' : 's'}`)
-    if (tools) parts.push(`${tools} tool call${tools === 1 ? '' : 's'}`)
-    if (files) parts.push(`${files} file change${files === 1 ? '' : 's'}`)
-    if (webSearches) parts.push(`${webSearches} web search${webSearches === 1 ? '' : 'es'}`)
-    return parts.length ? `Worked: ${parts.join(', ')}` : `Worked: ${messages.length} event${messages.length === 1 ? '' : 's'}`
 }
 
 function getMessageTime(message: CodexSessionMessage) {
@@ -888,8 +900,8 @@ function getApprovalDetail(approval: CodexApprovalRequest) {
 
 const CodexNavContext = createContext<((target: WriteNavTarget) => void) | undefined>(undefined)
 const CodexNovelIdContext = createContext<string | undefined>(undefined)
-const CodexSessionIdContext = createContext<string | null>(null)
-const CodexResponseAnnotationContext = createContext<((text: string) => void) | undefined>(undefined)
+
+const CodexAnnotationReferencesContext = createContext<Map<string, CodexResponseAnnotation[]>>(new Map())
 const SceneEditStatusContext = createContext<{
     statuses: Record<string, SceneEditStatus>
     loading: boolean
@@ -897,68 +909,8 @@ const SceneEditStatusContext = createContext<{
     setStatus: (id: string, status: SceneEditStatus) => void
 } | null>(null)
 
-const SCENE_EDIT_TOOL_TITLE = 'edit_scene_content'
-
-type SceneEditHunk = { id: string; beforeText: string; afterText: string }
-type SceneEditToolResult = {
-    sceneId: string
-    chapterId: string
-    actNumber: number
-    applied: SceneEditHunk[]
-    failedCount: number
-}
-
-// The timeline message for an MCP tool call is "<server>.<tool>\n\n<JSON result>", and the
-// JSON is an MCP envelope ({ content: [{ text: "<our JSON payload>" }] }). Dig out our payload.
-function findSceneEditPayload(value: unknown, depth = 0): SceneEditToolResult | null {
-    if (!value || depth > 6) return null
-    if (typeof value === 'object') {
-        const record = value as Record<string, unknown>
-        if (Array.isArray(record.applied) && typeof record.sceneId === 'string') {
-            const applied = (record.applied as unknown[])
-                .map((item) => {
-                    const hunk = item as Record<string, unknown>
-                    if (typeof hunk?.id !== 'string') return null
-                    return {
-                        id: hunk.id,
-                        beforeText: typeof hunk.beforeText === 'string' ? hunk.beforeText : '',
-                        afterText: typeof hunk.afterText === 'string' ? hunk.afterText : '',
-                    }
-                })
-                .filter((item): item is SceneEditHunk => item !== null)
-            if (applied.length === 0) return null
-            return {
-                sceneId: record.sceneId,
-                chapterId: typeof record.chapterId === 'string' ? record.chapterId : '',
-                actNumber: typeof record.actNumber === 'number' ? record.actNumber : 1,
-                applied,
-                failedCount: typeof record.failedCount === 'number' ? record.failedCount : 0,
-            }
-        }
-        for (const child of Object.values(record)) {
-            const found = findSceneEditPayload(child, depth + 1)
-            if (found) return found
-        }
-        return null
-    }
-    if (typeof value === 'string') {
-        const trimmed = value.trim()
-        if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null
-        try {
-            return findSceneEditPayload(JSON.parse(trimmed), depth + 1)
-        } catch {
-            return null
-        }
-    }
-    return null
-}
-
 function parseSceneEditToolMessage(message: CodexSessionMessage): SceneEditToolResult | null {
-    if (message.role !== 'event' || message.kind !== 'tool') return null
-    if (!message.content.includes(SCENE_EDIT_TOOL_TITLE)) return null
-    const jsonStart = message.content.indexOf('{')
-    if (jsonStart < 0) return null
-    return findSceneEditPayload(message.content.slice(jsonStart))
+    return message.sceneEdit ?? null
 }
 
 function isSceneEditToolMessage(message: CodexSessionMessage): boolean {
@@ -1113,6 +1065,10 @@ function CodexImageArtifactRef({ target, label }: { target: string; label: strin
         error?: string
     }>({ status: 'loading' })
     const [openItem, setOpenItem] = useState<CodexImageArtifactItem | null>(null)
+    const catalogImages = useMemo(() => (state.items ?? []).map((item) => ({
+        id: `artifact:${sessionId}:${item.path}`, src: item.url, label: item.label,
+    })), [state.items, sessionId])
+    useCodexImageCatalog(catalogImages)
 
     useEffect(() => {
         if (!sessionId) return
@@ -1196,14 +1152,17 @@ function CodexImageArtifactRef({ target, label }: { target: string; label: strin
                     <div className="flex flex-wrap gap-2">
                         {items.map((item) => (
                             <div key={item.id} className="max-w-full space-y-1.5">
-                                <button
-                                    type="button"
-                                    className="max-w-full overflow-hidden rounded-lg border bg-background text-left transition-opacity hover:opacity-90"
-                                    title={item.label}
-                                    onClick={() => setOpenItem(item)}
-                                >
-                                    <UserImage src={item.url} alt={item.label} className="max-h-80 w-auto max-w-full object-contain" />
-                                </button>
+                                <div className="relative w-fit max-w-full">
+                                    <button
+                                        type="button"
+                                        className="block max-w-full overflow-hidden rounded-lg border bg-background text-left transition-opacity hover:opacity-90"
+                                        title={item.label}
+                                        onClick={() => setOpenItem(item)}
+                                    >
+                                        <UserImage src={item.url} alt={item.label} className="max-h-80 w-auto max-w-full object-contain" />
+                                    </button>
+                                    <CodexImageEditButton id={`artifact:${sessionId}:${item.path}`} src={item.url} label={item.label} />
+                                </div>
                                 <div className="max-w-80">
                                     <GeneratedImagePrompt prompt={item.prompt || item.revisedPrompt || ''} />
                                 </div>
@@ -1569,7 +1528,7 @@ function splitArtifactBlocks(content: string): CodexMarkdownBlock[] {
     return blocks
 }
 
-function CodexMarkdown({ content, embedLlm = true }: { content: string; embedLlm?: boolean }) {
+function CodexMarkdown({ content, embedLlm = true, annotationReferences = [] }: { content: string; embedLlm?: boolean; annotationReferences?: CodexResponseAnnotation[] }) {
     const collapsedContent = useMemo(() => collapseRepeatedAssistantText(content), [content])
     const blocks = useMemo(
         () => (embedLlm ? splitArtifactBlocks(collapsedContent) : [{ type: 'md', text: collapsedContent } as CodexMarkdownBlock]),
@@ -1615,7 +1574,11 @@ function CodexMarkdown({ content, embedLlm = true }: { content: string; embedLlm
                         <CodexImageArtifactRef key={`image-${index}`} target={block.target} label={block.label} />
                     ) : (
                         <Fragment key={`md-${index}`}>
-                            {renderSimpleMarkdown(block.text, { includeWebReferenceList: false, webReferences })}
+                            {renderSimpleMarkdown(block.text, {
+                                includeWebReferenceList: false,
+                                webReferences,
+                                renderAnnotationRef: (index, key) => <CodexAnnotationReference key={key} index={index} annotation={annotationReferences[index - 1]} />,
+                            })}
                         </Fragment>
                     )
                 )}
@@ -1625,76 +1588,11 @@ function CodexMarkdown({ content, embedLlm = true }: { content: string; embedLlm
     )
 }
 
-function SelectableAssistantMessage({ content }: { content: string }) {
-    const t = useTranslations('editor')
-    const addResponseAnnotation = useContext(CodexResponseAnnotationContext)
-    const contentRef = useRef<HTMLDivElement | null>(null)
-    const [menu, setMenu] = useState<{ text: string; left: number; top: number } | null>(null)
-
-    const captureSelection = () => {
-        const root = contentRef.current
-        const selection = window.getSelection()
-        if (!root || !selection || selection.isCollapsed || selection.rangeCount === 0) {
-            setMenu(null)
-            return
-        }
-        const range = selection.getRangeAt(0)
-        if (!root.contains(range.commonAncestorContainer)) {
-            setMenu(null)
-            return
-        }
-        const text = selection.toString().trim()
-        if (!text) {
-            setMenu(null)
-            return
-        }
-        const rect = range.getBoundingClientRect()
-        setMenu({
-            text,
-            left: Math.max(72, Math.min(window.innerWidth - 72, rect.left + rect.width / 2)),
-            top: Math.max(48, rect.top - 8),
-        })
-    }
-
-    useEffect(() => {
-        if (!menu) return
-        const dismiss = () => setMenu(null)
-        window.addEventListener('resize', dismiss)
-        window.addEventListener('scroll', dismiss, true)
-        return () => {
-            window.removeEventListener('resize', dismiss)
-            window.removeEventListener('scroll', dismiss, true)
-        }
-    }, [menu])
-
-    return (
-        <div ref={contentRef} onMouseUp={() => window.requestAnimationFrame(captureSelection)}>
-            <CodexMarkdown content={content} />
-            {menu && addResponseAnnotation && createPortal(
-                <div
-                    className="fixed z-[100] -translate-x-1/2 -translate-y-full rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
-                    style={{ left: menu.left, top: menu.top }}
-                >
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 gap-2 rounded-lg px-3"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => {
-                            addResponseAnnotation(menu.text)
-                            window.getSelection()?.removeAllRanges()
-                            setMenu(null)
-                        }}
-                    >
-                        <MessageSquareQuote className="h-4 w-4" />
-                        {t('codex.addToChat')}
-                    </Button>
-                </div>,
-                document.body
-            )}
-        </div>
-    )
+function SelectableAssistantMessage({ message }: { message: CodexSessionMessage }) {
+    const references = useContext(CodexAnnotationReferencesContext)
+    return <SelectableCodexResponse messageId={message.id}>
+        <CodexMarkdown content={message.content} annotationReferences={references.get(message.id)} />
+    </SelectableCodexResponse>
 }
 
 function ContextWindowIndicator({ contextWindow }: { contextWindow: CodexContextWindow | null }) {
@@ -2375,7 +2273,7 @@ function QueuedMessageRow({
                             <div className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
                                 {message.content}
                             </div>
-                            <ResponseAnnotationChips annotations={message.responseAnnotations} className="mt-2" />
+                            <ResponseAnnotationSummary annotations={message.responseAnnotations} className="mt-2" />
                         </>
                     )}
                 </div>
@@ -2398,63 +2296,6 @@ export function stripUserMessageTokens(content: string) {
 // ordinary text instead of leaking the internal message token into `turn/steer`.
 function flattenSkillCommandsForSteer(content: string) {
     return content.replace(/\[([^\]]+)\]\(skill:[^)]+\)/g, (_match, label: string) => `/${label}`)
-}
-
-function ResponseAnnotationChips({
-    annotations,
-    onRemove,
-    inverted = false,
-    className,
-}: {
-    annotations: CodexResponseAnnotation[] | null | undefined
-    onRemove?: (index: number) => void
-    inverted?: boolean
-    className?: string
-}) {
-    const t = useTranslations('editor')
-    if (!annotations?.length) return null
-
-    return (
-        <div className={cn('space-y-1.5', className)}>
-            <div className={cn(
-                'flex items-center gap-1.5 text-xs font-medium',
-                inverted ? 'text-primary-foreground/80 dark:text-accent-foreground/80' : 'text-muted-foreground'
-            )}>
-                <MessageSquareQuote className="h-3.5 w-3.5" />
-                <span>{t('codex.annotationCount', { count: annotations.length })}</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-                {annotations.map((annotation, index) => (
-                    <span
-                        key={`${index}:${annotation.text}`}
-                        className={cn(
-                            'flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-xs',
-                            inverted
-                                ? 'border-primary-foreground/25 bg-primary-foreground/10 text-primary-foreground dark:border-accent-foreground/25 dark:bg-accent-foreground/10 dark:text-accent-foreground'
-                                : 'border-border bg-muted/60 text-foreground'
-                        )}
-                        title={annotation.text}
-                    >
-                        <span className="max-w-72 truncate">“{annotation.text}”</span>
-                        {onRemove && (
-                            <button
-                                type="button"
-                                className={cn(
-                                    'shrink-0 rounded-sm opacity-70 hover:opacity-100',
-                                    inverted ? 'hover:bg-primary-foreground/15' : 'hover:bg-muted'
-                                )}
-                                title={t('codex.removeAnnotation')}
-                                aria-label={t('codex.removeAnnotation')}
-                                onClick={() => onRemove(index)}
-                            >
-                                <X className="h-3 w-3" />
-                            </button>
-                        )}
-                    </span>
-                ))}
-            </div>
-        </div>
-    )
 }
 
 function MessageActions({ message }: { message: CodexSessionMessage }) {
@@ -2567,7 +2408,7 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
                         </div>
                         <div className="max-w-full rounded-2xl bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground dark:bg-accent dark:text-accent-foreground">
                             <ImageThumbnails urls={message.attachments} className="mb-1.5" />
-                            <ResponseAnnotationChips
+                            <ResponseAnnotationSummary
                                 annotations={message.responseAnnotations}
                                 inverted
                                 className="mb-2"
@@ -2611,7 +2452,8 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
             <div className={cn('flex min-w-0 max-w-[86%] flex-col gap-1', isUser && 'items-end')}>
                 <div
                     className={cn(
-                        'min-w-0 max-w-full overflow-hidden rounded-2xl px-4 py-3 text-sm leading-6 break-words [overflow-wrap:anywhere]',
+                        'min-w-0 max-w-full rounded-2xl px-4 py-3 text-sm leading-6 break-words [overflow-wrap:anywhere]',
+                        isUser ? 'overflow-hidden' : 'overflow-visible',
                         isUser
                             ? 'bg-primary text-primary-foreground dark:bg-accent dark:text-accent-foreground'
                             : 'bg-muted/70 text-foreground'
@@ -2620,7 +2462,7 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
                     <ImageThumbnails urls={message.attachments} className={cn(message.content.trim() && 'mb-1.5')} />
                     {isUser && <JsonArtifactChips fileNames={message.jsonArtifacts} className={message.content.trim() ? 'mb-1.5' : undefined} />}
                     {isUser && (
-                        <ResponseAnnotationChips
+                        <ResponseAnnotationSummary
                             annotations={message.responseAnnotations}
                             inverted
                             className={message.content.trim() ? 'mb-2' : undefined}
@@ -2629,7 +2471,7 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
                     {isUser ? (
                         <UserMessageContent content={message.content} />
                     ) : (
-                        <SelectableAssistantMessage content={message.content} />
+                        <SelectableAssistantMessage message={message} />
                     )}
                 </div>
                 <div className="flex items-center gap-2">
@@ -2642,38 +2484,6 @@ function MessageBubble({ message }: { message: CodexSessionMessage }) {
                     )}
                 </div>
             </div>
-        </div>
-    )
-}
-
-function WorkEventGroup({
-    messages,
-    defaultCollapsed,
-}: {
-    messages: CodexSessionMessage[]
-    defaultCollapsed: boolean
-}) {
-    const [collapsed, setCollapsed] = useState(defaultCollapsed || messages.length > 8)
-    const summary = formatWorkEventSummary(messages)
-
-    return (
-        <div className="space-y-3">
-            <button
-                type="button"
-                className="flex w-full items-center gap-2 border-t pt-3 text-left text-sm text-muted-foreground hover:text-foreground"
-                onClick={() => setCollapsed((current) => !current)}
-            >
-                <Sparkles className="h-3.5 w-3.5" />
-                <span className="min-w-0 flex-1 truncate">{summary}</span>
-                {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </button>
-            {!collapsed && (
-                <div className="space-y-3">
-                    {messages.map((message) => (
-                        <MessageBubble key={message.id} message={message} />
-                    ))}
-                </div>
-            )}
         </div>
     )
 }
@@ -2804,6 +2614,8 @@ function ImageGenerationCard({ message }: { message: CodexSessionMessage }) {
     const [, ...body] = message.content.split(/\n\n/u)
     const prompt = body.join('\n\n').trim()
     const urls = message.attachments ?? []
+    const catalogImages = useMemo(() => (message.attachments ?? []).map((src) => ({ id: src, src, label: '' })), [message.attachments])
+    useCodexImageCatalog(catalogImages)
 
     // pl-10 lines the card up with assistant bubbles (avatar h-7 + gap-3).
     // No file yet (still generating, or the run failed before saving) — keep a quiet hint.
@@ -2820,14 +2632,16 @@ function ImageGenerationCard({ message }: { message: CodexSessionMessage }) {
         <div className="space-y-1.5 pl-10">
             <div className="flex flex-wrap gap-2">
                 {urls.map((url, index) => (
-                    <button
-                        key={`${url}-${index}`}
-                        type="button"
-                        className="overflow-hidden rounded-xl border transition-opacity hover:opacity-90"
-                        onClick={() => setOpenUrl(url)}
-                    >
-                        <UserImage src={url} alt="" loading="lazy" className="max-h-80 w-auto max-w-full object-contain" />
-                    </button>
+                    <div key={`${url}-${index}`} className="relative w-fit max-w-full">
+                        <button
+                            type="button"
+                            className="block max-w-full overflow-hidden rounded-xl border transition-opacity hover:opacity-90"
+                            onClick={() => setOpenUrl(url)}
+                        >
+                            <UserImage src={url} alt="" loading="lazy" className="max-h-80 w-auto max-w-full object-contain" />
+                        </button>
+                        <CodexImageEditButton id={url} src={url} label="" />
+                    </div>
                 ))}
             </div>
             <GeneratedImagePrompt prompt={prompt} />
@@ -2836,11 +2650,23 @@ function ImageGenerationCard({ message }: { message: CodexSessionMessage }) {
     )
 }
 
-function CodexTurnBody({ messages, running }: { messages: CodexSessionMessage[]; running: boolean }) {
+type WorkGroupControls = {
+    activityStates: WorkGroupStates
+    onActivityChange: ChangeWorkGroup
+    reasoningStates: Record<string, boolean>
+    onReasoningChange: (id: string, expanded: boolean) => void
+}
+
+function CodexTurnBody({ messages, running, activityStates, onActivityChange, reasoningStates, onReasoningChange }: { messages: CodexSessionMessage[]; running: boolean } & WorkGroupControls) {
     const nodes: ReactNode[] = []
 
     for (let index = 0; index < messages.length;) {
         const message = messages[index]
+        if (message?.kind === 'reasoning') {
+            nodes.push(<CodexReasoningBlock key={message.id} message={message} running={running} expanded={reasoningStates[message.id]} onExpandedChange={onReasoningChange} />)
+            index += 1
+            continue
+        }
         if (message && isPinnedPlanUpdateMessage(message)) {
             index += 1
             continue
@@ -2863,13 +2689,13 @@ function CodexTurnBody({ messages, running }: { messages: CodexSessionMessage[];
                 group.push(messages[cursor])
                 cursor += 1
             }
-            const hasLaterAssistant = messages.slice(cursor).some((item) => item.role === 'assistant')
-            const defaultCollapsed = hasLaterAssistant || !running
             nodes.push(
-                <WorkEventGroup
-                    key={`work-${group[0]?.id ?? index}-${defaultCollapsed ? 'collapsed' : 'expanded'}-${group.length > 8 ? 'large' : 'small'}`}
+                <CodexWorkEventGroup
+                    key={group[0].id}
                     messages={group}
-                    defaultCollapsed={defaultCollapsed}
+                    running={running}
+                    state={activityStates[group[0].id]}
+                    onChange={onActivityChange}
                 />
             )
             index = cursor
@@ -2906,48 +2732,70 @@ function getLastAssistantIndex(messages: CodexSessionMessage[]) {
     return -1
 }
 
+function CodexTurnDuration({ messages, running }: { messages: CodexSessionMessage[]; running: boolean }) {
+    const [now, setNow] = useState(() => Date.now())
+    useEffect(() => {
+        if (!running) return
+        const timer = window.setInterval(() => setNow(Date.now()), 1000)
+        return () => window.clearInterval(timer)
+    }, [running])
+    return getTurnDurationLabel(messages, running, now)
+}
+
 function CodexTurnWorkGroup({
     messages,
     durationMessages,
     running,
-    now,
+    activityStates,
+    onActivityChange,
+    reasoningStates,
+    onReasoningChange,
 }: {
     messages: CodexSessionMessage[]
     durationMessages: CodexSessionMessage[]
     running: boolean
-    now: number
-}) {
-    const [collapsed, setCollapsed] = useState(() => !running || messages.length > 8)
-    const summary = getTurnDurationLabel(durationMessages, running, now)
+} & WorkGroupControls) {
+    const [collapsedByUser, setCollapsed] = useState<boolean | null>(null)
+    const hasReasoning = messages.some((message) => message.kind === 'reasoning')
+    const collapsed = collapsedByUser ?? (!running && !hasReasoning)
 
     return (
         <div className="space-y-4">
             <button
                 type="button"
                 className="flex w-full items-center gap-2 border-t pt-3 text-left text-sm text-muted-foreground hover:text-foreground"
-                onClick={() => setCollapsed((current) => !current)}
+                onClick={() => setCollapsed(!collapsed)}
             >
-                <span className="min-w-0 flex-1 truncate">{summary}</span>
+                <span className="min-w-0 flex-1 truncate"><CodexTurnDuration messages={durationMessages} running={running} /></span>
                 {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </button>
-            {!collapsed && <CodexTurnBody messages={messages} running={running} />}
+            {!collapsed && <CodexTurnBody messages={messages} running={running} activityStates={activityStates} onActivityChange={onActivityChange} reasoningStates={reasoningStates} onReasoningChange={onReasoningChange} />}
         </div>
     )
 }
 
-function CodexTurnGroup({
-    messages,
+export function CodexTurnGroup({
+    messages: allMessages,
     running,
-    now,
+    showReasoning,
 }: {
     messages: CodexSessionMessage[]
     running: boolean
-    now: number
+    showReasoning: boolean
 }) {
+    const messages = allMessages.filter((message) => message.kind !== 'reasoning' || (showReasoning && message.content.trim()))
+    const [reasoningStates, setReasoningStates] = useState<Record<string, boolean>>({})
+    const onReasoningChange = useCallback((id: string, expanded: boolean) => {
+        setReasoningStates((current) => ({ ...current, [id]: expanded }))
+    }, [])
+    const [activityStates, setActivityStates] = useState<WorkGroupStates>({})
+    const onActivityChange = useCallback<ChangeWorkGroup>((id, state) => {
+        setActivityStates((current) => ({ ...current, [id]: state }))
+    }, [])
     const userMessage = messages[0]
     const lastAssistantIndex = getLastAssistantIndex(messages)
     if (!userMessage || userMessage.role !== 'user' || lastAssistantIndex < 0) {
-        return <CodexTurnBody messages={messages} running={running} />
+        return <CodexTurnBody messages={messages} running={running} activityStates={activityStates} onActivityChange={onActivityChange} reasoningStates={reasoningStates} onReasoningChange={onReasoningChange} />
     }
 
     const middleMessages = messages.slice(1, lastAssistantIndex)
@@ -2965,11 +2813,14 @@ function CodexTurnGroup({
             <MessageBubble message={userMessage} />
             {workMessages.length > 0 && (
                 <CodexTurnWorkGroup
-                    key={`${userMessage.id}-${running ? 'running' : 'done'}-${workMessages.length > 8 ? 'large' : 'small'}`}
+                    key={userMessage.id}
                     messages={workMessages}
                     durationMessages={messages.slice(0, lastAssistantIndex + 1)}
                     running={running}
-                    now={now}
+                    activityStates={activityStates}
+                    onActivityChange={onActivityChange}
+                    reasoningStates={reasoningStates}
+                    onReasoningChange={onReasoningChange}
                 />
             )}
             {steerMessages.length > 0 && (
@@ -2987,7 +2838,7 @@ function CodexTurnGroup({
             {imageGenMessages.map((message) => (
                 <ImageGenerationCard key={message.id} message={message} />
             ))}
-            {trailingMessages.length > 0 && <CodexTurnBody messages={trailingMessages} running={running} />}
+            {trailingMessages.length > 0 && <CodexTurnBody messages={trailingMessages} running={running} activityStates={activityStates} onActivityChange={onActivityChange} reasoningStates={reasoningStates} onReasoningChange={onReasoningChange} />}
         </div>
     )
 }
@@ -3004,13 +2855,15 @@ function codexTurnPreviewText(value: string) {
 function CodexTimeline({
     messages,
     running,
+    showReasoning,
     scrollRootRef,
 }: {
     messages: CodexSessionMessage[]
     running: boolean
     scrollRootRef: RefObject<HTMLDivElement | null>
+    showReasoning: boolean
 }) {
-    const [now, setNow] = useState(() => Date.now())
+    const annotationReferences = useMemo(() => getCodexAnnotationReferences(messages), [messages])
     const turns = useMemo(() => splitMessagesIntoTurns(messages), [messages])
     const turnRefs = useRef<Array<HTMLDivElement | null>>([])
     const turnOffsetsRef = useRef<number[]>([])
@@ -3036,12 +2889,6 @@ function CodexTimeline({
         }),
         [navigableTurns]
     )
-
-    useEffect(() => {
-        if (!running) return
-        const timer = window.setInterval(() => setNow(Date.now()), 1000)
-        return () => window.clearInterval(timer)
-    }, [running])
 
     useLayoutEffect(() => {
         const root = scrollRootRef.current
@@ -3112,6 +2959,7 @@ function CodexTimeline({
     }
 
     return (
+        <CodexAnnotationReferencesContext.Provider value={annotationReferences}>
         <div className="relative min-w-0">
             <div className="pointer-events-none sticky top-3 z-30 h-0">
                 <CodexTurnNavigator
@@ -3133,18 +2981,23 @@ function CodexTimeline({
                         <CodexTurnGroup
                             messages={turn}
                             running={running && index === turns.length - 1}
-                            now={now}
+                            showReasoning={showReasoning}
                         />
                     </div>
                 ))}
             </div>
         </div>
+        </CodexAnnotationReferencesContext.Provider>
     )
 }
 
 export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexProps) {
+    const { showReasoning, customFastModeEnabled } = useCodexNovelSettings(novelId)
     const t = useTranslations('editor')
+    const tCommon = useTranslations('common')
     const sessionState = useEditorCodexStore((state) => state.sessionsByNovel[novelId?.trim() || '__default__'])
+    const loadSession = useEditorCodexStore((state) => state.loadSession)
+    const historyRequests = useEditorCodexStore((state) => state.historyRequestsBySession)
     const loadSessions = useEditorCodexStore((state) => state.loadSessions)
     const invalidateSessions = useEditorCodexStore((state) => state.invalidateSessions)
     const createSession = useEditorCodexStore((state) => state.createSession)
@@ -3163,15 +3016,20 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const setJsonArtifactUploading = useEditorCodexStore((state) => state.setJsonArtifactUploading)
     const queuedMessagesBySession = useEditorCodexStore((state) => state.queuedMessagesBySession)
     const queueingEnabledBySession = useEditorCodexStore((state) => state.queueingEnabledBySession)
+    const queuePausedBySession = useEditorCodexStore((state) => state.queuePausedBySession)
     const optimisticSteerMessagesBySession = useEditorCodexStore((state) => state.optimisticSteerMessagesBySession)
     const setQueuedMessages = useEditorCodexStore((state) => state.setQueuedMessages)
     const setQueueingEnabled = useEditorCodexStore((state) => state.setQueueingEnabled)
+    const setQueuePaused = useEditorCodexStore((state) => state.setQueuePaused)
     const setOptimisticSteerMessages = useEditorCodexStore((state) => state.setOptimisticSteerMessages)
     const sendMessage = useEditorCodexStore((state) => state.sendMessage)
     const compact = useEditorCodexStore((state) => state.compact)
     const stop = useEditorCodexStore((state) => state.stop)
     const pendingApprovalsBySession = useEditorCodexStore((state) => state.pendingApprovalsBySession)
     const resolveApproval = useEditorCodexStore((state) => state.resolveApproval)
+    const userInputRequestsBySession = useEditorCodexStore((state) => state.userInputRequestsBySession)
+    const answerUserInput = useEditorCodexStore((state) => state.answerUserInput)
+    const refreshUserInputRequests = useEditorCodexStore((state) => state.refreshUserInputRequests)
     const liveContextWindowBySession = useEditorCodexStore((state) => state.liveContextWindowBySession)
     const liveRateLimitsByConnection = useEditorCodexStore((state) => state.liveRateLimitsByConnection)
     const setLiveRateLimits = useEditorCodexStore((state) => state.setLiveRateLimits)
@@ -3196,6 +3054,20 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         error: string | null
     }>({ key: '', statuses: {}, loading: false, error: null })
     const scrollRef = useRef<HTMLDivElement | null>(null)
+    const imageEditorRef = useRef<CodexImageEditorHandle>(null)
+    const [markupActive, setMarkupActive] = useState(false)
+    const imageEditTriggerRef = useRef<HTMLElement | null>(null)
+    const [editingImage, setEditingImage] = useState<(CodexEditingImage & { sessionId: string }) | null>(null)
+    const [imageEditorLayout, setImageEditorLayout] = useState<'focused' | 'gallery'>('focused')
+    const commentSaveRequests = useRef(new Map<string, object>())
+    const [savingImageComment, setSavingImageComment] = useState(false)
+    const [imageEditorToolbar, setImageEditorToolbar] = useState<HTMLDivElement | null>(null)
+    const [imageCatalog, setImageCatalog] = useState<Record<string, { sessionId: string; images: CodexEditingImage[] }>>({})
+    const pendingImageRequests = useRef(new Map<string, { sessionId: string; imageId: string }>())
+    const resolvedEditingImages = useRef(new Map<string, Promise<string>>())
+    const [pendingImageSelections, setPendingImageSelections] = useState<{ sessionId: string; imageId: string }[]>([])
+    const sendingImageEditRef = useRef(false)
+    const [sendingImageEdit, setSendingImageEdit] = useState(false)
     const previousRunningRef = useRef(false)
     const resolvingApprovalRef = useRef<string | null>(null)
     const queueProcessingRef = useRef<string | null>(null)
@@ -3227,6 +3099,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     // Detailed outlines (细纲) are `@`-mentionable too: the author can point Codex at a chapter's 章纲
     // or a volume's 卷纲. Only chapters/acts that have a non-empty 细纲 surface as mentions.
     const [outlines, setOutlines] = useState<OutlineSummary[] | null>(null)
+    const mentionDataRevisionRef = useRef(0)
+    const [mentionDataRevision, setMentionDataRevision] = useState(0)
     // When a `/`-invoked ai_chat skill has a bound prompt, a Tweak dialog lets the author fill it
     // (auto-injecting overview + terms) and ship the resolved blocks as the message's artifact.
     const [tweakOpen, setTweakOpen] = useState(false)
@@ -3248,31 +3122,186 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const sessions = sessionState?.sessions ?? []
     const selectedSessionId = sessionState?.selectedSessionId ?? null
     const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null
+    const historyLoaded = selectedSession?.historyLoaded ?? false
+    const historyError = selectedSessionId ? historyRequests[selectedSessionId]?.error : null
+    useEffect(() => {
+        if (selectedSessionId && !historyLoaded) void loadSession(novelId, selectedSessionId)
+    }, [historyLoaded, loadSession, novelId, selectedSessionId])
+    const activeEditingImage = editingImage?.sessionId === selectedSessionId ? editingImage : null
+    const registerGeneratedImages = useCallback((key: string, images: CodexEditingImage[]) => {
+        if (!selectedSessionId) return () => {}
+        setImageCatalog((current) => ({ ...current, [key]: { sessionId: selectedSessionId, images } }))
+        return () => setImageCatalog((current) => {
+            const next = { ...current }
+            delete next[key]
+            return next
+        })
+    }, [selectedSessionId])
+    const generatedImages = useMemo(() => {
+        const images = new Map<string, CodexEditingImage>()
+        Object.values(imageCatalog).filter((entry) => entry.sessionId === selectedSessionId)
+            .flatMap((entry) => entry.images).forEach((image) => {
+                if (!images.has(image.id)) images.set(image.id, image)
+            })
+        return [...images.values()]
+    }, [imageCatalog, selectedSessionId])
+    const preparingEditingImage = pendingImageSelections.some((item) => item.sessionId === selectedSessionId)
+    const resolveEditingImageUrl = async (image: CodexEditingImage) => {
+        if (!image.src.startsWith('blob:')) return image.src
+        let upload = resolvedEditingImages.current.get(image.id)
+        if (!upload) {
+            upload = fetch(image.src).then((response) => response.blob()).then((blob) =>
+                uploadApi.image(new File([blob], 'editing-image.png', { type: blob.type }))
+            ).then((result) => result.url)
+            resolvedEditingImages.current.set(image.id, upload)
+        }
+        try {
+            return await upload
+        } catch (error) {
+            resolvedEditingImages.current.delete(image.id)
+            throw error
+        }
+    }
+    const selectEditingImage = async (image: CodexEditingImage, mode: 'focus' | 'single' | 'multi') => {
+        if (!selectedSessionId) return
+        image = generatedImages.find((item) => item.id === image.id) ?? image
+        const sessionId = selectedSessionId
+        setEditingImage({ ...image, sessionId })
+        if (mode === 'focus') return
+        const attachmentId = `${EDITING_IMAGE_ATTACHMENT_PREFIX}${image.id}`
+        const requestKey = `${sessionId}:${attachmentId}`
+        const syncPending = () => setPendingImageSelections([...pendingImageRequests.current.values()])
+        const currentItems = useEditorCodexStore.getState().imageAttachmentsBySession[sessionId] ?? []
+        if (mode === 'multi' && (currentItems.some((item) => item.id === attachmentId) || pendingImageRequests.current.has(requestKey))) {
+            pendingImageRequests.current.delete(requestKey)
+            syncPending()
+            updateImageAttachments(novelId, sessionId, currentItems.filter((item) => item.id !== attachmentId))
+            return
+        }
+        const otherItems = mode === 'multi' ? currentItems : currentItems.filter((item) => !item.id.startsWith(EDITING_IMAGE_ATTACHMENT_PREFIX))
+        const pendingCount = mode === 'multi' ? [...pendingImageRequests.current.values()].filter((item) => item.sessionId === sessionId).length : 0
+        if (otherItems.length + pendingCount >= ATTACHMENT_MAX_COUNT) {
+            handleAttachmentError('count')
+            return
+        }
+        if (mode === 'single') {
+            for (const [key, request] of pendingImageRequests.current) {
+                if (request.sessionId === sessionId) pendingImageRequests.current.delete(key)
+            }
+        }
+        const request = { sessionId, imageId: image.id }
+        pendingImageRequests.current.set(requestKey, request)
+        syncPending()
+        setRunError(null)
+        updateImageAttachments(novelId, sessionId, otherItems)
+        try {
+            const url = await resolveEditingImageUrl(image)
+            if (pendingImageRequests.current.get(requestKey) !== request) return
+            const latestItems = useEditorCodexStore.getState().imageAttachmentsBySession[sessionId] ?? []
+            if (latestItems.length >= ATTACHMENT_MAX_COUNT) {
+                handleAttachmentError('count')
+                return
+            }
+            updateImageAttachments(novelId, sessionId, [...latestItems, {
+                id: attachmentId, status: 'ready', url, previewUrl: url,
+            }])
+            return url
+        } catch (error) {
+            if (pendingImageRequests.current.get(requestKey) === request) setRunError(error instanceof Error ? error.message : String(error))
+        } finally {
+            if (pendingImageRequests.current.get(requestKey) === request) {
+                pendingImageRequests.current.delete(requestKey)
+                syncPending()
+            }
+        }
+    }
+    const removeCommentAttachments = () => {
+        if (!selectedSessionId) return
+        commentSaveRequests.current.delete(selectedSessionId)
+        const current = useEditorCodexStore.getState().imageAttachmentsBySession[selectedSessionId] ?? []
+        updateImageAttachments(novelId, selectedSessionId, current.filter((item) => !item.id.startsWith(COMMENT_IMAGE_ATTACHMENT_PREFIX)))
+    }
+    const saveImageComment = async (comment: ImagePointComment) => {
+        if (!selectedSessionId || !activeEditingImage) return false
+        const sessionId = selectedSessionId
+        const image = generatedImages.find((item) => item.id === activeEditingImage.id) ?? activeEditingImage
+        const attachmentId = `${COMMENT_IMAGE_ATTACHMENT_PREFIX}${image.id}`
+        const galleryId = `${EDITING_IMAGE_ATTACHMENT_PREFIX}${image.id}`
+        const request = {}
+        commentSaveRequests.current.set(sessionId, request)
+        setSavingImageComment(true)
+        setRunError(null)
+        try {
+            const url = await resolveEditingImageUrl(image)
+            if (commentSaveRequests.current.get(sessionId) !== request) return false
+            const current = useEditorCodexStore.getState().imageAttachmentsBySession[sessionId] ?? []
+            const existing = current.find((item) => item.id === attachmentId)
+            const otherItems = current.filter((item) => item.id !== attachmentId && item.id !== galleryId)
+            if (otherItems.length >= ATTACHMENT_MAX_COUNT) {
+                handleAttachmentError('count')
+                return false
+            }
+            const comments = [...(existing?.comments ?? [])]
+            const index = comments.findIndex((item) => item.id === comment.id)
+            if (index >= 0) comments[index] = comment
+            else comments.push(comment)
+            updateImageAttachments(novelId, sessionId, [...otherItems, {
+                id: attachmentId, status: 'ready', url, previewUrl: url, comments,
+            }])
+            return true
+        } catch (error) {
+            setRunError(error instanceof Error ? error.message : String(error))
+            return false
+        } finally {
+            if (commentSaveRequests.current.get(sessionId) === request) commentSaveRequests.current.delete(sessionId)
+            setSavingImageComment(false)
+        }
+    }
+    const changeImageEditorLayout = (layout: 'focused' | 'gallery', commenting: boolean) => {
+        if (layout === 'gallery' && imageEditorLayout !== 'gallery' && activeEditingImage) {
+            const current = selectedSessionId ? useEditorCodexStore.getState().imageAttachmentsBySession[selectedSessionId] ?? [] : []
+            if (commenting || current.some((item) => item.comments?.length)) {
+                removeCommentAttachments()
+                void selectEditingImage(activeEditingImage, 'single')
+            }
+        }
+        setImageEditorLayout(layout)
+    }
+    const openImageEditor = (image: CodexEditingImage) => {
+        imageEditTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        setImageEditorLayout('focused')
+        void selectEditingImage(image, 'focus')
+    }
+    const closeImageEditor = () => {
+        if (selectedSessionId) {
+            for (const [key, request] of pendingImageRequests.current) {
+                if (request.sessionId === selectedSessionId) pendingImageRequests.current.delete(key)
+            }
+            setPendingImageSelections([...pendingImageRequests.current.values()])
+            const current = useEditorCodexStore.getState().imageAttachmentsBySession[selectedSessionId] ?? []
+            updateImageAttachments(novelId, selectedSessionId, current.filter((item) => !item.id.startsWith(EDITING_IMAGE_ATTACHMENT_PREFIX)))
+        }
+        setEditingImage(null)
+        requestAnimationFrame(() => imageEditTriggerRef.current?.focus({ preventScroll: true }))
+    }
+    const sessionTitle = selectedSession
+        ? getCodexSessionPreviewTitle(selectedSession, t('codex.untitled'))
+        : t('codex.untitled')
     const responseAnnotations = selectedSessionId
         ? responseAnnotationsBySession[selectedSessionId] ?? []
         : []
     const imageItems = selectedSessionId ? imageAttachmentsBySession[selectedSessionId] ?? [] : []
+    const imageCommentPrompt = formatImageComments(imageItems)
+    const imageCommentCount = imageItems.reduce((count, item) => count + (item.comments?.length ?? 0), 0)
+    const activeImageComments = activeEditingImage ? imageItems.find((item) => item.id === `${COMMENT_IMAGE_ATTACHMENT_PREFIX}${activeEditingImage.id}`)?.comments ?? [] : []
     const jsonArtifactUploading = selectedSessionId
         ? jsonArtifactUploadingBySession[selectedSessionId] ?? false
         : false
     selectedSessionIdRef.current = selectedSessionId
 
-    const addResponseAnnotation = useCallback((text: string) => {
-        const sessionId = selectedSessionIdRef.current
-        const normalized = text.trim()
-        if (!sessionId || !normalized) return
-        setResponseAnnotationsBySession((current) => ({
-            ...current,
-            [sessionId]: [...(current[sessionId] ?? []), { text: normalized }],
-        }))
-        window.requestAnimationFrame(() => composerRef.current?.focus())
-    }, [])
-
-    const removeResponseAnnotation = (sessionId: string, index: number) => {
-        setResponseAnnotationsBySession((current) => ({
-            ...current,
-            [sessionId]: (current[sessionId] ?? []).filter((_, itemIndex) => itemIndex !== index),
-        }))
+    const updateResponseAnnotations = (annotations: CodexResponseAnnotation[]) => {
+        if (!selectedSessionId) return
+        setResponseAnnotationsBySession((current) => ({ ...current, [selectedSessionId]: annotations }))
     }
 
     const clearResponseAnnotations = (sessionId: string) => {
@@ -3288,7 +3317,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         scopeId: selectedSessionId,
         onItemsChange: (sessionId, updater) => {
             const current = useEditorCodexStore.getState().imageAttachmentsBySession[sessionId] ?? []
-            const nextItems = updater(current)
+            const updated = updater(current)
+            const nextItems = [
+                ...updated.filter((item) => !item.id.startsWith(EDITING_IMAGE_ATTACHMENT_PREFIX)),
+                ...updated.filter((item) => item.id.startsWith(EDITING_IMAGE_ATTACHMENT_PREFIX)),
+            ]
             updateImageAttachments(novelId, sessionId, nextItems)
             return nextItems
         },
@@ -3375,7 +3408,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     useEffect(() => {
         const refresh = () => {
             if (document.visibilityState === 'hidden') return
-            void loadSessions(novelId, { force: true })
+            void loadSessions(novelId, { force: true }).then(() => {
+                const state = useEditorCodexStore.getState().sessionsByNovel[novelId?.trim() || '__default__']
+                const selected = state?.sessions.find((session) => session.id === state.selectedSessionId)
+                if (selected) void loadSession(novelId, selected.id, { force: selected.status === 'running' })
+            })
         }
         refresh()
         const timer = window.setInterval(() => {
@@ -3391,7 +3428,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             window.removeEventListener('pageshow', refresh)
             window.removeEventListener('online', refresh)
         }
-    }, [loadSessions, novelId])
+    }, [loadSession, loadSessions, novelId])
 
     // Same when the active connection changes while this panel stays mounted.
     const activeConnectionId = useMemo(
@@ -3408,8 +3445,25 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     }, [activeConnectionId, invalidateSessions, loadSessions, novelId])
 
     useEffect(() => {
+        const refreshMentions = (event: Event) => {
+            const detail = (event as CustomEvent<NovelRefreshRequestedEventDetail>).detail
+            if (!novelId || detail?.novelId !== novelId) return
+            mentionDataRevisionRef.current += 1
+            setMentionDataRevision(mentionDataRevisionRef.current)
+            setSnippets(null)
+            setMaterials(null)
+            setActs(null)
+            setChapters(null)
+            setOutlines(null)
+        }
+        window.addEventListener(NOVEL_REFRESH_REQUESTED_EVENT, refreshMentions)
+        return () => window.removeEventListener(NOVEL_REFRESH_REQUESTED_EVENT, refreshMentions)
+    }, [novelId])
+
+    useEffect(() => {
         if (mention === null) return
         let cancelled = false
+        const revision = mentionDataRevisionRef.current
         if (modelGroups === null) {
             void authFetch('/api/ai/groups')
                 .then(async (response) => (response.ok ? response.json() : null))
@@ -3424,52 +3478,52 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         if (snippets === null && novelId) {
             void snippetApi.list(novelId)
                 .then((list) => {
-                    if (!cancelled) setSnippets(Array.isArray(list) ? list : [])
+                    if (!cancelled && revision === mentionDataRevisionRef.current) setSnippets(Array.isArray(list) ? list : [])
                 })
                 .catch(() => {
-                    if (!cancelled) setSnippets([])
+                    if (!cancelled && revision === mentionDataRevisionRef.current) setSnippets([])
                 })
         }
         if (materials === null && novelId) {
             void materialApi.list(novelId)
                 .then((list) => {
-                    if (!cancelled) setMaterials(Array.isArray(list) ? list : [])
+                    if (!cancelled && revision === mentionDataRevisionRef.current) setMaterials(Array.isArray(list) ? list : [])
                 })
                 .catch(() => {
-                    if (!cancelled) setMaterials([])
+                    if (!cancelled && revision === mentionDataRevisionRef.current) setMaterials([])
                 })
         }
         if (acts === null && novelId) {
             void actApi.list(novelId)
                 .then((list) => {
-                    if (!cancelled) setActs(Array.isArray(list) ? list : [])
+                    if (!cancelled && revision === mentionDataRevisionRef.current) setActs(Array.isArray(list) ? list : [])
                 })
                 .catch(() => {
-                    if (!cancelled) setActs([])
+                    if (!cancelled && revision === mentionDataRevisionRef.current) setActs([])
                 })
         }
         if (chapters === null && novelId) {
             void chapterApi.list(novelId)
                 .then((list) => {
-                    if (!cancelled) setChapters(Array.isArray(list) ? list : [])
+                    if (!cancelled && revision === mentionDataRevisionRef.current) setChapters(Array.isArray(list) ? list : [])
                 })
                 .catch(() => {
-                    if (!cancelled) setChapters([])
+                    if (!cancelled && revision === mentionDataRevisionRef.current) setChapters([])
                 })
         }
         if (outlines === null && novelId) {
             void outlineApi.list(novelId)
                 .then((list) => {
-                    if (!cancelled) setOutlines(Array.isArray(list) ? list : [])
+                    if (!cancelled && revision === mentionDataRevisionRef.current) setOutlines(Array.isArray(list) ? list : [])
                 })
                 .catch(() => {
-                    if (!cancelled) setOutlines([])
+                    if (!cancelled && revision === mentionDataRevisionRef.current) setOutlines([])
                 })
         }
         return () => {
             cancelled = true
         }
-    }, [mention, modelGroups, snippets, materials, acts, chapters, outlines, novelId])
+    }, [mention, modelGroups, snippets, materials, acts, chapters, outlines, novelId, mentionDataRevision])
 
     const snippetMentions = useMemo(() => buildSnippetMentionList(snippets ?? []), [snippets])
     const materialMentions = useMemo(() => buildMaterialMentionList(materials ?? []), [materials])
@@ -3615,13 +3669,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const ensureSnippets = async (): Promise<Snippet[]> => {
         if (snippets) return snippets
         if (!novelId) return []
+        const revision = mentionDataRevisionRef.current
         try {
             const list = await snippetApi.list(novelId)
             const next = Array.isArray(list) ? list : []
-            setSnippets(next)
+            if (revision === mentionDataRevisionRef.current) setSnippets(next)
             return next
         } catch {
-            setSnippets([])
+            if (revision === mentionDataRevisionRef.current) setSnippets([])
             return []
         }
     }
@@ -3629,13 +3684,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const ensureMaterials = async (): Promise<MaterialSummary[]> => {
         if (materials) return materials
         if (!novelId) return []
+        const revision = mentionDataRevisionRef.current
         try {
             const list = await materialApi.list(novelId)
             const next = Array.isArray(list) ? list : []
-            setMaterials(next)
+            if (revision === mentionDataRevisionRef.current) setMaterials(next)
             return next
         } catch {
-            setMaterials([])
+            if (revision === mentionDataRevisionRef.current) setMaterials([])
             return []
         }
     }
@@ -3643,13 +3699,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const ensureActs = async (): Promise<Act[]> => {
         if (acts) return acts
         if (!novelId) return []
+        const revision = mentionDataRevisionRef.current
         try {
             const list = await actApi.list(novelId)
             const next = Array.isArray(list) ? list : []
-            setActs(next)
+            if (revision === mentionDataRevisionRef.current) setActs(next)
             return next
         } catch {
-            setActs([])
+            if (revision === mentionDataRevisionRef.current) setActs([])
             return []
         }
     }
@@ -3657,13 +3714,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const ensureChapters = async (): Promise<Chapter[]> => {
         if (chapters) return chapters
         if (!novelId) return []
+        const revision = mentionDataRevisionRef.current
         try {
             const list = await chapterApi.list(novelId)
             const next = Array.isArray(list) ? list : []
-            setChapters(next)
+            if (revision === mentionDataRevisionRef.current) setChapters(next)
             return next
         } catch {
-            setChapters([])
+            if (revision === mentionDataRevisionRef.current) setChapters([])
             return []
         }
     }
@@ -3671,13 +3729,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const ensureOutlines = async (): Promise<OutlineSummary[]> => {
         if (outlines) return outlines
         if (!novelId) return []
+        const revision = mentionDataRevisionRef.current
         try {
             const list = await outlineApi.list(novelId)
             const next = Array.isArray(list) ? list : []
-            setOutlines(next)
+            if (revision === mentionDataRevisionRef.current) setOutlines(next)
             return next
         } catch {
-            setOutlines([])
+            if (revision === mentionDataRevisionRef.current) setOutlines([])
             return []
         }
     }
@@ -3761,8 +3820,8 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
 
     const draft = selectedSession?.draftContent ?? ''
     const reviewLevel = selectedSession?.reviewLevel ?? 'user_review'
-    const modelId = selectedSession?.modelId ?? DEFAULT_CODEX_MODEL
-    const reasoningEffort = selectedSession?.reasoningEffort ?? 'high'
+    const modelId = selectedSession?.modelId ?? DEFAULT_CODEX_CHAT_SETTINGS.modelId
+    const reasoningEffort = selectedSession?.reasoningEffort ?? DEFAULT_CODEX_CHAT_SETTINGS.reasoningEffort
     const serviceTier = selectedSession?.serviceTier ?? 'standard'
     const composerMode = selectedSession?.composerMode ?? 'default'
     const planMode = composerMode === 'plan'
@@ -3770,10 +3829,25 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     const goal = selectedSession?.goal ?? null
     const running = selectedSession?.status === 'running'
     const pendingApproval = selectedSession ? pendingApprovalsBySession[selectedSession.id] ?? null : null
+    const questionSessionId = selectedSession?.id
+    const questionSessionRunning = selectedSession?.status === 'running'
+    useEffect(() => {
+        if (!questionSessionId || !questionSessionRunning) return
+        let disposed = false
+        let timeout: ReturnType<typeof setTimeout>
+        const refresh = async () => {
+            await refreshUserInputRequests(questionSessionId).catch(() => {})
+            if (!disposed) timeout = setTimeout(refresh, 2000)
+        }
+        void refresh()
+        return () => { disposed = true; clearTimeout(timeout) }
+    }, [questionSessionId, questionSessionRunning, refreshUserInputRequests])
     const queuedMessages = selectedSession ? queuedMessagesBySession[selectedSession.id] ?? [] : []
     const queueingEnabled = selectedSession ? queueingEnabledBySession[selectedSession.id] ?? true : true
+    const queuePaused = selectedSession ? queuePausedBySession[selectedSession.id] ?? false : false
     const jsonArtifacts = selectedSession?.draftArtifacts ?? []
-    const draftIsEmpty = !draft.trim()
+    const draftIsEmpty = !draft.trim() && !imageCommentPrompt && !markupActive
+        && (responseAnnotations.length === 0 || (goalMode && !running))
 
     useEffect(() => {
         if (!selectedSession?.id) return
@@ -3795,7 +3869,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         if (chapters === null) void ensureChapters()
         if (outlines === null) void ensureOutlines()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [draft, modelGroups, snippets, materials, acts, chapters, outlines])
+    }, [draft, modelGroups, snippets, materials, acts, chapters, outlines, mentionDataRevision])
 
     // Skills use `/`, not `@`. Load them for restored drafts so slash-skill coloring and the bound
     // prompt Tweak action survive a reload.
@@ -3857,6 +3931,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             optimisticSteerMessagesBySession[selectedSession.id] ?? []
         )
     }, [optimisticSteerMessagesBySession, selectedSession])
+    const latestImageEditorTurn = useMemo(
+        () => activeEditingImage ? (splitMessagesIntoTurns(timelineMessages).at(-1) ?? [])
+            .filter((message) => message.role === 'assistant') : [],
+        [activeEditingImage, timelineMessages]
+    )
     const sceneEditIds = useMemo(() => {
         const ids = new Set<string>()
         for (const message of timelineMessages) {
@@ -3968,7 +4047,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         : null
     const hasChatGptAuth = isAuthenticatedChatGptCodexConnection(sessionConnection)
     const currentModelSupportsFastMode = modelSupportsCodexFastMode(activeModelCatalog, modelId)
-    const showServiceTier = currentModelSupportsFastMode
+    const showServiceTier = isCodexFastModeAllowed(sessionConnection, customFastModeEnabled) && currentModelSupportsFastMode
     const fastModeActive = showServiceTier && serviceTier === 'fast'
     const fastModeDescription = sessionConnection?.providerType === 'custom'
         ? t('codex.serviceTierDescriptions.fastCustom')
@@ -4008,7 +4087,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                 name: 'fast',
                 title: t('codex.slashFast.title'),
                 description: fastModeActive ? t('codex.slashFast.turnOff') : t('codex.slashFast.turnOn'),
-                disabled: running,
+                disabled: false,
             })
         }
         return items
@@ -4053,7 +4132,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             ? approvalActionSelection.optionId
             : approvalOptions[0]?.id ?? 'accept'
     const composerButtonTitle = running
-        ? draftIsEmpty
+        ? draftIsEmpty || (markupActive && sendingImageEdit)
             ? 'Stop Codex'
             : queueingEnabled && !goalMode
                 ? 'Queue message'
@@ -4138,10 +4217,10 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         artifactFiles?: string[],
         responseAnnotations?: CodexResponseAnnotation[]
     ) => {
-        if (!content.trim() || running) return
+        if ((!content.trim() && !responseAnnotations?.length) || running) return { accepted: false, error: null }
         setRunError(null)
         const targetSessionId = sessionId ?? await ensureSession()
-        if (!targetSessionId) return
+        if (!targetSessionId) return { accepted: false, error: null }
         try {
             await sendMessage(novelId, targetSessionId, content.trim(), {
                 skillIds,
@@ -4150,8 +4229,11 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                 artifactFiles,
                 responseAnnotations,
             })
+            return { accepted: true, error: null }
         } catch (error) {
-            setRunError(error instanceof Error ? error.message : String(error))
+            const detail = error instanceof Error ? error.message : String(error)
+            setRunError(detail)
+            return { accepted: error instanceof CodexSendError && error.accepted, error: detail }
         }
     }
 
@@ -4195,14 +4277,15 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         }
 
         const merged = mergeQueuedCodexMessages(currentQueue)
+        setQueuePaused(sessionId, true)
         setQueuedMessages(sessionId, () => [])
         setQueueingEnabled(sessionId, false)
 
         try {
             if (running) {
                 await steerContent(merged.content, sessionId, merged.attachments, merged.responseAnnotations)
-            } else if (merged.content) {
-                await sendContent(
+            } else if (merged.content || merged.responseAnnotations.length > 0) {
+                const result = await sendContent(
                     merged.content,
                     sessionId,
                     undefined,
@@ -4211,22 +4294,29 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                     undefined,
                     merged.responseAnnotations
                 )
+                if (!result.accepted) {
+                    setQueuedMessages(sessionId, (current) => [...currentQueue, ...current])
+                    setQueueingEnabled(sessionId, true)
+                    return
+                }
+                if (result.error) return
             }
+            setQueuePaused(sessionId, false)
         } catch (error) {
-            setQueuedMessages(sessionId, () => currentQueue)
+            setQueuedMessages(sessionId, (current) => [...currentQueue, ...current])
             setQueueingEnabled(sessionId, true)
             setRunError(error instanceof Error ? error.message : String(error))
         }
     }
 
     const processQueuedMessage = useEffectEvent(async (sessionId: string, message: QueuedCodexMessage) => {
-        if (queueProcessingRef.current === sessionId) return
+        if (queueProcessingRef.current === sessionId || queuePausedBySession[sessionId]) return
 
         queueProcessingRef.current = sessionId
         setQueuedMessages(sessionId, (current) => current.slice(1))
 
         try {
-            await sendContent(
+            const result = await sendContent(
                 message.content,
                 sessionId,
                 undefined,
@@ -4235,7 +4325,10 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                 undefined,
                 message.responseAnnotations
             )
+            if (!result.accepted || result.error) setQueuePaused(sessionId, true)
+            if (!result.accepted) setQueuedMessages(sessionId, (current) => [message, ...current])
         } catch (error) {
+            setQueuePaused(sessionId, true)
             setRunError(error instanceof Error ? error.message : String(error))
             setQueuedMessages(sessionId, (current) => [message, ...current])
         } finally {
@@ -4250,7 +4343,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         responseAnnotations: CodexResponseAnnotation[] = []
     ) => {
         const normalizedContent = flattenSkillCommandsForSteer(content).trim()
-        if (!normalizedContent) return
+        if (!normalizedContent && responseAnnotations.length === 0) return
         setRunError(null)
         const targetSessionId = sessionId ?? await ensureSession()
         if (!targetSessionId) return
@@ -4345,7 +4438,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     }
 
     const runFastSlash = (token: { start: number; query: string }) => {
-        if (running) return
         const nextDraft = removeSlashToken(token)
         setRunError(null)
         setSlash(null)
@@ -4402,11 +4494,18 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         const exactBuiltin = slash && slash.query
             ? builtinSlashCommands.find((item) => item.name === slash.query.toLocaleLowerCase() && !item.disabled)
             : null
-        if (exactBuiltin) {
+        if (exactBuiltin && !markupActive) {
             activateSlashItem(exactBuiltin)
             return
         }
-        if (!draft.trim() || imageAttachments.uploading || jsonArtifactUploading) return
+        if (draftIsEmpty || imageAttachments.uploading || jsonArtifactUploading || preparingEditingImage || savingImageComment || (markupActive && sendingImageEditRef.current)) return
+        const markupEditor = markupActive ? imageEditorRef.current : null
+        if (markupActive && (running || !markupEditor)) return
+        if (markupEditor) {
+            sendingImageEditRef.current = true
+            setSendingImageEdit(true)
+            setRunError(null)
+        }
 
         void (async () => {
             const targetSessionId = selectedSession?.id ?? await ensureSession()
@@ -4431,15 +4530,32 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             const expandedOutlines = expandDetailedOutlineMentions(expandedMaterials, hasMention ? buildDetailedOutlineMentionList(outlineList, chapterList, actList) : [])
             const expandedActs = expandActMentions(expandedOutlines, hasMention ? buildActMentionList(actList, chapterList) : [])
             const expandedText = expandChapterMentions(expandedActs, hasMention ? buildChapterMentionList(chapterList) : [])
-            const content = expandedText.trim()
-            if (!content) return
+            const content = markupEditor ? expandedText.trim() : [expandedText.trim(), imageCommentPrompt].filter(Boolean).join('\n\n')
+            const annotations = responseAnnotationsBySession[targetSessionId] ?? []
+            if (!content && !markupEditor && annotations.length === 0) return
             if (goalMode && !goal && content.length > 4000) {
                 setRunError(t('codex.goal.tooLong'))
                 return
             }
+            if (markupEditor) {
+                const blob = await markupEditor.exportMarkup()
+                const { url } = await uploadApi.image(new File([blob], 'markup.png', { type: 'image/png' }))
+                const finish = () => {
+                    const current = useEditorCodexStore.getState().sessionsByNovel[novelId?.trim() || '__default__']?.sessions.find((session) => session.id === targetSessionId)
+                    if (current?.draftContent === draft) updateDraft(novelId, targetSessionId, '')
+                    markupEditor.finishMarkup()
+                }
+                try {
+                    await sendMessage(novelId, targetSessionId, content, { attachments: [url], skillIds, preserveComposer: true })
+                    finish()
+                } catch (error) {
+                    if (error instanceof CodexSendError && error.accepted) finish()
+                    throw error
+                }
+                return
+            }
             const attachments = imageAttachments.readyUrls
             const artifactFiles = jsonArtifacts.map((artifact) => artifact.fileName)
-            const annotations = responseAnnotationsBySession[targetSessionId] ?? []
 
             if (running) {
                 if (queueingEnabled && !goalMode) {
@@ -4466,7 +4582,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                     : undefined
 
             setTweakOpen(false)
-            imageAttachments.clear()
             clearResponseAnnotations(targetSessionId)
             updateDraftArtifacts(novelId, targetSessionId, [])
             await sendContent(
@@ -4482,16 +4597,43 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
             setTweakChatInput('')
         })().catch((error) => {
             setRunError(error instanceof Error ? error.message : String(error))
+        }).finally(() => {
+            if (markupEditor) {
+                sendingImageEditRef.current = false
+                setSendingImageEdit(false)
+            }
         })
     }
 
+    const sendImageEdit = async (prompt: string, mask?: Blob) => {
+        if (!selectedSessionId || !activeEditingImage || running || preparingEditingImage || sendingImageEditRef.current) return false
+        sendingImageEditRef.current = true
+        setSendingImageEdit(true)
+        setRunError(null)
+        try {
+            const url = await resolveEditingImageUrl(activeEditingImage)
+            const maskUrl = mask ? (await uploadApi.image(new File([mask], 'removal-mask.png', { type: 'image/png' }))).url : null
+            await sendMessage(novelId, selectedSessionId, prompt, {
+                attachments: maskUrl ? [url, maskUrl] : [url],
+                preserveComposer: true,
+            })
+            return true
+        } catch (error) {
+            setRunError(error instanceof Error ? error.message : String(error))
+            return false
+        } finally {
+            sendingImageEditRef.current = false
+            setSendingImageEdit(false)
+        }
+    }
+
     useEffect(() => {
-        if (!selectedSession?.id || running) return
+        if (!selectedSession?.id || running || queuePaused) return
         const nextQueuedMessage = queuedMessagesBySession[selectedSession.id]?.[0]
         if (!nextQueuedMessage) return
 
         void processQueuedMessage(selectedSession.id, nextQueuedMessage)
-    }, [queuedMessagesBySession, running, selectedSession?.id])
+    }, [queuedMessagesBySession, running, selectedSession?.id, queuePaused])
 
     useEffect(() => {
         if (!selectedSession?.id) return
@@ -4680,16 +4822,36 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
     return (
         <CodexNovelIdContext.Provider value={novelId}>
         <CodexSessionIdContext.Provider value={selectedSession?.id ?? null}>
-        <CodexResponseAnnotationContext.Provider value={addResponseAnnotation}>
+        <CodexResponseAnnotationsProvider key={selectedSessionId} annotations={responseAnnotations} onChange={updateResponseAnnotations}>
         <CodexNavContext.Provider value={onNavigateToWrite}>
         <SceneEditStatusContext.Provider value={sceneEditStatusContextValue}>
         <ImageViewerExtraActionsProvider render={(src) => <TermGalleryImportButton novelId={novelId} src={src} />}>
+        <CodexImageEditContext.Provider value={openImageEditor}>
+        <CodexImageCatalogContext.Provider value={registerGeneratedImages}>
         <div className="flex h-full min-h-0 flex-col bg-background">
             <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
                 <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <Bot className="h-4 w-4 text-primary" />
-                    <span className="truncate text-sm font-medium">{selectedSession?.title || t('codex.untitled')}</span>
+                    {activeEditingImage ? <ImageIcon className="h-4 w-4 shrink-0 text-primary" /> : <Bot className="h-4 w-4 text-primary" />}
+                    <span className="truncate text-sm font-medium" title={sessionTitle}>{sessionTitle}</span>
+                    {activeEditingImage && (
+                        <Button
+                            type="button"
+                            size="icon-sm"
+                            variant="ghost"
+                            className="shrink-0"
+                            autoFocus
+                            disabled={markupActive && sendingImageEdit}
+                            onClick={() => imageEditorRef.current?.requestLeave(closeImageEditor)}
+                            title={t('codex.imageEditor.close')}
+                            aria-label={t('codex.imageEditor.close')}
+                        >
+                            <X className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
+                {activeEditingImage ? (
+                    <div ref={setImageEditorToolbar} className="shrink-0" />
+                ) : (
                 <Button
                     type="button"
                     size="icon-sm"
@@ -4700,17 +4862,52 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                 >
                     <Plus className="h-4 w-4" />
                 </Button>
+                )}
             </div>
 
+            <div className="relative flex min-h-0 flex-1 flex-col">
+            {activeEditingImage && <CodexImageEditorCanvas
+                key={activeEditingImage.sessionId}
+                ref={imageEditorRef}
+                onMarkupChange={setMarkupActive}
+                image={activeEditingImage}
+                images={generatedImages}
+                toolbar={imageEditorToolbar}
+                layout={imageEditorLayout}
+                onLayoutChange={changeImageEditorLayout}
+                comments={activeImageComments}
+                commentCount={imageCommentCount}
+                onSaveComment={saveImageComment}
+                onSendComments={submit}
+                selectedImageIds={[
+                    ...imageItems.filter((item) => item.id.startsWith(EDITING_IMAGE_ATTACHMENT_PREFIX)).map((item) => item.id.slice(EDITING_IMAGE_ATTACHMENT_PREFIX.length)),
+                    ...pendingImageSelections.filter((item) => item.sessionId === selectedSessionId).map((item) => item.imageId),
+                ]}
+                onSelect={(image, mode) => void selectEditingImage(image, mode)}
+                onRemoveBackground={() => void sendImageEdit(REMOVE_IMAGE_BACKGROUND_PROMPT)}
+                onResize={(ratio) => void sendImageEdit(`Make the aspect ratio ${ratio}`)}
+                onRemoveArea={(mask) => sendImageEdit(REMOVE_IMAGE_AREA_PROMPT, mask)}
+                busy={running || sendingImageEdit || preparingEditingImage || savingImageComment || imageAttachments.uploading}
+            />}
+            {activeEditingImage && runError && <div role="alert" className="absolute inset-x-4 top-14 z-20 rounded-lg border border-destructive/30 bg-background px-3 py-2 text-xs text-destructive">{runError}</div>}
             <div
                 ref={scrollRef}
-                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain"
+                className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain', activeEditingImage && 'invisible pointer-events-none')}
+                inert={activeEditingImage ? true : undefined}
+                aria-hidden={activeEditingImage ? true : undefined}
                 onWheel={() => {
                     if (selectedSession) markSessionRead(novelId, selectedSession.id)
                 }}
             >
                 <div className="flex min-h-full w-full min-w-0 flex-col px-4 py-4">
-                    {!selectedSession || timelineMessages.length === 0 ? (
+                    {selectedSession && !historyLoaded && timelineMessages.length === 0 ? (
+                        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted-foreground" role="status">
+                            {historyError ? <>
+                                <span>{historyError}</span>
+                                <Button variant="outline" size="sm" onClick={() => void loadSession(novelId, selectedSession.id)}>{tCommon('retry')}</Button>
+                            </> : <><Loader2 className="h-5 w-5 animate-spin" /><span>{tCommon('loading')}</span></>}
+                        </div>
+                    ) : !selectedSession || timelineMessages.length === 0 ? (
                         <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center text-muted-foreground">
                             <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-muted-foreground/20 text-muted-foreground/60">
                                 <Bot className="h-8 w-8" />
@@ -4724,6 +4921,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             <CodexTimeline
                                 messages={timelineMessages}
                                 running={running}
+                                showReasoning={showReasoning}
                                 scrollRootRef={scrollRef}
                             />
                             {running && (
@@ -4742,7 +4940,12 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                 </div>
             </div>
 
-            <div className="shrink-0 p-3">
+            <div className={cn('shrink-0 p-3', activeEditingImage && 'relative z-10 mx-auto max-h-[85%] w-full max-w-4xl overflow-y-auto')}>
+                {activeEditingImage && (
+                    <CodexImageLatestTurn key={`${activeEditingImage.sessionId}:${activeEditingImage.src}`}>
+                        <CodexTurnGroup messages={latestImageEditorTurn} running={running} showReasoning={showReasoning} />
+                    </CodexImageLatestTurn>
+                )}
                 {selectedSession && queuedMessages.length > 0 && (
                     <div className="mb-3 space-y-2">
                         <div className="flex items-center gap-2 px-1 text-sm font-medium text-muted-foreground">
@@ -4751,6 +4954,18 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             <Badge variant="secondary" className="h-5 shrink-0 text-[10px]">
                                 {queuedMessages.length}
                             </Badge>
+                            {queuePaused && (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="ml-auto"
+                                    onClick={() => setQueuePaused(selectedSession.id, false)}
+                                >
+                                    <Play className="h-3.5 w-3.5" />
+                                    {t('codex.resumeQueue')}
+                                </Button>
+                            )}
                         </div>
                         <div className="space-y-2">
                             {queuedMessages.map((message) => (
@@ -4838,6 +5053,14 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         </div>
                     </div>
                 )}
+                {selectedSession && (userInputRequestsBySession[selectedSession.id] ?? []).map((request) => (
+                    <CodexUserInputPanel
+                        key={request.id}
+                        request={request}
+                        onAnswer={(response) => answerUserInput(selectedSession.id, request.id, response)}
+                        onExpired={() => refreshUserInputRequests(selectedSession.id)}
+                    />
+                ))}
                 {pendingApproval ? (
                     <CodexComposerActionPrompt
                         title={getApprovalTitle(pendingApproval, t)}
@@ -4906,14 +5129,15 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             </div>
                         </div>
                     )}
-                    <ResponseAnnotationChips
+                    <ResponseAnnotationSummary
                         annotations={responseAnnotations}
-                        onRemove={selectedSessionId
-                            ? (index) => removeResponseAnnotation(selectedSessionId, index)
-                            : undefined}
+                        editable
                         className="mb-2"
                     />
-                    <AttachmentStrip items={imageAttachments.items} onRemove={imageAttachments.removeItem} className="mb-2" />
+                    <div className="mb-2 flex flex-wrap items-end gap-2">
+                        <AttachmentStrip items={imageAttachments.items} onRemove={imageAttachments.removeItem} />
+                        <ImageCommentSummary items={imageAttachments.items} onRemove={removeCommentAttachments} />
+                    </div>
                     {jsonArtifacts.length > 0 && (
                         <div className="mb-2 flex flex-wrap gap-1.5">
                             {jsonArtifacts.map((artifact) => (
@@ -5175,7 +5399,6 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                                 </DropdownMenuItem>
                                 {showServiceTier && (
                                     <DropdownMenuItem
-                                        disabled={running}
                                         title={fastModeDescription}
                                         onSelect={() => setFastMode(!fastModeActive)}
                                     >
@@ -5338,17 +5561,19 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                             <ContextWindowIndicator contextWindow={latestContextWindow} />
                             <div className="min-w-0 flex-1 overflow-hidden">
                                 <CodexModelPicker
+                                    key={selectedSession?.id ?? "new"}
                                     modelId={modelId}
                                     reasoningEffort={reasoningEffort}
                                     serviceTier={serviceTier}
                                     models={activeModelCatalog}
                                     includeBuiltinModels={
-                                        sessionConnection?.providerType !== 'custom' || isNativeCodexModelId(modelId)
+                                        sessionConnection?.providerType !== 'custom' || isGptCodexModelId(modelId)
                                     }
                                     showServiceTier={showServiceTier}
                                     fastModeDescription={fastModeDescription}
-                                    disabled={running}
+                                    modelSettingsDisabled={running}
                                     onChange={selectModelSetting}
+                                    onFastModeChange={setFastMode}
                                 />
                             </div>
                         </div>
@@ -5357,9 +5582,9 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         type="button"
                         size="icon-sm"
                         className="absolute bottom-3 right-3 h-9 w-9 rounded-full"
-                        disabled={!running && draftIsEmpty}
+                        disabled={preparingEditingImage || savingImageComment || (!running && sendingImageEdit) || (!running && draftIsEmpty)}
                         onClick={() => {
-                            if (running && draftIsEmpty) {
+                            if (running && (draftIsEmpty || (markupActive && sendingImageEdit))) {
                                 void stopTurn(selectedSession?.id)
                                 return
                             }
@@ -5368,7 +5593,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                         title={composerButtonTitle}
                         aria-label={composerButtonTitle}
                     >
-                        {running && draftIsEmpty ? (
+                        {running && (draftIsEmpty || (markupActive && sendingImageEdit)) ? (
                             <CircleStop className="h-3.5 w-3.5 animate-pulse" />
                         ) : running ? (
                             <ArrowUp className="h-4 w-4" />
@@ -5381,6 +5606,9 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
                 )}
             </div>
         </div>
+        </div>
+        </CodexImageCatalogContext.Provider>
+        </CodexImageEditContext.Provider>
         {activePromptSkill && novelId && (
             <CodexSkillTweakDialog
                 novelId={novelId}
@@ -5398,7 +5626,7 @@ export function RightPanelCodex({ novelId, onNavigateToWrite }: RightPanelCodexP
         </ImageViewerExtraActionsProvider>
         </SceneEditStatusContext.Provider>
         </CodexNavContext.Provider>
-        </CodexResponseAnnotationContext.Provider>
+        </CodexResponseAnnotationsProvider>
         </CodexSessionIdContext.Provider>
         </CodexNovelIdContext.Provider>
     )

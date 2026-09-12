@@ -246,6 +246,8 @@ export default function EditorPage({ params }: EditorPageProps) {
     // Right sidebar state
     const [rightSidebarWidth, setRightSidebarWidth] = useState(520) // Default to the current max width for chat/preview usage
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true)
+    const [rightSidebarExpanded, setRightSidebarExpanded] = useState(false)
+    const rightSidebarExpansionActive = rightSidebarExpanded && rightSidebarOpen && activeTab === 'write' && !focusMode
 
     useEffect(() => {
         if (activeTab === 'storyState') editorScrollRef.current?.scrollTo({ top: 0, left: 0 })
@@ -1583,6 +1585,7 @@ export default function EditorPage({ params }: EditorPageProps) {
                                 <MiddlePanelWrite
                                     novelId={novelId ?? undefined}
                                     focusMode={focusMode}
+                                    stackInfoPanels={rightSidebarExpansionActive}
                                     viewFilter={viewFilter}
                                     selectedActNumber={selectedActNumber}
                                     selectedChapterId={selectedChapterId}
@@ -1694,11 +1697,15 @@ export default function EditorPage({ params }: EditorPageProps) {
                     <RightPanel
                         novelId={novelId ?? undefined}
                         width={rightSidebarWidth}
+                        expanded={rightSidebarExpansionActive}
+                        canExpand={activeTab === 'write'}
                         onClose={() => {
                             setRightSidebarOpen(false)
+                            setRightSidebarExpanded(false)
                             setMobilePane('middle')
                         }}
                         onWidthChange={setRightSidebarWidth}
+                        onExpandedChange={setRightSidebarExpanded}
                         onNavigateToWrite={navigateToWriteTarget}
                     />
                 </div>

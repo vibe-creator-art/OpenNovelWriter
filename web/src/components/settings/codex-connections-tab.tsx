@@ -26,7 +26,7 @@ import {
 } from '@/lib/api'
 import {
     applyCodexUpstreamModelCapabilities,
-    applyDeepSeekV4ModelDefaults,
+    applyDeepSeekModelDefaults,
     applyNativeCodexModelCapabilities,
     createDefaultCodexProviderModel,
     getDefaultCodexAuthJson,
@@ -369,9 +369,7 @@ export function CodexConnectionsTab() {
     function addDiscoveredModel() {
         const discovered = discoveredModels.find((model) => model.id === discoveredModelId)
         if (!discovered || form.models.some((model) => model.id === discovered.id)) return
-        // createDefault already applies known vendor defaults (e.g. DeepSeek V4).
-        // Re-apply host-gated capabilities so official DeepSeek Responses connections
-        // show 1M context / low-high-max immediately, without waiting for save.
+        // Show known model capabilities as soon as a model is added.
         const model = applyCodexUpstreamModelCapabilities(
             createDefaultCodexProviderModel(discovered.id),
             form.upstreamFormat,
@@ -391,11 +389,10 @@ export function CodexConnectionsTab() {
             const models = current.models.map((model, modelIndex) => {
                 if (modelIndex !== index) return model
                 let next = { ...model, ...update }
-                // When the upstream model id changes to a known DeepSeek V4 id,
-                // seed the official defaults immediately in the form.
+                // Refresh known capabilities when the model ID changes.
                 if (update.id !== undefined && update.id !== model.id) {
                     next = applyCodexUpstreamModelCapabilities(
-                        applyDeepSeekV4ModelDefaults(next),
+                        applyDeepSeekModelDefaults(next),
                         current.upstreamFormat,
                         current.baseUrl,
                     )

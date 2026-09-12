@@ -90,6 +90,12 @@ export function LeftPanelMenu({
 }: LeftPanelMenuProps) {
     const t = useTranslations('editor')
     const [searchQuery, setSearchQuery] = useState('')
+    const [termsPanel, setTermsPanel] = useState({ novelId, mounted: sidebarTab === 'term' })
+    if (termsPanel.novelId !== novelId) {
+        setTermsPanel({ novelId, mounted: sidebarTab === 'term' })
+    } else if (sidebarTab === 'term' && !termsPanel.mounted) {
+        setTermsPanel({ novelId, mounted: true })
+    }
     const normalizedQuery = searchQuery.trim().toLowerCase()
     const isSearching = normalizedQuery.length > 0
 
@@ -290,7 +296,7 @@ export function LeftPanelMenu({
 
                 {sidebarTab === 'chapterOutline' && (
                     <LeftPanelChapterOutline
-                        key={novelId ?? 'default'}
+                        key={`chapter-outline:${novelId ?? 'default'}`}
                         novelId={novelId}
                         isCompact={isCompact}
                         chapters={chapters}
@@ -313,10 +319,11 @@ export function LeftPanelMenu({
                     />
                 )}
 
-                {sidebarTab === 'term' && (
+                {termsPanel.novelId === novelId && termsPanel.mounted && (
                     <LeftPanelTerms
-                        key={novelId ?? 'default'}
+                        key={`terms:${novelId ?? 'default'}`}
                         novelId={novelId}
+                        active={sidebarTab === 'term'}
                         isCompact={isCompact}
                         chapters={chapters}
                         requestedOpenEntry={requestedOpenTermEntry}
@@ -329,7 +336,7 @@ export function LeftPanelMenu({
 
                 {sidebarTab === 'snippets' && (
                     <LeftPanelSnippets
-                        key={novelId ?? 'default'}
+                        key={`snippets:${novelId ?? 'default'}`}
                         novelId={novelId}
                         isCompact={isCompact}
                         requestedOpenSnippetId={requestedOpenSnippetId}

@@ -113,7 +113,7 @@ export function chatUsageToResponses(value: unknown) {
 
 export function extractReasoning(value: JsonObject) {
     for (const key of ['reasoning_content', 'reasoning', 'thinking']) {
-        if (typeof value[key] === 'string' && value[key].trim()) return value[key]
+        if (typeof value[key] === 'string' && value[key].length) return value[key]
     }
     const content = typeof value.content === 'string' ? value.content : ''
     const match = content.match(/^\s*<think>([\s\S]*?)<\/think>\s*/i)

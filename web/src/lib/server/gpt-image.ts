@@ -13,17 +13,16 @@ const MAX_IMAGES_PER_REQUEST = 10
 const MAX_INPUT_IMAGES = 16
 const MAX_INPUT_FILE_BYTES = 50 * 1024 * 1024
 const ALLOWED_IMAGE_EXTENSIONS = new Set(['.jpeg', '.jpg', '.png', '.webp'])
-const ALLOWED_QUALITIES = new Set(['auto', 'low', 'medium', 'high'])
-const ALLOWED_BACKGROUNDS = new Set(['auto', 'opaque'])
+const ALLOWED_QUALITIES = new Set(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
+const ALLOWED_BACKGROUNDS = new Set(['auto', 'opaque', 'transparent'])
+const ALLOWED_INPUT_FIDELITIES = new Set(['high', 'low'])
 const ALLOWED_OUTPUT_FORMATS = new Set(['png', 'jpeg', 'webp'])
 const ALLOWED_MODERATION = new Set(['auto', 'low'])
 
 type JsonObject = Record<string, unknown>
 
-type ImageReference = {
-    path: string
-    role: string | null
-}
+type ImageSource = { path: string } | { imageUrl: string } | { fileId: string }
+type ImageReference = ImageSource & { role: string | null }
 
 type ImageJobOptions = {
     size: string
@@ -33,6 +32,7 @@ type ImageJobOptions = {
     outputFormat: 'png' | 'jpeg' | 'webp'
     outputCompression: number | null
     moderation: string | null
+    inputFidelity: string | null
 }
 
 type ImageJob = ImageJobOptions & {
@@ -40,7 +40,7 @@ type ImageJob = ImageJobOptions & {
     label: string
     prompt: string
     images: ImageReference[]
-    mask: string | null
+    mask: ImageSource | null
 }
 
 type ImageBatch = {
@@ -48,14 +48,12 @@ type ImageBatch = {
     items: ImageJob[]
 }
 
-type ResolvedImageReference = ImageReference & {
-    realPath: string
-    artifactPath: string
-}
+type ResolvedImageSource = { realPath: string; artifactPath: string } | { imageUrl: string } | { fileId: string }
+type ResolvedImageReference = ResolvedImageSource & { role: string | null }
 
 type ResolvedImageJob = Omit<ImageJob, 'images' | 'mask'> & {
     images: ResolvedImageReference[]
-    mask: { realPath: string; artifactPath: string } | null
+    mask: ResolvedImageSource | null
 }
 
 export type GeneratedImageArtifact = {
@@ -172,10 +170,10 @@ export async function generateCodexImageArtifactsWithProvider(
                     size: resolved.size,
                     quality: resolved.quality,
                     references: resolved.images.map((image) => ({
-                        file: image.artifactPath,
+                        ...imageSourceManifest(image),
                         ...(image.role ? { role: image.role } : {}),
                     })),
-                    ...(resolved.mask ? { mask: resolved.mask.artifactPath } : {}),
+                    ...(resolved.mask ? { mask: 'artifactPath' in resolved.mask ? resolved.mask.artifactPath : imageSourceManifest(resolved.mask) } : {}),
                 })
             }
         }
@@ -227,13 +225,13 @@ function normalizeJob(
         label,
         prompt,
         images: normalizeImageReferences(input.images, `items[${index}].images`),
-        mask: optionalString(input.mask, `items[${index}].mask`, 4096),
+        mask: input.mask == null ? null : normalizeImageSource(input.mask, `items[${index}].mask`),
         ...options,
     }
 }
 
 function normalizeJobOptions(input: JsonObject, fallback?: ImageJobOptions): ImageJobOptions {
-    const quality = enumValue(input.quality, 'quality', ALLOWED_QUALITIES, fallback?.quality ?? 'high')
+    const quality = enumValue(input.quality, 'quality', ALLOWED_QUALITIES, fallback?.quality ?? 'auto')
     const background = nullableEnumValue(input.background, 'background', ALLOWED_BACKGROUNDS, fallback?.background ?? null)
     const outputFormat = enumValue(
         input.outputFormat,
@@ -251,6 +249,9 @@ function normalizeJobOptions(input: JsonObject, fallback?: ImageJobOptions): Ima
     if (outputCompression !== null && outputFormat === 'png') {
         throw new Error('outputCompression is only valid with jpeg or webp output.')
     }
+    if (background === 'transparent' && outputFormat === 'jpeg') {
+        throw new Error('Transparent backgrounds require png or webp output.')
+    }
     return {
         size: input.size === undefined ? fallback?.size ?? 'auto' : validateGptImageSize(input.size),
         quality,
@@ -259,6 +260,7 @@ function normalizeJobOptions(input: JsonObject, fallback?: ImageJobOptions): Ima
         outputFormat,
         outputCompression,
         moderation: nullableEnumValue(input.moderation, 'moderation', ALLOWED_MODERATION, fallback?.moderation ?? null),
+        inputFidelity: nullableEnumValue(input.inputFidelity, 'inputFidelity', ALLOWED_INPUT_FIDELITIES, fallback?.inputFidelity ?? null),
     }
 }
 
@@ -267,25 +269,51 @@ function normalizeImageReferences(value: unknown, name: string): ImageReference[
     if (!Array.isArray(value)) throw new Error(`${name} must be an array.`)
     if (value.length > MAX_INPUT_IMAGES) throw new Error(`${name} supports at most ${MAX_INPUT_IMAGES} files.`)
     return value.map((entry, index) => {
-        if (typeof entry === 'string') {
-            return { path: requireNonEmptyString(entry, `${name}[${index}]`, 4096), role: null }
-        }
-        const record = requireObject(entry, `${name}[${index}]`)
         return {
-            path: requireNonEmptyString(record.path, `${name}[${index}].path`, 4096),
-            role: optionalString(record.role, `${name}[${index}].role`, 200),
+            ...normalizeImageSource(entry, `${name}[${index}]`),
+            role: typeof entry === 'string' ? null : optionalString(requireObject(entry, `${name}[${index}]`).role, `${name}[${index}].role`, 200),
         }
     })
 }
 
+function normalizeImageSource(value: unknown, name: string): ImageSource {
+    if (typeof value === 'string') return { path: requireNonEmptyString(value, name, 4096) }
+    const record = requireObject(value, name)
+    const keys = ['path', 'imageUrl', 'fileId'].filter((key) => record[key] !== undefined)
+    if (keys.length !== 1) throw new Error(`${name} must specify exactly one of path, imageUrl, or fileId.`)
+    if (keys[0] === 'path') return { path: requireNonEmptyString(record.path, `${name}.path`, 4096) }
+    if (keys[0] === 'fileId') return { fileId: requireNonEmptyString(record.fileId, `${name}.fileId`, 4096) }
+    const imageUrl = requireNonEmptyString(record.imageUrl, `${name}.imageUrl`, 20_971_520)
+    if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(imageUrl)) {
+        let url: URL
+        try { url = new URL(imageUrl) } catch { throw new Error(`${name}.imageUrl must be an HTTP(S) URL or a base64 image data URL.`) }
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+            throw new Error(`${name}.imageUrl must be an HTTP(S) URL or a base64 image data URL.`)
+        }
+    }
+    return { imageUrl }
+}
+
+function imageSourceManifest(source: ResolvedImageSource) {
+    if ('artifactPath' in source) return { file: source.artifactPath }
+    if ('imageUrl' in source) return { imageUrl: source.imageUrl }
+    return { fileId: source.fileId }
+}
+
+async function resolveImageSource(source: ImageSource, artifactsRoot: string): Promise<ResolvedImageSource> {
+    return 'path' in source ? resolveArtifactImagePath(artifactsRoot, source.path) : source
+}
+
 async function resolveJobInputs(job: ImageJob, artifactsRoot: string): Promise<ResolvedImageJob> {
     const images = await Promise.all(job.images.map(async (image) => ({
-        ...image,
-        ...await resolveArtifactImagePath(artifactsRoot, image.path),
+        ...await resolveImageSource(image, artifactsRoot),
+        role: image.role,
     })))
-    const mask = job.mask ? await resolveArtifactImagePath(artifactsRoot, job.mask) : null
+    const mask = job.mask ? await resolveImageSource(job.mask, artifactsRoot) : null
     if (mask && images.length === 0) throw new Error('A mask requires at least one input image.')
-    if (mask) await validateMaskCompatibility(images[0].realPath, mask.realPath)
+    if (mask && 'realPath' in mask && 'realPath' in images[0]) {
+        await validateMaskCompatibility(images[0].realPath, mask.realPath)
+    }
     return { ...job, images, mask }
 }
 
@@ -399,7 +427,6 @@ async function postImageEdit(
     input: { apiKey: string; baseUrl: string; model: string; job: ResolvedImageJob; prompt: string },
     signal: AbortSignal
 ) {
-    const form = new FormData()
     const fields = removeNullValues({
         model: input.model,
         prompt: input.prompt,
@@ -410,13 +437,32 @@ async function postImageEdit(
         output_format: input.job.outputFormat,
         output_compression: input.job.outputCompression,
         moderation: input.job.moderation,
+        input_fidelity: input.job.inputFidelity,
     })
+    const localImages = input.job.images.filter((image) => 'realPath' in image)
+    const mask = input.job.mask
+    if (localImages.length !== input.job.images.length || (mask && !('realPath' in mask))) {
+        return fetchProviderJson(`${input.baseUrl}/images/edits`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${input.apiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                ...fields,
+                images: await Promise.all(input.job.images.map(imageSourceJson)),
+                ...(mask ? { mask: await imageSourceJson(mask) } : {}),
+            }),
+            signal,
+        })
+    }
+    const form = new FormData()
     for (const [key, value] of Object.entries(fields)) form.append(key, String(value))
-    for (const image of input.job.images) {
+    for (const image of localImages) {
         form.append('image[]', await fileBlob(image.realPath), path.basename(image.realPath))
     }
-    if (input.job.mask) {
-        form.append('mask', await fileBlob(input.job.mask.realPath), path.basename(input.job.mask.realPath))
+    if (mask && 'realPath' in mask) {
+        form.append('mask', await fileBlob(mask.realPath), path.basename(mask.realPath))
     }
     return fetchProviderJson(`${input.baseUrl}/images/edits`, {
         method: 'POST',
@@ -424,6 +470,15 @@ async function postImageEdit(
         body: form,
         signal,
     })
+}
+
+async function imageSourceJson(source: ResolvedImageSource) {
+    if ('fileId' in source) return { file_id: source.fileId }
+    if ('imageUrl' in source) return { image_url: source.imageUrl }
+    const bytes = await fs.readFile(source.realPath)
+    const imageUrl = `data:${mimeTypeForExtension(path.extname(source.realPath))};base64,${bytes.toString('base64')}`
+    if (imageUrl.length > 20_971_520) throw new Error('Local images in mixed URL/File ID requests must fit within the 20 MB data URL limit.')
+    return { image_url: imageUrl }
 }
 
 async function fileBlob(filePath: string) {

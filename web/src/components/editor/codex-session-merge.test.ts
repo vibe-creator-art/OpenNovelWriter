@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import type { CodexSession } from '@/lib/api'
+import type { CodexSession, CodexSessionSummary } from '@/lib/api'
 
-const { mergeRefreshedSession, mergeServerSession } = await import(new URL('./codex-session-merge.ts', import.meta.url).href)
+const { mergeRefreshedSession, mergeServerSession, mergeSessionSummary } = await import(new URL('./codex-session-merge.ts', import.meta.url).href)
 
 function createSession(overrides: Partial<CodexSession> = {}): CodexSession {
     return {
@@ -30,6 +30,10 @@ function createSession(overrides: Partial<CodexSession> = {}): CodexSession {
         createdAt: '2026-08-05T00:00:00.000Z',
         updatedAt: '2026-08-05T00:00:00.000Z',
         messages: [],
+        historyLoaded: true,
+        messageCount: 0,
+        previewTitle: '',
+        previewText: '',
         ...overrides,
     }
 }
@@ -151,4 +155,28 @@ describe('mergeRefreshedSession', () => {
         assert.equal(merged.status, 'running')
         assert.deepEqual(merged.messages, running.messages)
     })
+})
+
+test('a running summary can load its initial history at the same saved timestamp', () => {
+    const summary = createSession({ status: 'running', historyLoaded: false })
+    const detail = createSession({ status: 'running', messages: [{ id: 'live', role: 'assistant', content: 'Working', createdAt: summary.updatedAt }] })
+    const merged = mergeRefreshedSession(summary, detail, summary, false)
+    assert.equal(merged.historyLoaded, true)
+    assert.deepEqual(merged.messages, detail.messages)
+})
+
+test('summary refresh retains active streamed messages and invalidates only changed inactive histories', () => {
+    const local = createSession({ status: 'running', messages: [{ id: 'live', role: 'assistant', content: 'Working', createdAt: '2026-08-05T00:00:01.000Z' }] })
+    const summary: CodexSessionSummary & Partial<Pick<CodexSession, 'messages' | 'historyLoaded'>> = createSession({ status: 'running', updatedAt: '2026-08-05T00:00:02.000Z' })
+    delete summary.messages
+    delete summary.historyLoaded
+    const active = mergeSessionSummary(local, summary, local, true)
+    assert.equal(active.messages, local.messages)
+    assert.equal(active.historyLoaded, true)
+    const changed = mergeSessionSummary(local, { ...summary, status: 'idle' }, local, true)
+    assert.equal(changed.historyLoaded, false)
+    assert.equal(changed.status, 'idle')
+    assert.equal(changed.messages, local.messages)
+    const inFlight = { ...local, messages: [...local.messages] }
+    assert.equal(mergeSessionSummary(inFlight, summary, local, true), inFlight)
 })

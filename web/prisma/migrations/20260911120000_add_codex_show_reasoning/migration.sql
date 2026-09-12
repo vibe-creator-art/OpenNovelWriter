@@ -1,0 +1,1 @@
+ALTER TABLE "Novel" ADD COLUMN "codexShowReasoning" BOOLEAN NOT NULL DEFAULT false;

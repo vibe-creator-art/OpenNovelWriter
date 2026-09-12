@@ -1,4 +1,5 @@
 import path from 'path'
+import { isOfficialDeepSeekAnthropicProvider } from '@/lib/codex-deepseek'
 
 import {
     applyCodexUpstreamModelCapabilities,
@@ -48,7 +49,9 @@ export async function syncCodexConnectionRuntimeFiles(connection: RuntimeConnect
         `model_auto_compact_token_limit = ${Math.floor(defaultModel.contextWindow * 0.95)}`,
         `model_reasoning_effort = ${tomlString(defaultModel.defaultReasoningEffort)}`,
         'disable_response_storage = true',
-        ...(upstreamFormat === 'anthropic-messages' ? ['web_search = "disabled"'] : []),
+        ...(upstreamFormat === 'anthropic-messages'
+            ? [`web_search = "${isOfficialDeepSeekAnthropicProvider(upstreamFormat, connection.baseUrl) ? 'live' : 'disabled'}"`]
+            : []),
         `model_catalog_json = ${tomlString(CODEX_MODEL_CATALOG_FILE)}`,
         '',
         '[model_providers.opennovelwriter]',

@@ -54,3 +54,18 @@ test('fetches image models with bearer authentication', async () => {
         await new Promise<void>((resolve) => server.close(() => resolve()))
     }
 })
+
+test('keeps GPT Image 2.5 models and snapshots from a custom provider', () => {
+    const ids = [
+        'gpt-image-2.5-sunburst',
+        'gpt-image-2.5-flare',
+        'gpt-image-2.5-sunburst-2026-09-08',
+        'gpt-image-2.5-flare-2026-09-08',
+    ]
+    const models = normalizeGptImageModels([
+        ...ids.map((id) => ({ id })),
+        { id: 'gpt-5.6' },
+        { id: ids[0] },
+    ], 'https://image-provider.example/v1')
+    assert.deepEqual(models.map((model) => model.id), ids)
+})

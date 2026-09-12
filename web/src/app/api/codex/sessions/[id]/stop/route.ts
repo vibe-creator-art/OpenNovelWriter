@@ -29,7 +29,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         if (!existing) return NextResponse.json({ detail: 'Codex session not found' }, { status: 404 })
         const currentGoal = parseCodexThreadGoal(existing.goalJson)
         const codexThreadId = currentGoal?.threadId ?? existing.codexThreadId
-        let nextGoal = currentGoal
+        let session = existing
         if (currentGoal?.status === 'active' && codexThreadId) {
             const result = await updateNovelCodexGoal({
                 sessionId: existing.id,
@@ -38,21 +38,22 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 codexConnectionId: existing.codexConnectionId,
                 status: 'paused',
             })
-            nextGoal = result.goal
+            session = await prisma.codexSession.update({
+                where: { id },
+                data: { goalJson: JSON.stringify(result.goal), updatedAt: new Date() },
+            })
         }
         const interrupted = await interruptAndWaitForActiveCodexRun(id)
-        if (!interrupted && existing.status !== 'running') {
-            return NextResponse.json({ ok: true, session: serializeCodexSession(existing) })
+        if (!interrupted && session.status !== 'running') {
+            return NextResponse.json({ ok: true, session: serializeCodexSession(session) })
         }
 
-        const session = await prisma.codexSession.update({
+        session = await prisma.codexSession.update({
             where: { id },
             data: {
                 status: 'idle',
                 lastError: null,
                 unreadCompletionAt: null,
-                codexThreadId,
-                goalJson: nextGoal ? JSON.stringify(nextGoal) : null,
                 updatedAt: new Date(),
             },
         })

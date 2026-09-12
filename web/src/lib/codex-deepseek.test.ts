@@ -4,45 +4,53 @@ import { test } from 'node:test'
 import { createDefaultCodexProviderModel } from '@/lib/codex-config'
 import {
     applyCodexUpstreamModelCapabilities,
-    applyDeepSeekV4ModelDefaults,
+    applyDeepSeekModelDefaults,
     baseDeepSeekModelSlug,
     buildOfficialDeepSeekCatalogEntry,
-    isDeepSeekV4ModelId,
+    isDeepSeekModelId,
     isOfficialDeepSeekResponsesProvider,
     shouldUseOfficialDeepSeekCatalog,
 } from '@/lib/codex-deepseek'
 
-test('createDefaultCodexProviderModel seeds DeepSeek V4 defaults immediately', () => {
-    const model = createDefaultCodexProviderModel('deepseek-v4-flash')
-    assert.equal(model.contextWindow, 1_048_576)
-    assert.deepEqual(model.supportedReasoningEfforts, ['low', 'high', 'max'])
-    assert.equal(model.defaultReasoningEffort, 'high')
-    assert.deepEqual(model.inputModalities, ['text'])
-})
+for (const id of ['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash:nitro', 'deepseek-v4-pro']) {
+    test(`createDefaultCodexProviderModel seeds capabilities for ${id}`, () => {
+        const model = createDefaultCodexProviderModel(id)
+        assert.equal(model.id, id)
+        assert.equal(model.contextWindow, 1_048_576)
+        assert.deepEqual(model.supportedReasoningEfforts, ['low', 'high', 'max'])
+        assert.equal(model.defaultReasoningEffort, 'high')
+        assert.equal(model.supportsParallelToolCalls, true)
+        assert.deepEqual(model.inputModalities, id.endsWith('-pro') ? ['text'] : ['text', 'image'])
+    })
+}
 
-test('DeepSeek V4 model detection ignores provider prefixes and router suffixes', () => {
+test('DeepSeek model detection ignores provider prefixes and router suffixes', () => {
     assert.equal(baseDeepSeekModelSlug('deepseek/deepseek-v4-flash'), 'deepseek-v4-flash')
     assert.equal(baseDeepSeekModelSlug('deepseek-v4-pro:baidu'), 'deepseek-v4-pro')
-    assert.equal(isDeepSeekV4ModelId('deepseek/deepseek-v4-flash'), true)
-    assert.equal(isDeepSeekV4ModelId('deepseek/deepseek-v4-pro:nitro'), true)
-    assert.equal(isDeepSeekV4ModelId('z-ai/glm-5.2:baidu'), false)
+    assert.equal(isDeepSeekModelId('deepseek/deepseek-v4-flash'), true)
+    assert.equal(isDeepSeekModelId('deepseek/deepseek-v4-pro:nitro'), true)
+    assert.equal(isDeepSeekModelId(' DeepSeek/DeepSeek-V4.1-Flash '), true)
+    assert.equal(isDeepSeekModelId('deepseek/deepseek-flash'), true)
+    assert.equal(isDeepSeekModelId('deepseek-v4.1-pro'), false)
+    assert.equal(isDeepSeekModelId('deepseek-v4.1-flash-expires-on-0910'), false)
+    assert.equal(isDeepSeekModelId('z-ai/glm-5.2:baidu'), false)
 })
 
 test('aggregator DeepSeek models get the same capability defaults without an official host', () => {
     const model = applyCodexUpstreamModelCapabilities({
-        id: 'deepseek/deepseek-v4-flash',
-        displayName: 'deepseek/deepseek-v4-flash',
+        id: 'deepseek/deepseek-v4.1-flash',
+        displayName: 'DeepSeek V4.1 Flash',
         contextWindow: 300_000,
         supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
         defaultReasoningEffort: 'high',
         supportsParallelToolCalls: false,
-        inputModalities: ['text', 'image'],
+        inputModalities: ['text'],
     }, 'responses', 'https://zenmux.ai/api/v1')
 
     assert.equal(model.contextWindow, 1_048_576)
     assert.deepEqual(model.supportedReasoningEfforts, ['low', 'high', 'max'])
     assert.equal(model.supportsParallelToolCalls, true)
-    assert.deepEqual(model.inputModalities, ['text'])
+    assert.deepEqual(model.inputModalities, ['text', 'image'])
 })
 
 test('official catalog is still host-gated; aggregators do not get freeform harness', () => {
@@ -59,7 +67,7 @@ test('official catalog is still host-gated; aggregators do not get freeform harn
 })
 
 test('unrelated models are left alone', () => {
-    const model = applyDeepSeekV4ModelDefaults({
+    const model = applyDeepSeekModelDefaults({
         id: 'gpt-custom',
         displayName: 'Custom',
         contextWindow: 128_000,
@@ -72,9 +80,9 @@ test('unrelated models are left alone', () => {
 })
 
 test('official catalog keeps tool_search deferral enabled', () => {
-    const entry = buildOfficialDeepSeekCatalogEntry(applyDeepSeekV4ModelDefaults({
-        id: 'deepseek-v4-flash',
-        displayName: 'DeepSeek V4 Flash',
+    const entry = buildOfficialDeepSeekCatalogEntry(applyDeepSeekModelDefaults({
+        id: 'deepseek-flash',
+        displayName: 'DeepSeek Flash',
         contextWindow: 300_000,
         supportedReasoningEfforts: ['high'],
         defaultReasoningEffort: 'high',
@@ -84,4 +92,6 @@ test('official catalog keeps tool_search deferral enabled', () => {
     assert.equal(entry.supports_search_tool, true)
     assert.equal(entry.context_window, 1_048_576)
     assert.equal(entry.apply_patch_tool_type, 'freeform')
+    assert.equal(entry.supports_image_detail_original, true)
+    assert.deepEqual(entry.input_modalities, ['text', 'image'])
 })

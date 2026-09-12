@@ -175,7 +175,7 @@ export function LeftPanelCodex({ novelId, isCompact, onOpenCodex }: LeftPanelCod
                                                                             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
                                                                         ) : session.status === 'error' ? (
                                                                             <CircleAlert className="h-4 w-4 shrink-0 text-destructive" />
-                                                                        ) : session.status === 'idle' && session.messages.length > 0 ? (
+                                                                        ) : session.status === 'idle' && session.messageCount > 0 ? (
                                                                             session.unreadCompletionAt ? (
                                                                                 <span
                                                                                     role="status"

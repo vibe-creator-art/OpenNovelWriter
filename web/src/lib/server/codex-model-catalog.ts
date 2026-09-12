@@ -4,12 +4,14 @@ import path from 'path'
 
 import {
     getCustomCodexServiceTiers,
+    isAstraCodexModelId,
     type CodexProviderModel,
     type CodexUpstreamFormat,
 } from '@/lib/codex-config'
 import {
     applyCodexUpstreamModelCapabilities,
     buildOfficialDeepSeekCatalogEntry,
+    isOfficialDeepSeekAnthropicProvider,
     shouldUseOfficialDeepSeekCatalog,
 } from '@/lib/codex-deepseek'
 import { writeFileAtomicallyIfChanged } from '@/lib/server/atomic-file-write'
@@ -39,9 +41,12 @@ export async function writeCodexModelCatalog(input: {
     models: CodexProviderModel[]
 }) {
     const template = await loadCodexModelTemplate(input.codexHome)
+    const astraTemplate = input.models.some((model) => isAstraCodexModelId(model.id))
+        ? await loadCodexModelTemplate(input.codexHome, 'gpt-6-astra')
+        : template
     const catalog = {
         models: input.models.map((model, index) =>
-            buildCatalogEntry(template, model, index, input.upstreamFormat, input.baseUrl)
+            buildCatalogEntry(isAstraCodexModelId(model.id) ? astraTemplate : template, model, index, input.upstreamFormat, input.baseUrl)
         ),
     }
     const target = path.join(input.codexHome, CODEX_MODEL_CATALOG_FILE)
@@ -65,7 +70,9 @@ function buildCatalogEntry(
     entry.slug = model.id
     entry.display_name = model.displayName
     entry.description = model.displayName
-    entry.base_instructions = CUSTOM_MODEL_BASE_INSTRUCTIONS
+    entry.base_instructions = isAstraCodexModelId(model.id)
+        ? template.base_instructions ?? CUSTOM_MODEL_BASE_INSTRUCTIONS
+        : CUSTOM_MODEL_BASE_INSTRUCTIONS
     entry.context_window = model.contextWindow
     entry.max_context_window = model.contextWindow
     entry.effective_context_window_percent = 95
@@ -90,6 +97,15 @@ function buildCatalogEntry(
     delete entry.tool_mode
     entry.use_responses_lite = false
     delete entry.web_search_tool_type
+    if (isOfficialDeepSeekAnthropicProvider(upstreamFormat, baseUrl)) entry.web_search_tool_type = 'text'
+
+    if (isAstraCodexModelId(model.id)) {
+        entry.tool_mode = 'code_mode_only'
+        entry.shell_type = 'unified_exec'
+        entry.apply_patch_tool_type = 'freeform'
+        entry.experimental_supported_tools = ['send_user_message_async', 'clock']
+        return entry
+    }
 
     if (upstreamFormat === 'responses' || upstreamFormat === 'anthropic-messages') {
         delete entry.apply_patch_tool_type
@@ -107,7 +123,7 @@ function applyCustomServiceTiers(entry: JsonObject, upstreamFormat: CodexUpstrea
     return entry
 }
 
-async function loadCodexModelTemplate(codexHome: string): Promise<JsonObject> {
+async function loadCodexModelTemplate(codexHome: string, modelId = 'gpt-5.6-sol'): Promise<JsonObject> {
     const candidates = [
         path.join(codexHome, 'models_cache.json'),
         path.join(os.homedir(), '.codex', 'models_cache.json'),
@@ -117,8 +133,8 @@ async function loadCodexModelTemplate(codexHome: string): Promise<JsonObject> {
             const parsed = JSON.parse(await fs.readFile(candidate, 'utf8')) as { models?: JsonObject[] }
             const models = Array.isArray(parsed.models) ? parsed.models : []
             const preferred =
-                models.find((model) => model.slug === 'gpt-5.6-sol') ??
-                models.find((model) => typeof model.base_instructions === 'string')
+                models.find((model) => model.slug === modelId) ??
+                (modelId === 'gpt-5.6-sol' ? models.find((model) => typeof model.base_instructions === 'string') : undefined)
             if (preferred) return preferred
         } catch {
             // Try the next source. Custom connections may not have a model cache yet.

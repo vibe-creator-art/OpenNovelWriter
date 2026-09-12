@@ -9,6 +9,7 @@ import {
 } from './anthropic-transform'
 import { isObject, canonicalArguments, CodexToolContext, customInput, responseItemFromChatToolCall, responseItemId } from './tool-context'
 import { sse, sseData, takeSseBlocks } from './sse'
+import { AnthropicWebCitations, anthropicWebSearchItem, anthropicWebSearchReplayItem, needsAnthropicSearchContinuation } from './anthropic-web-search'
 
 type JsonObject = Record<string, unknown>
 
@@ -17,6 +18,7 @@ type TextBlock = {
     outputIndex: number
     itemId: string
     text: string
+    block: JsonObject
 }
 
 type ThinkingBlock = {
@@ -28,36 +30,43 @@ type ThinkingBlock = {
 }
 
 type ToolBlock = {
-    kind: 'tool'
+    kind: 'tool' | 'web_search'
     outputIndex: number
     itemId: string
     callId: string
     name: string
     arguments: string
+    block: JsonObject
 }
 
-type BlockState = TextBlock | ThinkingBlock | ToolBlock
+type SearchResultBlock = { kind: 'web_search_result'; block: JsonObject }
+type BlockState = TextBlock | ThinkingBlock | ToolBlock | SearchResultBlock
 
-export function createAnthropicToResponsesStream(input: {
+type AnthropicStreamInput = {
     upstream: ReadableStream<Uint8Array>
     context: CodexToolContext
+    continueMessage?: (message: JsonObject) => Promise<ReadableStream<Uint8Array>>
     onComplete?: (response: JsonObject) => void
-}) {
-    const reader = input.upstream.getReader()
+}
+
+export function createAnthropicToResponsesStream(input: AnthropicStreamInput) {
+    let reader = input.upstream.getReader()
     const decoder = new TextDecoder()
     const encoder = new TextEncoder()
-    const state = new AnthropicStreamState(input.context)
+    const state = new AnthropicStreamState(input.context, Boolean(input.continueMessage))
     let buffer = ''
     let closed = false
+    let continuations = 0
 
     return new ReadableStream<Uint8Array>({
         start(controller) {
             void pump().catch((error) => {
+                void reader.cancel().catch(() => {})
                 if (!closed) controller.error(error)
             })
 
             async function pump() {
-                while (true) {
+                readLoop: while (!closed) {
                     const { done, value } = await reader.read()
                     if (value) buffer += decoder.decode(value, { stream: !done })
                     const parsed = takeSseBlocks(buffer)
@@ -65,6 +74,18 @@ export function createAnthropicToResponsesStream(input: {
                     for (const block of parsed.blocks) {
                         const result = state.consume(block)
                         for (const event of result.events) controller.enqueue(encoder.encode(event))
+                        if (result.continuation && input.continueMessage) {
+                            await reader.cancel()
+                            if (++continuations > 10) throw new Error('Anthropic web search exceeded the continuation limit.')
+                            const upstream = await input.continueMessage(result.continuation)
+                            if (closed) {
+                                await upstream.cancel()
+                                return
+                            }
+                            reader = upstream.getReader()
+                            buffer = ''
+                            continue readLoop
+                        }
                         if (result.completed) {
                             input.onComplete?.(result.completed)
                             await reader.cancel()
@@ -97,10 +118,7 @@ export function createAnthropicToResponsesStream(input: {
     })
 }
 
-export async function readAnthropicSseAsResponses(input: {
-    upstream: ReadableStream<Uint8Array>
-    context: CodexToolContext
-}) {
+export async function readAnthropicSseAsResponses(input: Omit<AnthropicStreamInput, 'onComplete'>): Promise<JsonObject> {
     let completed: JsonObject | null = null
     const stream = createAnthropicToResponsesStream({
         ...input,
@@ -153,17 +171,21 @@ class AnthropicStreamState {
     private createdAt = Math.floor(Date.now() / 1000)
     private stopReason = ''
     private rawUsage: JsonObject = {}
+    private readonly previousUsage: Record<string, number> = {}
+    private readonly rawBlocks = new Map<number, JsonObject>()
+    private readonly searches = new Map<string, ToolBlock>()
+    private readonly citations = new AnthropicWebCitations()
     private nextOutputIndex = 0
     private readonly blocks = new Map<number, BlockState>()
     private readonly output: Array<{ index: number; item: JsonObject }> = []
 
-    constructor(private readonly context: CodexToolContext) {}
+    constructor(private readonly context: CodexToolContext, private readonly allowSearchContinuation = false) {}
 
     get isCompleted() {
         return this.completed
     }
 
-    consume(block: string): { events: string[]; completed?: JsonObject } {
+    consume(block: string): { events: string[]; completed?: JsonObject; continuation?: JsonObject } {
         const data = sseData(block)
         if (!data || data === '[DONE]') return { events: [] }
         let event: JsonObject
@@ -191,6 +213,10 @@ class AnthropicStreamState {
             return { events: [] }
         }
         if (event.type === 'message_stop') {
+            const content = [...this.rawBlocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block)
+            if (this.allowSearchContinuation && needsAnthropicSearchContinuation(this.stopReason, content)) {
+                return { events: [], continuation: { role: 'assistant', content } }
+            }
             const final = this.finalize()
             return { events: final.events, completed: final.response }
         }
@@ -212,9 +238,14 @@ class AnthropicStreamState {
 
     private startMessage(event: JsonObject) {
         const message = isObject(event.message) ? event.message : {}
-        this.responseId = responseIdFromAnthropic(message.id)
+        if (!this.started) this.responseId = responseIdFromAnthropic(message.id)
+        for (const [key, value] of Object.entries(this.rawUsage)) {
+            if (typeof value === 'number') this.previousUsage[key] = (this.previousUsage[key] ?? 0) + value
+        }
+        this.rawBlocks.clear()
+        this.stopReason = ''
         this.model = stringValue(message.model)
-        if (isObject(message.usage)) this.rawUsage = { ...message.usage }
+        this.rawUsage = isObject(message.usage) ? { ...message.usage } : {}
         return this.ensureStarted()
     }
 
@@ -223,22 +254,27 @@ class AnthropicStreamState {
         const block = isObject(event.content_block) ? event.content_block : {}
         const events = this.ensureStarted()
         if (block.type === 'text') {
+            const outputIndex = this.nextIndex()
             const state: TextBlock = {
                 kind: 'text',
-                outputIndex: this.nextIndex(),
-                itemId: `${this.responseId}_msg_${index}`,
+                outputIndex,
+                itemId: `${this.responseId}_msg_${outputIndex}`,
                 text: '',
+                block: { ...block, text: '' },
             }
             this.blocks.set(index, state)
             events.push(sse('response.output_item.added', { type: 'response.output_item.added', output_index: state.outputIndex, item: { id: state.itemId, type: 'message', status: 'in_progress', role: 'assistant', content: [] } }))
             events.push(sse('response.content_part.added', { type: 'response.content_part.added', item_id: state.itemId, output_index: state.outputIndex, content_index: 0, part: { type: 'output_text', text: '', annotations: [] } }))
             const initial = stringValue(block.text)
             if (initial) events.push(...this.pushText(state, initial))
+            const links = this.citations.render(block.citations, state.text)
+            if (links) events.push(...this.pushText(state, links, false))
         } else if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+            const outputIndex = this.nextIndex()
             const state: ThinkingBlock = {
                 kind: 'thinking',
-                outputIndex: this.nextIndex(),
-                itemId: `rs_${this.responseId}_${index}`,
+                outputIndex,
+                itemId: `rs_${this.responseId}_${outputIndex}`,
                 block: block.type === 'thinking' ? { ...block, thinking: '' } : { ...block },
                 summaryStarted: false,
             }
@@ -246,19 +282,28 @@ class AnthropicStreamState {
             events.push(sse('response.output_item.added', { type: 'response.output_item.added', output_index: state.outputIndex, item: { id: state.itemId, type: 'reasoning', status: 'in_progress', summary: [] } }))
             const initial = stringValue(block.thinking)
             if (initial) events.push(...this.pushThinking(state, initial))
-        } else if (block.type === 'tool_use') {
+        } else if (block.type === 'tool_use' || (block.type === 'server_tool_use' && block.name === 'web_search')) {
             const callId = stringValue(block.id) || `call_${crypto.randomUUID()}`
             const name = stringValue(block.name)
             const state: ToolBlock = {
-                kind: 'tool',
+                kind: block.type === 'server_tool_use' ? 'web_search' : 'tool',
                 outputIndex: this.nextIndex(),
-                itemId: responseItemId(callId, name, this.context),
+                itemId: block.type === 'server_tool_use' ? `ws_${callId}` : responseItemId(callId, name, this.context),
                 callId,
                 name,
                 arguments: isObject(block.input) && Object.keys(block.input).length > 0 ? JSON.stringify(block.input) : '',
+                block: { ...block, id: callId },
             }
             this.blocks.set(index, state)
-            events.push(sse('response.output_item.added', { type: 'response.output_item.added', output_index: state.outputIndex, item: responseItemFromChatToolCall({ callId, chatName: name, arguments: '', status: 'in_progress', context: this.context }) }))
+            const item = state.kind === 'web_search'
+                ? anthropicWebSearchItem(state.block)
+                : responseItemFromChatToolCall({ callId, chatName: name, arguments: '', status: 'in_progress', context: this.context })
+            events.push(sse('response.output_item.added', { type: 'response.output_item.added', output_index: state.outputIndex, item }))
+            if (state.kind === 'web_search') {
+                events.push(sse('response.web_search_call.in_progress', { type: 'response.web_search_call.in_progress', item_id: state.itemId, output_index: state.outputIndex }))
+            }
+        } else if (block.type === 'web_search_tool_result') {
+            this.blocks.set(index, { kind: 'web_search_result', block: { ...block } })
         }
         return events
     }
@@ -268,15 +313,21 @@ class AnthropicStreamState {
         const delta = isObject(event.delta) ? event.delta : {}
         if (!state) return []
         if (state.kind === 'text' && delta.type === 'text_delta') return this.pushText(state, stringValue(delta.text))
+        if (state.kind === 'text' && delta.type === 'citations_delta' && isObject(delta.citation)) {
+            const citations = Array.isArray(state.block.citations) ? state.block.citations : []
+            state.block.citations = [...citations, delta.citation]
+            const links = this.citations.render([delta.citation], state.text)
+            return links ? this.pushText(state, links, false) : []
+        }
         if (state.kind === 'thinking') {
             if (delta.type === 'thinking_delta') return this.pushThinking(state, stringValue(delta.thinking))
             if (delta.type === 'signature_delta') state.block.signature = stringValue(delta.signature)
             return []
         }
-        if (state.kind === 'tool' && delta.type === 'input_json_delta') {
+        if ((state.kind === 'tool' || state.kind === 'web_search') && delta.type === 'input_json_delta') {
             const value = stringValue(delta.partial_json)
             state.arguments += value
-            if (value && !this.context.isCustom(state.name)) {
+            if (state.kind === 'tool' && value && !this.context.isCustom(state.name)) {
                 return [sse('response.function_call_arguments.delta', { type: 'response.function_call_arguments.delta', item_id: state.itemId, output_index: state.outputIndex, delta: value })]
             }
         }
@@ -291,6 +342,28 @@ class AnthropicStreamState {
         const state = this.blocks.get(index)
         if (!state) return []
         this.blocks.delete(index)
+        if (state.kind === 'web_search') state.block.input = JSON.parse(state.arguments || '{}')
+        this.rawBlocks.set(index, state.block)
+        if (state.kind === 'web_search') {
+            this.searches.set(state.callId, state)
+            return [sse('response.web_search_call.searching', { type: 'response.web_search_call.searching', item_id: state.itemId, output_index: state.outputIndex })]
+        }
+        if (state.kind === 'web_search_result') {
+            const call = this.searches.get(stringValue(state.block.tool_use_id))
+            if (!call) return []
+            this.searches.delete(call.callId)
+            const item = anthropicWebSearchItem(call.block, state.block)
+            const replay = anthropicWebSearchReplayItem(call.block, state.block)
+            const replayIndex = this.nextIndex()
+            this.output.push({ index: call.outputIndex, item }, { index: replayIndex, item: replay })
+            const events = [sse('response.output_item.done', { type: 'response.output_item.done', output_index: call.outputIndex, item })]
+            if (item.status === 'completed') events.unshift(sse('response.web_search_call.completed', { type: 'response.web_search_call.completed', item_id: item.id, output_index: call.outputIndex }))
+            events.push(
+                sse('response.output_item.added', { type: 'response.output_item.added', output_index: replayIndex, item: replay }),
+                sse('response.output_item.done', { type: 'response.output_item.done', output_index: replayIndex, item: replay }),
+            )
+            return events
+        }
         if (state.kind === 'text') {
             const part = { type: 'output_text', text: state.text, annotations: [] }
             const item = { id: state.itemId, type: 'message', status: 'completed', role: 'assistant', content: [part] }
@@ -303,7 +376,7 @@ class AnthropicStreamState {
         }
         if (state.kind === 'thinking') {
             const thinking = stringValue(state.block.thinking)
-            const item = reasoningItemFromAnthropicBlock(`${this.responseId}_${index}`, state.block) ?? {
+            const item = reasoningItemFromAnthropicBlock(`${this.responseId}_${state.outputIndex}`, state.block) ?? {
                 id: state.itemId,
                 type: 'reasoning',
                 summary: thinking ? [{ type: 'summary_text', text: thinking }] : [],
@@ -333,9 +406,10 @@ class AnthropicStreamState {
         return events
     }
 
-    private pushText(state: TextBlock, delta: string) {
+    private pushText(state: TextBlock, delta: string, original = true) {
         if (!delta) return []
         state.text += delta
+        if (original) state.block.text = stringValue(state.block.text) + delta
         return [sse('response.output_text.delta', { type: 'response.output_text.delta', item_id: state.itemId, output_index: state.outputIndex, content_index: 0, delta })]
     }
 
@@ -363,6 +437,8 @@ class AnthropicStreamState {
     }
 
     private baseResponse(status: string, output = this.output.sort((a, b) => a.index - b.index).map((entry) => entry.item)): JsonObject {
+        const usage = { ...this.rawUsage }
+        for (const [key, value] of Object.entries(this.previousUsage)) usage[key] = (typeof usage[key] === 'number' ? usage[key] : 0) + value
         return {
             id: this.responseId,
             object: 'response',
@@ -370,7 +446,7 @@ class AnthropicStreamState {
             status,
             model: this.model,
             output,
-            usage: anthropicUsageToResponses(this.rawUsage),
+            usage: anthropicUsageToResponses(usage),
         }
     }
 

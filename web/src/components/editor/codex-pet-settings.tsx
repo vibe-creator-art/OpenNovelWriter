@@ -65,7 +65,7 @@ export function CodexPetSettings({
     }
 
     return (
-        <section className="space-y-4 rounded-lg border p-4">
+        <section className="space-y-3 rounded-lg border p-3">
             <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1">
                     <Label htmlFor="codex-pet-enabled" className="text-sm font-medium">
@@ -88,7 +88,7 @@ export function CodexPetSettings({
                         {t('loading')}
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-2">
                         {pets.map((pet) => {
                             const selected = pet.id === selectedPetId
                             return (

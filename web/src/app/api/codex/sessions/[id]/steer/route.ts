@@ -36,7 +36,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
         const body = await request.json().catch(() => null)
         const content = normalizeCodexString(body?.content).trim()
-        if (!content) {
+        const responseAnnotations = normalizeCodexResponseAnnotations(body?.responseAnnotations)
+        if (!content && responseAnnotations.length === 0) {
             return NextResponse.json({ detail: 'Message content is required.' }, { status: 400 })
         }
 
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             sessionId: id,
             message: content,
             attachments: normalizeManagedAttachmentUrls(body?.attachments),
-            responseAnnotations: normalizeCodexResponseAnnotations(body?.responseAnnotations),
+            responseAnnotations,
         })
         return NextResponse.json({ ok: true })
     } catch (error) {

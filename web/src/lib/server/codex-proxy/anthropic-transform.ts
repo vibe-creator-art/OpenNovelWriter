@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { AnthropicWebCitations, anthropicWebSearchItem, anthropicWebSearchReplayItem, anthropicWebSearchTool, decodeAnthropicWebSearch } from './anthropic-web-search'
 
 import {
     canonicalArguments,
@@ -12,7 +13,7 @@ type JsonObject = Record<string, unknown>
 const ANTHROPIC_THINKING_PREFIX = 'opennovelwriter-anthropic-thinking-v1:'
 const DEFAULT_MAX_TOKENS = 8192
 
-export function responsesToAnthropicRequest(body: JsonObject, context: CodexToolContext) {
+export function responsesToAnthropicRequest(body: JsonObject, context: CodexToolContext, options: { webSearch?: boolean } = {}) {
     const messages = responsesInputToAnthropicMessages(body.input, context)
     if (messages.length === 0) throw new Error('Cannot convert an empty Responses request to Anthropic Messages.')
     if (messages[0].role !== 'user') {
@@ -29,10 +30,14 @@ export function responsesToAnthropicRequest(body: JsonObject, context: CodexTool
     const system = anthropicSystem(body)
     if (system) result.system = system
 
-    const tools = context.chatTools.map(chatToolToAnthropic).filter((tool) => tool !== null)
+    const tools: JsonObject[] = context.chatTools.map(chatToolToAnthropic).filter((tool) => tool !== null)
+    const webSearch = options.webSearch ? anthropicWebSearchTool(body) : null
+    if (webSearch) tools.push(webSearch)
     if (tools.length > 0) {
         result.tools = tools
-        const choice = anthropicToolChoice(body.tool_choice, context)
+        const choice = webSearch && isObject(body.tool_choice) && body.tool_choice.type === 'web_search'
+            ? { type: 'tool', name: 'web_search' }
+            : anthropicToolChoice(body.tool_choice, context)
         if (choice) result.tool_choice = choice
         if (body.parallel_tool_calls === false) {
             const toolChoice = isObject(result.tool_choice) ? result.tool_choice : { type: 'auto' }
@@ -62,6 +67,8 @@ export function anthropicResponseToResponses(body: JsonObject, context: CodexToo
 
     const responseId = responseIdFromAnthropic(body.id)
     const output: JsonObject[] = []
+    const searches = new Map<string, JsonObject>()
+    const citations = new AnthropicWebCitations()
     let textParts: JsonObject[] = []
     const flushText = () => {
         if (textParts.length === 0) return
@@ -80,11 +87,22 @@ export function anthropicResponseToResponses(body: JsonObject, context: CodexToo
         if (!isObject(value)) continue
         if (value.type === 'text') {
             const text = stringValue(value.text)
-            if (text) textParts.push({ type: 'output_text', text, annotations: [] })
+            const links = citations.render(value.citations, text)
+            if (text || links) textParts.push({ type: 'output_text', text: text + links, annotations: [] })
             continue
         }
         flushText()
-        if (value.type === 'tool_use') {
+        if (value.type === 'server_tool_use' && value.name === 'web_search') {
+            searches.set(stringValue(value.id), value)
+            output.push(anthropicWebSearchItem(value))
+        } else if (value.type === 'web_search_tool_result') {
+            const call = searches.get(stringValue(value.tool_use_id))
+            if (call) {
+                const item = output.find((item) => item.id === `ws_${call.id}`)
+                if (item) Object.assign(item, anthropicWebSearchItem(call, value))
+                output.push(anthropicWebSearchReplayItem(call, value))
+            }
+        } else if (value.type === 'tool_use') {
             const callId = stringValue(value.id) || `call_${crypto.randomUUID()}`
             const name = stringValue(value.name)
             if (!name) continue
@@ -222,10 +240,16 @@ function responsesInputToAnthropicMessages(value: unknown, context: CodexToolCon
             continue
         }
         if (item.type === 'reasoning') {
+            const search = decodeAnthropicWebSearch(stringValue(item.encrypted_content))
+            if (search) {
+                for (const block of search) pushBlock(messages, 'assistant', block)
+                continue
+            }
             const block = decodeAnthropicThinkingBlock(stringValue(item.encrypted_content))
             if (block) pushBlock(messages, 'assistant', block, true)
             continue
         }
+        if (item.type === 'web_search_call') continue
         if (item.type === 'input_text') {
             const text = stringValue(item.text)
             if (text.trim()) pushBlock(messages, 'user', { type: 'text', text })

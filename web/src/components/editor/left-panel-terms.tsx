@@ -48,6 +48,7 @@ export type { DefaultTermCategoryId, TermCategoryId, TermEntry } from '@/compone
 
 interface LeftPanelTermsProps {
     novelId?: string
+    active: boolean
     isCompact: boolean
     chapters: ChapterWithScenes[]
     requestedOpenEntry?: { entryId: string; tab?: TermEntryPanelTab } | null
@@ -59,6 +60,7 @@ interface LeftPanelTermsProps {
 
 export function LeftPanelTerms({
     novelId,
+    active,
     isCompact,
     chapters,
     requestedOpenEntry,
@@ -76,6 +78,7 @@ export function LeftPanelTerms({
         rootRef,
         anchorRect,
         termState,
+        loadStatus,
         sortBy,
         setSortBy,
         collapseAllCategories,
@@ -168,10 +171,14 @@ export function LeftPanelTerms({
     })
 
     useEffect(() => {
-        if (!requestedOpenEntry?.entryId) return
+        if (!active || !requestedOpenEntry?.entryId) return
         openEntry(requestedOpenEntry.entryId, requestedOpenEntry.tab ?? 'details')
         onRequestedOpenEntryHandled?.()
-    }, [onRequestedOpenEntryHandled, openEntry, requestedOpenEntry])
+    }, [active, onRequestedOpenEntryHandled, openEntry, requestedOpenEntry])
+
+    if (!active && termState.selectedEntryId) {
+        openEntry(null, 'details')
+    }
 
     const [archivedDialogOpen, setArchivedDialogOpen] = useState(false)
     const [archivedRestoreSelection, setArchivedRestoreSelection] = useState<Set<string>>(() => new Set())
@@ -196,7 +203,7 @@ export function LeftPanelTerms({
     }, [categories, selectedTypeIdSet])
 
     return (
-        <div ref={rootRef} className="flex flex-col min-h-0 flex-1">
+        <div ref={rootRef} className={cn('flex-col min-h-0 flex-1', active ? 'flex' : 'hidden')}>
             <div className="p-2 border-b">
                 <div className="flex items-center gap-2">
                     <div className="relative flex-1">
@@ -424,7 +431,12 @@ export function LeftPanelTerms({
 
             <ScrollArea className="flex-1 min-h-0">
                 <div className="p-2 space-y-2">
-                    {categoriesToRender.map((category) => {
+                    {loadStatus !== 'loaded' && (
+                        <div role="status" className="py-6 text-center text-sm text-muted-foreground">
+                            {loadStatus === 'loading' ? tCommon('loading') : t('terms.loadError')}
+                        </div>
+                    )}
+                    {loadStatus === 'loaded' && categoriesToRender.map((category) => {
                         const categoryEntries = entriesByCategory[category.id]
                         const count = categoryEntries.length
                         const isExpanded = isSearchOrFiltered ? count > 0 : termState.expandedCategoryIds.has(category.id)
@@ -476,7 +488,7 @@ export function LeftPanelTerms({
                         )
                     })}
 
-                    {termState.entries.length === 0 && (
+                    {loadStatus === 'loaded' && termState.entries.length === 0 && (
                         <div className="pt-4 flex items-center justify-center">
                             <Badge variant="secondary" className="text-xs">
                                 {t('terms.emptyAll')}
@@ -866,7 +878,7 @@ export function LeftPanelTerms({
                 </DialogContent>
             </Dialog>
 
-            {anchorRect && selectedEntry && selectedCategory && (
+            {active && anchorRect && selectedEntry && selectedCategory && (
                 <TermEntryFloatingPanel
                     key={selectedEntry.id}
                     novelId={novelId}

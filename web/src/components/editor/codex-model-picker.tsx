@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Check, ChevronDown, ChevronUp, RotateCcw, Zap } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, RotateCcw, Zap } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,22 +19,38 @@ import {
     type CodexReasoningEffort,
     type CodexServiceTier,
 } from '@/lib/api'
-import { CODEX_NATIVE_PROVIDER_MODELS } from '@/lib/codex-config'
+import { CODEX_NATIVE_PROVIDER_MODELS, DEFAULT_CODEX_CHAT_SETTINGS, isGptCodexModelId } from '@/lib/codex-config'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/hooks/use-is-mobile'
+import styles from './codex-model-picker.module.css'
 
-const ADVANCED_MODE_KEY = 'codex.modelPicker.advanced'
 const GENERIC_CUSTOM_EFFORTS: CodexReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
 
 const PRESETS: Array<{ modelId: string; effort: CodexReasoningEffort }> = [
     { modelId: 'gpt-5.6-terra', effort: 'low' },
     { modelId: 'gpt-5.6-sol', effort: 'low' },
     { modelId: 'gpt-5.6-sol', effort: 'medium' },
-    { modelId: 'gpt-5.6-sol', effort: 'high' },
-    { modelId: 'gpt-5.6-sol', effort: 'xhigh' },
-    { modelId: 'gpt-5.6-sol', effort: 'max' },
-    { modelId: 'gpt-5.6-sol', effort: 'ultra' },
+    { modelId: 'gpt-6-astra', effort: 'low' },
+    { modelId: 'gpt-6-astra', effort: 'medium' },
+    { modelId: 'gpt-6-astra', effort: 'xhigh' },
 ]
+
+function createSliderParticles() {
+    let seed = 9417
+    const random = () => {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+        return seed / 4294967296
+    }
+    return Array.from({ length: 28 }, () => ({
+        x: `${random() * 100}%`,
+        y: `${12 + random() * 70}%`,
+        size: `${1.5 + random() * 2}px`,
+        duration: `${1.4 + random() * 0.68}s`,
+        delay: `${-random() * 3}s`,
+    }))
+}
+
+const SLIDER_PARTICLES = createSliderParticles()
 
 const BUILTIN_MODELS: CodexModelCatalogEntry[] = CODEX_NATIVE_PROVIDER_MODELS.map((model) => ({
     id: model.id,
@@ -46,17 +62,8 @@ const BUILTIN_MODELS: CodexModelCatalogEntry[] = CODEX_NATIVE_PROVIDER_MODELS.ma
 }))
 
 function formatModelLabel(modelId: string, displayName?: string) {
-    const named = displayName?.trim()
-    if (named && named.toLowerCase() !== modelId.trim().toLowerCase()) return named
-
-    const normalized = modelId.trim().toLowerCase()
-    const match = normalized.match(/^gpt-(\d+\.\d+)-(sol|terra|luna)$/u)
-    if (match) return `${match[1]} ${match[2][0].toUpperCase()}${match[2].slice(1)}`
-    if (normalized === 'gpt-5.4-mini') return '5.4 Mini'
-    if (normalized.startsWith('gpt-')) return normalized.slice(4).replaceAll('-', ' ')
-    // Prefer configured display name even when it matches the id (e.g. custom providers).
-    if (named) return named
-    return modelId.trim()
+    const nativeModel = BUILTIN_MODELS.find((model) => model.id === modelId.trim().toLowerCase())
+    return nativeModel?.displayName || displayName?.trim() || modelId.trim()
 }
 
 function findPresetIndex(modelId: string, effort: CodexReasoningEffort) {
@@ -114,7 +121,8 @@ type CodexModelPickerProps = {
     includeBuiltinModels: boolean
     showServiceTier: boolean
     fastModeDescription: string
-    disabled?: boolean
+    modelSettingsDisabled?: boolean
+    onFastModeChange: (enabled: boolean) => void
     onChange: (settings: Partial<{
         modelId: string
         reasoningEffort: CodexReasoningEffort
@@ -130,84 +138,78 @@ export function CodexModelPicker({
     includeBuiltinModels,
     showServiceTier,
     fastModeDescription,
-    disabled,
+    modelSettingsDisabled,
     onChange,
+    onFastModeChange,
 }: CodexModelPickerProps) {
     const t = useTranslations('editor')
     const [open, setOpen] = useState(false)
-    const [advancedSticky, setAdvancedSticky] = useState(false)
-    const [dragging, setDragging] = useState(false)
+    const [showModels, setShowModels] = useState(false)
+    const [explicitModelId, setExplicitModelId] = useState<string | null>(null)
+    const [dragIndex, setDragIndex] = useState<number | null>(null)
+    const [maxBurst, setMaxBurst] = useState(0)
     const draggingRef = useRef(false)
-    const currentPresetIndex = findPresetIndex(modelId, reasoningEffort)
-    const [previewIndex, setPreviewIndex] = useState(currentPresetIndex >= 0 ? currentPresetIndex : 1)
-    const [ultraBurst, setUltraBurst] = useState(0)
 
     const availableModels = useMemo(() => {
-        const catalog = new Map(models.map((model) => [model.id.toLowerCase(), model]))
+        const catalog = new Map<string, CodexModelCatalogEntry>()
         if (includeBuiltinModels) {
             for (const model of BUILTIN_MODELS) catalog.set(model.id, model)
         }
+        for (const model of models) {
+            const builtin = catalog.get(model.id.toLowerCase())
+            catalog.set(model.id.toLowerCase(), builtin ? { ...model, ...builtin, serviceTiers: model.serviceTiers } : model)
+        }
         return [...catalog.values()]
     }, [includeBuiltinModels, models])
-    const selectedModel = useMemo(
-        () => availableModels.find((model) => model.id.toLowerCase() === modelId.trim().toLowerCase()),
-        [availableModels, modelId]
-    )
-    const advanced = advancedSticky || !includeBuiltinModels || !selectedModel || currentPresetIndex < 0
-    const preview = PRESETS[previewIndex]
-    const ultra = preview.effort === 'ultra'
-    const max = preview.effort === 'max'
+    const selectedModel = availableModels.find((model) => model.id.toLowerCase() === modelId.trim().toLowerCase())
+    const useGptPicker = includeBuiltinModels && isGptCodexModelId(modelId)
+    const currentPresetIndex = findPresetIndex(modelId, reasoningEffort)
+    const defaultMode = explicitModelId !== modelId && currentPresetIndex >= 0
     const effortOptions = getModelEfforts(selectedModel)
-    const modelOptions = availableModels
-
-    const setAdvanced = (value: boolean) => {
-        setAdvancedSticky(value)
-        window.localStorage.setItem(ADVANCED_MODE_KEY, String(value))
-    }
-
-    const commitPreset = (index: number) => {
-        const preset = PRESETS[index]
-        onChange({ modelId: preset.modelId, reasoningEffort: preset.effort })
-    }
-
-    const updatePreview = (index: number) => {
-        if (index === PRESETS.length - 1 && previewIndex !== index) {
-            setUltraBurst((value) => value + 1)
-        }
-        setPreviewIndex(index)
-    }
-
-    const selectModel = (nextModel: CodexModelCatalogEntry) => {
-        const supported = getModelEfforts(nextModel)
-        onChange({
-            modelId: nextModel.id,
-            reasoningEffort: supported.includes(reasoningEffort)
-                ? reasoningEffort
-                : nextModel.defaultReasoningEffort,
-        })
-    }
-
+    const steps = defaultMode ? PRESETS : effortOptions.map((effort) => ({ modelId, effort }))
+    const selectedIndex = defaultMode ? currentPresetIndex : effortOptions.indexOf(reasoningEffort)
+    const previewIndex = dragIndex ?? Math.max(0, selectedIndex)
+    const preview = steps[previewIndex]
+    const atMaximum = steps.length > 1 && previewIndex === steps.length - 1
+    const fast = showServiceTier && serviceTier === 'fast'
+    const effortLabel = (effort: CodexReasoningEffort) => t(`codex.${useGptPicker ? 'pickerEfforts' : 'reasoningEfforts'}.${effort}`)
     const resetToDefault = () => {
-        if (includeBuiltinModels) {
-            onChange({ modelId: 'gpt-5.6-sol', reasoningEffort: 'high' })
-            setPreviewIndex(3)
+        if (useGptPicker) {
+            onChange(DEFAULT_CODEX_CHAT_SETTINGS)
+            setExplicitModelId(null)
         } else {
             const defaultModel = availableModels[0]
             if (!defaultModel) return
             onChange({ modelId: defaultModel.id, reasoningEffort: defaultModel.defaultReasoningEffort })
         }
-        setAdvanced(false)
-        setOpen(false)
+        setDragIndex(null)
+        setMaxBurst(0)
+        setShowModels(false)
+    }
+    const selectModel = (nextModel: CodexModelCatalogEntry) => {
+        const supported = getModelEfforts(nextModel)
+        const effort = isGptCodexModelId(nextModel.id)
+            ? (supported.includes('high') ? 'high' : nextModel.defaultReasoningEffort)
+            : (supported.includes(reasoningEffort) ? reasoningEffort : nextModel.defaultReasoningEffort)
+        onChange({ modelId: nextModel.id, reasoningEffort: effort })
+        setExplicitModelId(nextModel.id)
+        setDragIndex(null)
+        setMaxBurst(0)
+        setShowModels(false)
+    }
+    const commitStep = (index: number) => {
+        const step = steps[index]
+        if (step) onChange({ modelId: step.modelId, reasoningEffort: step.effort })
     }
 
     return (
         <DropdownMenu
             open={open}
             onOpenChange={(nextOpen) => {
-                if (nextOpen) {
-                    setAdvancedSticky(window.localStorage.getItem(ADVANCED_MODE_KEY) === 'true')
-                    if (currentPresetIndex >= 0) setPreviewIndex(currentPresetIndex)
-                }
+                setShowModels(false)
+                setDragIndex(null)
+                setMaxBurst(0)
+                draggingRef.current = false
                 setOpen(nextOpen)
             }}
         >
@@ -217,7 +219,6 @@ export function CodexModelPicker({
                     size="sm"
                     variant="ghost"
                     className="max-w-full min-w-0 gap-0.5 px-1.5 has-[>svg]:px-1.5 text-muted-foreground"
-                    disabled={disabled}
                 >
                     {showServiceTier && serviceTier === 'fast' && (
                         <Zap className="h-4 w-4 shrink-0 fill-current text-foreground" />
@@ -226,12 +227,12 @@ export function CodexModelPicker({
                         {formatModelLabel(modelId, selectedModel?.displayName)}
                     </span>
                     <span className={cn('shrink-0', reasoningEffort === 'ultra' && 'codex-ultra-text')}>
-                        {t(`codex.reasoningEfforts.${reasoningEffort}`)}
+                        {effortLabel(reasoningEffort)}
                     </span>
                     <ChevronDown className="h-4 w-4 shrink-0" />
                 </Button>
             </DropdownMenuTrigger>
-            {advanced ? (
+            {!useGptPicker ? (
                 <DropdownMenuContent align="end" collisionPadding={8} className="w-56 max-w-[calc(100vw-1rem)] p-1">
                     <ModelPickerSubmenu
                         label={t('codex.model')}
@@ -243,8 +244,8 @@ export function CodexModelPicker({
                         className="w-52"
                     >
                         <div className="px-2 py-1.5 text-sm text-muted-foreground">{t('codex.model')}</div>
-                        {modelOptions.map((model) => (
-                            <DropdownMenuItem key={model.id} onSelect={() => selectModel(model)}>
+                        {availableModels.map((model) => (
+                            <DropdownMenuItem key={model.id} disabled={modelSettingsDisabled} onSelect={() => selectModel(model)}>
                                 <span className="min-w-0 break-words">{formatModelLabel(model.id, model.displayName)}</span>
                                 {modelId.toLowerCase() === model.id.toLowerCase() && <Check className="ml-auto" />}
                             </DropdownMenuItem>
@@ -261,7 +262,7 @@ export function CodexModelPicker({
                     >
                         <div className="px-2 py-1.5 text-sm text-muted-foreground">{t('codex.effort')}</div>
                         {effortOptions.map((effort) => (
-                            <DropdownMenuItem key={effort} onSelect={() => onChange({ reasoningEffort: effort })} className="items-start">
+                            <DropdownMenuItem key={effort} disabled={modelSettingsDisabled} onSelect={() => onChange({ reasoningEffort: effort })} className="items-start">
                                 <div>
                                     <div>{t(`codex.reasoningEfforts.${effort}`)}</div>
                                     {(effort === 'max' || effort === 'ultra') && (
@@ -284,7 +285,7 @@ export function CodexModelPicker({
                                 <DropdownMenuItem
                                     key={tier}
                                     className="items-start"
-                                    onSelect={() => onChange({ serviceTier: tier })}
+                                    onSelect={() => onFastModeChange(tier === 'fast')}
                                 >
                                     <div>
                                         <div>{t(`codex.serviceTiers.${tier}`)}</div>
@@ -300,92 +301,163 @@ export function CodexModelPicker({
                         </ModelPickerSubmenu>
                     )}
                     <DropdownMenuSeparator />
-                    {(modelId !== 'gpt-5.6-sol' || reasoningEffort !== 'high') && (
-                        <DropdownMenuItem onSelect={resetToDefault} className="text-muted-foreground">
-                            <span>{t('codex.resetToDefault')}</span>
-                            <RotateCcw className="ml-auto" />
-                        </DropdownMenuItem>
-                    )}
-                    <button
-                        type="button"
-                        className="flex h-8 w-full items-center px-2 text-left text-sm text-muted-foreground"
-                        onClick={() => currentPresetIndex >= 0 && setAdvanced(false)}
-                    >
-                        {t('codex.advanced')}
-                        <ChevronUp className="ml-1 h-4 w-4" />
-                    </button>
+                    <DropdownMenuItem disabled={modelSettingsDisabled} onSelect={resetToDefault} className="text-muted-foreground">
+                        <span>{t('codex.resetToDefault')}</span>
+                        <RotateCcw className="ml-auto" />
+                    </DropdownMenuItem>
                 </DropdownMenuContent>
             ) : (
                 <DropdownMenuContent
                     align="end"
-                    className="w-64 overflow-visible p-3"
-                    onCloseAutoFocus={(event) => dragging && event.preventDefault()}
+                    side="top"
+                    collisionPadding={8}
+                    className={cn('w-72 max-w-[calc(100vw-1rem)] rounded-2xl p-3 shadow-lg', !showModels && 'overflow-visible')}
+                    onKeyDown={(event) => {
+                        if (event.key === 'Tab') event.stopPropagation()
+                    }}
                 >
-                    <div className="mb-2 flex min-h-5 items-center text-xs text-muted-foreground">
-                        {dragging ? (
-                            <>
-                                <span>{t('codex.faster')}</span>
-                                <span className="ml-auto">{t('codex.smarter')}</span>
-                            </>
-                        ) : max || ultra ? (
-                            <span className={cn('font-medium', ultra ? 'codex-ultra-text' : 'text-blue-500')}>
-                                {t('codex.usageLimitWarning')}
-                            </span>
-                        ) : (
-                            <button type="button" className="flex items-center" onClick={() => setAdvanced(true)}>
-                                {t('codex.advanced')}
-                                <ChevronDown className="ml-1 h-4 w-4 -rotate-90" />
-                            </button>
-                        )}
-                    </div>
-                    <div className={cn('codex-effort-slider-wrap', ultra && 'is-ultra', max && 'is-max')}>
-                        <div className="codex-effort-dots" aria-hidden="true">
-                            {PRESETS.map((_, index) => (
-                                <span key={index} className={index === previewIndex ? 'is-selected' : undefined} />
+                    {showModels ? (
+                        <>
+                            <div className="px-2 pb-1 text-sm text-muted-foreground">{t('codex.selectModel')}</div>
+                            <DropdownMenuItem
+                                disabled={modelSettingsDisabled}
+                                className="items-center rounded-xl"
+                                onSelect={(event) => { event.preventDefault(); resetToDefault() }}
+                            >
+                                <div className="min-w-0">
+                                    <div>{t('codex.defaultModels')}</div>
+                                    <div className="text-xs text-muted-foreground">{t('codex.recommendedModels')}</div>
+                                </div>
+                                {defaultMode && <Check className="ml-auto" />}
+                            </DropdownMenuItem>
+                            {availableModels.map((model) => (
+                                <DropdownMenuItem
+                                    key={model.id}
+                                    disabled={modelSettingsDisabled}
+                                    className="rounded-lg"
+                                    onSelect={(event) => { event.preventDefault(); selectModel(model) }}
+                                >
+                                    <span className="min-w-0 break-words">{formatModelLabel(model.id, model.displayName)}</span>
+                                    {!defaultMode && modelId.toLowerCase() === model.id.toLowerCase() && <Check className="ml-auto" />}
+                                </DropdownMenuItem>
                             ))}
-                        </div>
-                        <input
-                            type="range"
-                            min={0}
-                            max={PRESETS.length - 1}
-                            step={1}
-                            value={previewIndex}
-                            aria-label={t('codex.intelligence')}
-                            style={{ '--codex-slider-fill': `${(previewIndex / (PRESETS.length - 1)) * 100}%` } as CSSProperties}
-                            onPointerDown={() => {
-                                draggingRef.current = true
-                                setDragging(true)
-                            }}
-                            onPointerUp={(event) => {
-                                draggingRef.current = false
-                                setDragging(false)
-                                commitPreset(Number(event.currentTarget.value))
-                            }}
-                            onPointerCancel={() => {
-                                draggingRef.current = false
-                                setDragging(false)
-                                updatePreview(currentPresetIndex)
-                            }}
-                            onChange={(event) => {
-                                const nextIndex = Number(event.target.value)
-                                updatePreview(nextIndex)
-                                if (!draggingRef.current) commitPreset(nextIndex)
-                            }}
-                        />
-                        {ultra && (
-                            <div key={ultraBurst} className="codex-ultra-burst" aria-hidden="true">
-                                {Array.from({ length: 12 }, (_, index) => (
-                                    <span key={index} style={{ '--particle-index': index } as CSSProperties} />
-                                ))}
+                        </>
+                    ) : (
+                        <>
+                            <div className="mb-3 flex min-h-9 items-start gap-1">
+                                {showServiceTier ? (
+                                    <button
+                                        type="button"
+                                        aria-label={t('codex.serviceTiers.fast')}
+                                        aria-pressed={fast}
+                                        title={fastModeDescription}
+                                        className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring', fast ? 'text-blue-500' : 'text-muted-foreground')}
+                                        onClick={() => onFastModeChange(!fast)}
+                                    >
+                                        <Zap className={cn('size-4', fast && 'fill-current')} />
+                                    </button>
+                                ) : <span className="size-8 shrink-0" />}
+                                <button
+                                    type="button"
+                                    aria-label={t('codex.selectModel')}
+                                    disabled={modelSettingsDisabled}
+                                    className="min-w-0 flex-1 rounded-lg px-1 py-1 text-center text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
+                                    onClick={() => setShowModels(true)}
+                                >
+                                    {defaultMode ? (
+                                        <span className="flex items-center justify-center gap-1">
+                                            <span className="min-w-0">
+                                                <span className="font-medium">{formatModelLabel(preview.modelId)}</span>{' '}
+                                                <span className={cn('text-muted-foreground', atMaximum && styles.maximumLabel)}>{effortLabel(preview.effort)}</span>
+                                            </span>
+                                            <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                                        </span>
+                                    ) : (
+                                        <>
+                                            <span className={cn('flex items-center justify-center gap-1 text-blue-500', atMaximum && styles.maximumLabel)}>
+                                                {effortLabel(preview.effort)}<ChevronRight className="size-4 text-muted-foreground" />
+                                            </span>
+                                            <span className="block text-xs text-muted-foreground">{formatModelLabel(modelId, selectedModel?.displayName)}</span>
+                                        </>
+                                    )}
+                                </button>
+                                {!defaultMode && (
+                                    <button
+                                        type="button"
+                                        aria-label={t('codex.resetToDefault')}
+                                        title={t('codex.resetToDefault')}
+                                        disabled={modelSettingsDisabled}
+                                        className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
+                                        onClick={resetToDefault}
+                                    >
+                                        <RotateCcw className="size-4" />
+                                    </button>
+                                )}
                             </div>
-                        )}
-                    </div>
-                    <div className="mt-2 text-center text-sm">
-                        <span>{formatModelLabel(preview.modelId)}</span>{' '}
-                        <span className={cn('text-muted-foreground', ultra && 'codex-ultra-text')}>
-                            {t(`codex.reasoningEfforts.${preview.effort}`)}
-                        </span>
-                    </div>
+                            <div
+                                className={cn(styles.slider, fast && styles.fast, atMaximum && styles.maximum)}
+                                style={{ '--codex-slider-progress': steps.length > 1 ? previewIndex / (steps.length - 1) : 0 } as CSSProperties}
+                            >
+                                <div className={styles.track} aria-hidden="true">
+                                    <div className={styles.fill}>
+                                        <div className={styles.particles}>
+                                            {SLIDER_PARTICLES.slice(0, fast ? 28 : 10).map((particle, index) => (
+                                                <span key={index} style={{
+                                                    '--particle-x': particle.x,
+                                                    '--particle-y': particle.y,
+                                                    '--particle-size': particle.size,
+                                                    '--particle-duration': particle.duration,
+                                                    '--particle-delay': particle.delay,
+                                                } as CSSProperties} />
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className={styles.dots} aria-hidden="true">
+                                    {steps.map((_, index) => <span key={index} className={index <= previewIndex ? styles.filled : undefined} />)}
+                                </div>
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={steps.length - 1}
+                                    step={1}
+                                    value={previewIndex}
+                                    disabled={modelSettingsDisabled || steps.length < 2}
+                                    aria-label={t(defaultMode ? 'codex.intelligence' : 'codex.effort')}
+                                    aria-valuetext={`${formatModelLabel(preview.modelId, selectedModel?.displayName)} ${effortLabel(preview.effort)}`}
+                                    onKeyDown={(event) => event.stopPropagation()}
+                                    onPointerDown={(event) => {
+                                        draggingRef.current = true
+                                        event.currentTarget.setPointerCapture(event.pointerId)
+                                    }}
+                                    onPointerUp={(event) => {
+                                        draggingRef.current = false
+                                        commitStep(Number(event.currentTarget.value))
+                                        setDragIndex(null)
+                                    }}
+                                    onPointerCancel={() => {
+                                        draggingRef.current = false
+                                        setDragIndex(null)
+                                    }}
+                                    onChange={(event) => {
+                                        const index = Number(event.target.value)
+                                        if (index === steps.length - 1 && previewIndex !== index) {
+                                            setMaxBurst((current) => current + 1)
+                                        }
+                                        if (draggingRef.current) setDragIndex(index)
+                                        else commitStep(index)
+                                    }}
+                                />
+                                {maxBurst > 0 && (
+                                    <div key={maxBurst} className={styles.burst} aria-hidden="true">
+                                        {Array.from({ length: 12 }, (_, index) => (
+                                            <span key={index} style={{ '--burst-index': index } as CSSProperties} />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    )}
                 </DropdownMenuContent>
             )}
         </DropdownMenu>

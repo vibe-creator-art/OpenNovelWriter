@@ -1,9 +1,14 @@
 'use client'
 
+import { useCodexWorkDetailsStore } from '@/components/editor/codex-work-details-store'
+
 import { create, type StoreApi } from 'zustand'
+import type { CodexUserInputRequest, CodexUserInputResponse } from '@/lib/codex-user-input'
 import {
+    ApiError,
     codexApi,
     codexSessionApi,
+    novelApi,
     type CodexApprovalOption,
     type CodexApprovalRequest,
     type CodexRunEvent,
@@ -12,6 +17,7 @@ import {
     type CodexReviewLevel,
     type CodexServiceTier,
     type CodexSession,
+    type CodexSessionSummary,
     type CodexSessionCategory,
     type CodexSessionCleanupResult,
     type CodexComposerMode,
@@ -22,7 +28,7 @@ import {
 } from '@/lib/api'
 import { getLatestContextWindowFromMessages } from '@/lib/codex-context-window'
 import { mergeCodexRateLimits } from '@/lib/codex-rate-limits'
-import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import { getNewCodexSessionModelSettings } from '@/lib/codex-config'
 import {
     getStickyCodexFastMode,
     resolvePreferredCodexServiceTier,
@@ -31,7 +37,7 @@ import type { PendingImageAttachment } from '@/components/image/use-image-attach
 import { dispatchNovelRefreshRequested } from '@/lib/novel-refresh-events'
 import { emitSceneEditsChanged } from '@/components/editor/scene-edit-events'
 import { emitContinuationPanelRemoved } from '@/lib/continuation-panel-events'
-import { mergeRefreshedSession, mergeServerSession } from '@/components/editor/codex-session-merge'
+import { mergeRefreshedSession, mergeServerSession, mergeSessionSummary } from '@/components/editor/codex-session-merge'
 import {
     completionReadAtOnDraftChange,
     completionReadAtOnInteraction,
@@ -58,7 +64,7 @@ function setStickyReviewLevel(reviewLevel: CodexReviewLevel) {
     window.localStorage.setItem(STICKY_REVIEW_LEVEL_KEY, reviewLevel)
 }
 
-async function getPreferredServiceTierForNewSession(): Promise<CodexServiceTier> {
+async function getPreferredServiceTierForNewSession(novelId: string, category: CodexSessionCategory = 'general'): Promise<CodexServiceTier> {
     if (!getStickyCodexFastMode()) return 'standard'
 
     try {
@@ -66,11 +72,16 @@ async function getPreferredServiceTierForNewSession(): Promise<CodexServiceTier>
         const activeConnection = connections.find((connection) => connection.isActive) ?? null
         if (!activeConnection) return 'standard'
 
-        const { models } = await codexApi.listConnectionModels(activeConnection.id)
+        const [{ models }, novel] = await Promise.all([
+            codexApi.listConnectionModels(activeConnection.id),
+            activeConnection.providerType === 'custom' ? novelApi.get(novelId) : null,
+        ])
         return resolvePreferredCodexServiceTier({
             enabled: true,
+            connection: activeConnection,
+            customFastModeEnabled: novel?.codexCustomFastModeEnabled === true,
             models,
-            modelId: activeConnection.defaultModelId?.trim() || DEFAULT_CODEX_MODEL,
+            modelId: getNewCodexSessionModelSettings(activeConnection, category).modelId,
         })
     } catch {
         return 'standard'
@@ -93,15 +104,28 @@ export type QueuedCodexMessage = {
     createdAt: string
 }
 
+export class CodexSendError extends Error {
+    constructor(error: unknown, readonly accepted: boolean) {
+        super(error instanceof Error ? error.message : String(error), { cause: error })
+        this.name = 'CodexSendError'
+    }
+}
+
 type DraftSessionPatch = Partial<Pick<CodexSession, 'draftContent' | 'draftAttachments' | 'draftArtifacts'>>
 
 type CodexStoreState = {
     sessionsByNovel: Record<string, CodexNovelSessionState>
+    historyRequestsBySession: Record<string, { loading: boolean; error: string | null }>
+    loadSession: (novelId: string | null | undefined, sessionId: string, options?: { force?: boolean }) => Promise<void>
     pendingApprovalsBySession: Record<string, CodexApprovalRequest | null>
+    userInputRequestsBySession: Record<string, CodexUserInputRequest[]>
+    refreshUserInputRequests: (sessionId: string) => Promise<void>
+    answerUserInput: (sessionId: string, requestId: string, response: CodexUserInputResponse) => Promise<void>
     imageAttachmentsBySession: Record<string, PendingImageAttachment[]>
     jsonArtifactUploadingBySession: Record<string, boolean>
     queuedMessagesBySession: Record<string, QueuedCodexMessage[]>
     queueingEnabledBySession: Record<string, boolean>
+    queuePausedBySession: Record<string, boolean>
     optimisticSteerMessagesBySession: Record<string, CodexSession['messages']>
     liveContextWindowBySession: Record<string, CodexContextWindow>
     liveRateLimitsByConnection: Record<string, CodexRateLimits>
@@ -149,6 +173,7 @@ type CodexStoreState = {
         updater: (current: QueuedCodexMessage[]) => QueuedCodexMessage[]
     ) => void
     setQueueingEnabled: (sessionId: string, enabled: boolean) => void
+    setQueuePaused: (sessionId: string, paused: boolean) => void
     setOptimisticSteerMessages: (
         sessionId: string,
         updater: (current: CodexSession['messages']) => CodexSession['messages']
@@ -175,6 +200,7 @@ type CodexStoreState = {
         sessionId: string,
         content: string,
         options?: {
+            preserveComposer?: boolean
             skillIds?: string[]
             promptArtifact?: CodexPromptArtifact
             attachments?: string[]
@@ -194,10 +220,16 @@ type CodexStoreState = {
 const draftSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const pendingDraftPatches = new Map<string, DraftSessionPatch>()
 const sessionLoadPromises = new Map<string, Promise<void>>()
+const historyLoadPromises = new Map<string, Promise<void>>()
 const sessionCreatePromises = new Map<string, Promise<string | null>>()
 const deletedSessionIds = new Set<string>()
 const deletingSessionIds = new Set<string>()
 const activeRunControllers = new Map<string, AbortController>()
+const userInputRevisions = new Map<string, number>()
+
+function bumpUserInputRevision(sessionId: string) {
+    userInputRevisions.set(sessionId, (userInputRevisions.get(sessionId) ?? 0) + 1)
+}
 
 function getNovelKey(novelId?: string | null) {
     const normalized = novelId?.trim()
@@ -215,28 +247,39 @@ function getEmptySession(): CodexNovelSessionState {
 }
 
 function removeSessionFromState(state: CodexStoreState, novelKey: string, sessionId: string) {
+    useCodexWorkDetailsStore.getState().clear(sessionId)
     const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
     const sessions = current.sessions.filter((session) => session.id !== sessionId)
+    const historyRequestsBySession = { ...state.historyRequestsBySession }
+    delete historyRequestsBySession[sessionId]
     const pendingApprovalsBySession = { ...state.pendingApprovalsBySession }
+    const userInputRequestsBySession = { ...state.userInputRequestsBySession }
     const imageAttachmentsBySession = { ...state.imageAttachmentsBySession }
     const jsonArtifactUploadingBySession = { ...state.jsonArtifactUploadingBySession }
     const queuedMessagesBySession = { ...state.queuedMessagesBySession }
     const queueingEnabledBySession = { ...state.queueingEnabledBySession }
+    const queuePausedBySession = { ...state.queuePausedBySession }
     const optimisticSteerMessagesBySession = { ...state.optimisticSteerMessagesBySession }
     const liveContextWindowBySession = { ...state.liveContextWindowBySession }
     delete pendingApprovalsBySession[sessionId]
+    delete userInputRequestsBySession[sessionId]
+    bumpUserInputRevision(sessionId)
     delete imageAttachmentsBySession[sessionId]
     delete jsonArtifactUploadingBySession[sessionId]
     delete queuedMessagesBySession[sessionId]
     delete queueingEnabledBySession[sessionId]
+    delete queuePausedBySession[sessionId]
     delete optimisticSteerMessagesBySession[sessionId]
     delete liveContextWindowBySession[sessionId]
     return {
+        historyRequestsBySession,
         pendingApprovalsBySession,
+        userInputRequestsBySession,
         imageAttachmentsBySession,
         jsonArtifactUploadingBySession,
         queuedMessagesBySession,
         queueingEnabledBySession,
+        queuePausedBySession,
         optimisticSteerMessagesBySession,
         liveContextWindowBySession,
         sessionsByNovel: {
@@ -306,7 +349,10 @@ function removePrunedSessions(state: CodexNovelSessionState, cleanup: CodexSessi
 }
 
 function finishSessionCleanup(cleanup: CodexSessionCleanupResult) {
-    cleanup.deletedSessionIds.forEach(clearDraftSave)
+    cleanup.deletedSessionIds.forEach((id) => {
+        clearDraftSave(id)
+        useCodexWorkDetailsStore.getState().clear(id)
+    })
 }
 
 function scheduleDraftSave(sessionId: string, patch: DraftSessionPatch) {
@@ -374,6 +420,10 @@ function eventToMessage(event: CodexRunEvent): CodexSession['messages'][number] 
         id: event.id,
         role: 'event',
         kind: event.kind,
+        workStatus: event.workStatus,
+        toolInput: event.toolInput,
+        detailVersion: event.detailVersion,
+        sceneEdit: event.sceneEdit,
         content: [event.title, event.content].filter(Boolean).join('\n\n'),
         attachments: event.attachments,
         responseAnnotations: event.responseAnnotations,
@@ -385,6 +435,7 @@ function upsertMessage(session: CodexSession, message: CodexSession['messages'][
     const exists = session.messages.some((item) => item.id === message.id)
     return {
         ...session,
+        messageCount: exists ? session.messages.length : session.messages.length + 1,
         messages: exists
             ? session.messages.map((item) => (item.id === message.id ? message : item))
             : [...session.messages, message],
@@ -456,6 +507,7 @@ function applyCodexStreamEvent(
     if (deletedSessionIds.has(sessionId)) return null
 
     if (event.type === 'done') {
+        bumpUserInputRevision(sessionId)
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             const session = mergeSessionPreservingComposer(current, event.session, { preserveRunning: false })
@@ -464,6 +516,7 @@ function applyCodexStreamEvent(
                 delete liveContextWindowBySession[sessionId]
             }
             return {
+                userInputRequestsBySession: { ...state.userInputRequestsBySession, [sessionId]: [] },
                 pendingApprovalsBySession: {
                     ...state.pendingApprovalsBySession,
                     [sessionId]: null,
@@ -479,12 +532,14 @@ function applyCodexStreamEvent(
     }
 
     if (event.type === 'error') {
+        bumpUserInputRevision(sessionId)
         set((state) => {
             const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
             const session = event.session
                 ? mergeSessionPreservingComposer(current, event.session, { preserveRunning: false })
                 : null
             return {
+                userInputRequestsBySession: { ...state.userInputRequestsBySession, [sessionId]: [] },
                 pendingApprovalsBySession: {
                     ...state.pendingApprovalsBySession,
                     [sessionId]: null,
@@ -525,6 +580,21 @@ function applyCodexStreamEvent(
                     [connectionId]: merged,
                 },
             }
+        })
+        return null
+    }
+
+    if (event.type === 'user_input_request' || event.type === 'user_input_resolved') {
+        bumpUserInputRevision(sessionId)
+        set((state) => {
+            const requests = state.userInputRequestsBySession[sessionId] ?? []
+            const id = event.type === 'user_input_request' ? event.request.id : event.id
+            return { userInputRequestsBySession: {
+                ...state.userInputRequestsBySession,
+                [sessionId]: event.type === 'user_input_request'
+                    ? [...requests.filter((request) => request.id !== id), event.request]
+                    : requests.filter((request) => request.id !== id),
+            } }
         })
         return null
     }
@@ -575,6 +645,13 @@ function applyCodexStreamEvent(
                     sessions: current.sessions.map((session) => {
                         if (session.id !== sessionId) return session
                         if (event.type === 'assistant_delta') return appendAssistantDelta(session, event)
+                        if (event.type === 'reasoning_delta') {
+                            const existing = session.messages.find((message) => message.id === event.id)
+                            return upsertMessage(session, {
+                                id: event.id, role: 'event', kind: 'reasoning', workStatus: 'running',
+                                content: `${existing?.content ?? ''}${event.delta}`, createdAt: existing?.createdAt ?? event.createdAt,
+                            })
+                        }
                         if (event.type === 'plan_delta') return appendPlanDelta(session, event)
                         if (event.type === 'context_window') return attachContextWindow(session, event)
                         return upsertMessage(session, eventToMessage(event.event))
@@ -591,11 +668,28 @@ function applyCodexStreamEvent(
 
 export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     sessionsByNovel: {},
+    historyRequestsBySession: {},
     pendingApprovalsBySession: {},
+    userInputRequestsBySession: {},
+    refreshUserInputRequests: async (sessionId) => {
+        const revision = userInputRevisions.get(sessionId) ?? 0
+        const { requests } = await codexSessionApi.listUserInputRequests(sessionId)
+        if ((userInputRevisions.get(sessionId) ?? 0) !== revision || deletedSessionIds.has(sessionId)) return
+        set((state) => ({ userInputRequestsBySession: { ...state.userInputRequestsBySession, [sessionId]: requests } }))
+    },
+    answerUserInput: async (sessionId, requestId, response) => {
+        await codexSessionApi.answerUserInput(sessionId, requestId, response)
+        bumpUserInputRevision(sessionId)
+        set((state) => ({ userInputRequestsBySession: {
+            ...state.userInputRequestsBySession,
+            [sessionId]: (state.userInputRequestsBySession[sessionId] ?? []).filter((request) => request.id !== requestId),
+        } }))
+    },
     imageAttachmentsBySession: {},
     jsonArtifactUploadingBySession: {},
     queuedMessagesBySession: {},
     queueingEnabledBySession: {},
+    queuePausedBySession: {},
     optimisticSteerMessagesBySession: {},
     liveContextWindowBySession: {},
     liveRateLimitsByConnection: {},
@@ -669,7 +763,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                     const serverSessions = result.sessions.filter((session) => !deletedSessionIds.has(session.id))
                     const serverIds = new Set(serverSessions.map((session) => session.id))
                     const sessions = sortSessions([
-                        ...serverSessions.map((session) => mergeRefreshedSession(
+                        ...serverSessions.map((session) => mergeSessionSummary(
                             currentById.get(session.id),
                             session,
                             sessionsAtStart.get(session.id),
@@ -684,9 +778,12 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                             ? current.selectedSessionId
                             : sessions[0]?.id ?? null
                     const pendingApprovalsBySession = { ...state.pendingApprovalsBySession }
+                    const userInputRequestsBySession = { ...state.userInputRequestsBySession }
                     sessions.forEach((session) => {
                         if (session.status === 'running') return
                         pendingApprovalsBySession[session.id] = null
+                        userInputRequestsBySession[session.id] = []
+                        bumpUserInputRevision(session.id)
                         const controller = activeRunControllers.get(session.id)
                         if (controller) recoveredRuns.set(session.id, controller)
                     })
@@ -698,6 +795,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                     })
                     return {
                         pendingApprovalsBySession,
+                        userInputRequestsBySession,
                         imageAttachmentsBySession,
                         sessionsByNovel: {
                             ...state.sessionsByNovel,
@@ -741,6 +839,42 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             sessionLoadPromises.delete(novelKey)
         }
     },
+    loadSession: async (novelId, sessionId, options) => {
+        const novelKey = getNovelKey(novelId)
+        const atStart = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
+        if (!atStart || activeRunControllers.has(sessionId) || (!options?.force && atStart.historyLoaded)) return
+        const pending = historyLoadPromises.get(sessionId)
+        if (pending) return pending
+        const request = (async () => {
+            set((state) => ({ historyRequestsBySession: {
+                ...state.historyRequestsBySession, [sessionId]: { loading: true, error: null },
+            } }))
+            try {
+                const { session } = await codexSessionApi.get(sessionId)
+                set((state) => {
+                    const current = state.sessionsByNovel[novelKey]
+                    const local = current?.sessions.find((item) => item.id === sessionId)
+                    if (!current || !local || deletedSessionIds.has(sessionId)) return state
+                    return {
+                        sessionsByNovel: { ...state.sessionsByNovel, [novelKey]: applySession(
+                            current,
+                            mergeRefreshedSession(local, session, atStart, activeRunControllers.has(sessionId)),
+                            { front: false }
+                        ) },
+                        historyRequestsBySession: { ...state.historyRequestsBySession, [sessionId]: { loading: false, error: null } },
+                    }
+                })
+            } catch (error) {
+                if (deletedSessionIds.has(sessionId)) return
+                set((state) => ({ historyRequestsBySession: {
+                    ...state.historyRequestsBySession,
+                    [sessionId]: { loading: false, error: error instanceof Error ? error.message : String(error) },
+                } }))
+            }
+        })()
+        historyLoadPromises.set(sessionId, request)
+        try { await request } finally { historyLoadPromises.delete(sessionId) }
+    },
     createSession: async (novelId) => {
         const novelKey = getNovelKey(novelId)
         if (novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID) return null
@@ -749,9 +883,9 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
 
         const createPromise = (async () => {
             await get().loadSessions(novelKey)
-            const serviceTier = await getPreferredServiceTierForNewSession()
+            const serviceTier = await getPreferredServiceTierForNewSession(novelKey)
             const reusableDraft = get().sessionsByNovel[novelKey]?.sessions.find(
-                (session) => session.category === 'general' && session.messages.length === 0
+                (session) => session.category === 'general' && session.messageCount === 0
             )
             if (reusableDraft) {
                 if (reusableDraft.serviceTier !== serviceTier) {
@@ -793,7 +927,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     createSceneOperationSkillSession: async (novelId, input) => {
         const novelKey = getNovelKey(novelId)
         if (novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID) return null
-        const serviceTier = await getPreferredServiceTierForNewSession()
+        const serviceTier = await getPreferredServiceTierForNewSession(novelKey, 'scene_operation')
 
         const result = await codexSessionApi.create(novelKey, {
             category: 'scene_operation',
@@ -831,7 +965,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
         // Codex's draft writes via its run-gated refresh.
         const novelKey = getNovelKey(novelId)
         if (novelKey === EDITOR_CODEX_FALLBACK_NOVEL_ID) return null
-        const serviceTier = await getPreferredServiceTierForNewSession()
+        const serviceTier = await getPreferredServiceTierForNewSession(novelKey)
 
         const result = await codexSessionApi.create(novelKey, {
             category: 'scene_continuation',
@@ -1009,6 +1143,11 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             },
         }))
     },
+    setQueuePaused: (sessionId, paused) => {
+        set((state) => ({
+            queuePausedBySession: { ...state.queuePausedBySession, [sessionId]: paused },
+        }))
+    },
     setOptimisticSteerMessages: (sessionId, updater) => {
         set((state) => ({
             optimisticSteerMessagesBySession: {
@@ -1143,6 +1282,12 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     },
     resumeGoal: async (novelId, sessionId) => {
         const novelKey = getNovelKey(novelId)
+        if (!get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)?.historyLoaded) {
+            await get().loadSession(novelKey, sessionId)
+            if (!get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)?.historyLoaded) {
+                throw new Error(get().historyRequestsBySession[sessionId]?.error || 'Could not load Codex session.')
+            }
+        }
         const controller = beginClientRun(sessionId)
         if (!controller) return
         try {
@@ -1214,7 +1359,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             deletedSessionIds.add(sessionId)
             set((state) => removeSessionFromState(state, novelKey, sessionId))
         } catch (error) {
-            let serverSession: CodexSession | null = null
+            let serverSession: CodexSessionSummary | null = null
             let sessionListLoaded = false
             if (novelKey !== EDITOR_CODEX_FALLBACK_NOVEL_ID) {
                 try {
@@ -1242,7 +1387,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                             ...state.sessionsByNovel,
                             [novelKey]: applySession(
                                 current,
-                                mergeSessionPreservingComposer(current, serverSession),
+                                mergeSessionSummary(current.sessions.find((item) => item.id === sessionId), serverSession, current.sessions.find((item) => item.id === sessionId), activeRunControllers.has(sessionId)),
                                 { front: false }
                             ),
                         },
@@ -1285,8 +1430,21 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
     },
     sendMessage: async (novelId, sessionId, content, options) => {
         const novelKey = getNovelKey(novelId)
+        if (!get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)?.historyLoaded) {
+            await get().loadSession(novelKey, sessionId)
+            if (!get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)?.historyLoaded) {
+                throw new Error(get().historyRequestsBySession[sessionId]?.error || 'Could not load Codex session.')
+            }
+        }
+        const originalSession = get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
+        if (!originalSession) return
+        const originalImages = get().imageAttachmentsBySession[sessionId] ?? []
         const controller = beginClientRun(sessionId)
         if (!controller) return
+        const messageId = createId('codex_user')
+        let receivedEvent = false
+        let composerChanged = false
+        let unsubscribeComposer: (() => void) | undefined
         try {
             clearDraftSave(sessionId)
             set((state) => {
@@ -1295,7 +1453,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 return {
                     imageAttachmentsBySession: {
                         ...state.imageAttachmentsBySession,
-                        [sessionId]: [],
+                        [sessionId]: options?.preserveComposer ? originalImages : [],
                     },
                     sessionsByNovel: {
                         ...state.sessionsByNovel,
@@ -1307,13 +1465,14 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                                         ...session,
                                         status: 'running',
                                         unreadCompletionAt: null,
-                                        draftContent: '',
-                                        draftAttachments: [],
-                                        draftArtifacts: [],
+                                        draftContent: options?.preserveComposer ? session.draftContent : '',
+                                        draftAttachments: options?.preserveComposer ? session.draftAttachments : [],
+                                        draftArtifacts: options?.preserveComposer ? session.draftArtifacts : [],
+                                        messageCount: session.messages.length + 1,
                                         messages: [
                                             ...session.messages,
                                             {
-                                                id: createId('codex_user'),
+                                                id: messageId,
                                                 role: 'user',
                                                 content,
                                                 attachments: options?.attachments,
@@ -1331,8 +1490,20 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 }
             })
 
+            unsubscribeComposer = useEditorCodexStore.subscribe((state, previous) => {
+                const before = previous.sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
+                const after = state.sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)
+                if (before?.draftContent !== after?.draftContent
+                    || before?.draftAttachments !== after?.draftAttachments
+                    || before?.draftArtifacts !== after?.draftArtifacts
+                    || previous.imageAttachmentsBySession[sessionId] !== state.imageAttachmentsBySession[sessionId]) {
+                    composerChanged = true
+                }
+            })
+
             let streamError: string | null = null
             await codexSessionApi.streamMessage(sessionId, content, {
+                messageId,
                 signal: controller.signal,
                 skillIds: options?.skillIds,
                 promptArtifact: options?.promptArtifact,
@@ -1341,6 +1512,7 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
                 responseAnnotations: options?.responseAnnotations,
                 onEvent: (event) => {
                     if (activeRunControllers.get(sessionId) !== controller) return
+                    receivedEvent = true
                     if (event.type === 'done' || event.type === 'error') {
                         finishClientRun(sessionId, controller)
                     }
@@ -1351,13 +1523,80 @@ export const useEditorCodexStore = create<CodexStoreState>()((set, get) => ({
             if (streamError) throw new Error(streamError)
         } catch (error) {
             if (controller.signal.aborted) return
-            throw error
+            let accepted = receivedEvent
+            if (!receivedEvent && !deletedSessionIds.has(sessionId)) {
+                const rejected = error instanceof ApiError && error.status >= 400 && error.status < 500
+                let serverSession: CodexSession | undefined
+                let fetchedSessions = false
+                try {
+                    const result = await codexSessionApi.get(sessionId)
+                    serverSession = result.session
+                    fetchedSessions = true
+                } catch (recoveryError) {
+                    if (recoveryError instanceof ApiError && recoveryError.status === 404) fetchedSessions = true
+                    // Keep the submitted inputs available when the server cannot be reached.
+                }
+                if (controller.signal.aborted || deletedSessionIds.has(sessionId)) return
+                accepted = !rejected && (serverSession?.messages.some((message) => message.id === messageId) ?? false)
+                unsubscribeComposer?.()
+                if (fetchedSessions && !serverSession) {
+                    set((state) => removeSessionFromState(state, novelKey, sessionId))
+                } else {
+                    const restoreComposer = !accepted && !composerChanged
+                    set((state) => {
+                        const current = state.sessionsByNovel[novelKey] ?? getEmptySession()
+                        return {
+                            ...(restoreComposer ? {
+                                imageAttachmentsBySession: { ...state.imageAttachmentsBySession, [sessionId]: originalImages },
+                            } : {}),
+                            sessionsByNovel: {
+                                ...state.sessionsByNovel,
+                                [novelKey]: {
+                                    ...current,
+                                    sessions: current.sessions.map((session) => session.id !== sessionId ? session : {
+                                        ...session,
+                                        ...(serverSession ?? {
+                                            status: rejected ? originalSession.status : 'error' as const,
+                                            messages: session.messages.filter((message) => message.id !== messageId),
+                                            lastError: error instanceof Error ? error.message : String(error),
+                                        }),
+                                        draftContent: restoreComposer ? originalSession.draftContent : session.draftContent,
+                                        draftAttachments: restoreComposer ? originalSession.draftAttachments : session.draftAttachments,
+                                        draftArtifacts: restoreComposer ? originalSession.draftArtifacts : session.draftArtifacts,
+                                    }),
+                                },
+                            },
+                        }
+                    })
+                    if (restoreComposer) scheduleDraftSave(sessionId, {
+                        draftContent: originalSession.draftContent,
+                        draftAttachments: originalSession.draftAttachments,
+                        draftArtifacts: originalSession.draftArtifacts,
+                    })
+                }
+            }
+            throw new CodexSendError(error, accepted)
         } finally {
+            unsubscribeComposer?.()
+            if (options?.preserveComposer && !deletedSessionIds.has(sessionId)) {
+                const session = get().sessionsByNovel[novelKey]?.sessions.find((item) => item.id === sessionId)
+                if (session) scheduleDraftSave(sessionId, {
+                    draftContent: session.draftContent,
+                    draftAttachments: session.draftAttachments,
+                    draftArtifacts: session.draftArtifacts,
+                })
+            }
             finishClientRun(sessionId, controller)
         }
     },
     compact: async (novelId, sessionId) => {
         const novelKey = getNovelKey(novelId)
+        if (!get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)?.historyLoaded) {
+            await get().loadSession(novelKey, sessionId)
+            if (!get().sessionsByNovel[novelKey]?.sessions.find((session) => session.id === sessionId)?.historyLoaded) {
+                throw new Error(get().historyRequestsBySession[sessionId]?.error || 'Could not load Codex session.')
+            }
+        }
         const controller = beginClientRun(sessionId)
         if (!controller) return
         try {

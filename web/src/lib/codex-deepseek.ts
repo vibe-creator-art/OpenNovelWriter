@@ -1,18 +1,8 @@
 import type { CodexProviderModel, CodexReasoningEffort, CodexUpstreamFormat } from '@/lib/codex-config'
 import deepSeekOfficialCatalog from '@/lib/codex-deepseek-official-catalog.json'
 
-/**
- * DeepSeek-specific Codex integration helpers.
- *
- * Model capability defaults are keyed off the model id (including aggregator
- * prefixes like `deepseek/deepseek-v4-flash`), so ZenMux / OpenRouter-style
- * hosts get the same context window and reasoning levels as official DeepSeek.
- *
- * The full official Responses catalog (freeform apply_patch + GPT harness) stays
- * host-gated: aggregators often reject those ChatGPT-private tool shapes.
- */
-
-export const DEEPSEEK_V4_MODEL_SLUG_PATTERN = /^deepseek-v4-(flash|pro)$/i
+/** DeepSeek capability defaults support official and provider-prefixed model IDs. */
+export const DEEPSEEK_MODEL_SLUG_PATTERN = /^deepseek-(?:flash|v4(?:\.1)?-flash|v4-pro)$/i
 export const DEEPSEEK_OFFICIAL_CONTEXT_WINDOW = 1_048_576
 export const DEEPSEEK_OFFICIAL_REASONING_EFFORTS: CodexReasoningEffort[] = ['low', 'high', 'max']
 export const DEEPSEEK_OFFICIAL_DEFAULT_REASONING_EFFORT: CodexReasoningEffort = 'high'
@@ -35,8 +25,8 @@ export function baseDeepSeekModelSlug(modelId: string) {
     return withoutRouter.trim().toLowerCase()
 }
 
-export function isDeepSeekV4ModelId(modelId: string) {
-    return DEEPSEEK_V4_MODEL_SLUG_PATTERN.test(baseDeepSeekModelSlug(modelId))
+export function isDeepSeekModelId(modelId: string) {
+    return DEEPSEEK_MODEL_SLUG_PATTERN.test(baseDeepSeekModelSlug(modelId))
 }
 
 export function isDeepSeekOfficialHost(baseUrl?: string | null) {
@@ -56,28 +46,27 @@ export function isOfficialDeepSeekResponsesProvider(
     return upstreamFormat === 'responses' && isDeepSeekOfficialHost(baseUrl)
 }
 
-/**
- * Apply DeepSeek V4 defaults by model id (any host). Used when adding models in
- * the settings form and when saving custom connections so third-party DeepSeek
- * routes get 1M context / low-high-max without waiting for a special base URL.
- */
-export function applyDeepSeekV4ModelDefaults(model: CodexProviderModel): CodexProviderModel {
-    if (!isDeepSeekV4ModelId(model.id)) return model
+export function isOfficialDeepSeekAnthropicProvider(
+    upstreamFormat: CodexUpstreamFormat,
+    baseUrl?: string | null
+) {
+    return upstreamFormat === 'anthropic-messages' && isDeepSeekOfficialHost(baseUrl)
+}
+
+/** Apply DeepSeek context, reasoning, and input capabilities by model ID. */
+export function applyDeepSeekModelDefaults(model: CodexProviderModel): CodexProviderModel {
+    if (!isDeepSeekModelId(model.id)) return model
     return {
         ...model,
         contextWindow: DEEPSEEK_OFFICIAL_CONTEXT_WINDOW,
         supportedReasoningEfforts: [...DEEPSEEK_OFFICIAL_REASONING_EFFORTS],
         defaultReasoningEffort: DEEPSEEK_OFFICIAL_DEFAULT_REASONING_EFFORT,
         supportsParallelToolCalls: true,
-        inputModalities: ['text'],
+        inputModalities: baseDeepSeekModelSlug(model.id) === 'deepseek-v4-pro' ? ['text'] : ['text', 'image'],
     }
 }
 
-/**
- * Upstream capability rewrite for custom Codex connections. Model-id based so
- * aggregator DeepSeek entries get the same defaults as the official API.
- * Format/baseUrl are kept for call-site compatibility and catalog gating.
- */
+/** Apply model capability defaults to custom Codex connections. */
 export function applyCodexUpstreamModelCapabilities(
     model: CodexProviderModel,
     _upstreamFormat?: CodexUpstreamFormat,
@@ -85,7 +74,7 @@ export function applyCodexUpstreamModelCapabilities(
 ): CodexProviderModel {
     void _upstreamFormat
     void _baseUrl
-    return applyDeepSeekV4ModelDefaults(model)
+    return applyDeepSeekModelDefaults(model)
 }
 
 /**
@@ -98,7 +87,7 @@ export function shouldUseOfficialDeepSeekCatalog(
     baseUrl: string | null | undefined,
     modelId: string
 ) {
-    return isOfficialDeepSeekResponsesProvider(upstreamFormat, baseUrl) && isDeepSeekV4ModelId(modelId)
+    return isOfficialDeepSeekResponsesProvider(upstreamFormat, baseUrl) && isDeepSeekModelId(modelId)
 }
 
 /**

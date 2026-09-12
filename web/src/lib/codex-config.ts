@@ -1,4 +1,4 @@
-import { applyDeepSeekV4ModelDefaults } from '@/lib/codex-deepseek'
+import { applyDeepSeekModelDefaults } from '@/lib/codex-deepseek'
 
 export type CodexConnectionProviderType = 'openai-official' | 'custom'
 export type CodexUpstreamFormat = 'responses' | 'chat-completions' | 'anthropic-messages'
@@ -15,6 +15,14 @@ export function isAuthenticatedChatGptCodexConnection(
     return connection?.providerType === 'openai-official'
         && connection.authStatus === 'authenticated'
         && connection.authType === 'chatgpt'
+}
+
+export function isCodexFastModeAllowed(
+    connection: CodexChatGptAuthConnection | null | undefined,
+    customFastModeEnabled: boolean
+) {
+    return isAuthenticatedChatGptCodexConnection(connection)
+        || (connection?.providerType === 'custom' && customFastModeEnabled)
 }
 
 export const CODEX_CUSTOM_FAST_SERVICE_TIER = {
@@ -67,13 +75,30 @@ export type CodexCustomProviderSettings = {
 }
 
 export const DEFAULT_CODEX_CUSTOM_BASE_URL = 'https://api.openai.com/v1'
-export const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol'
+export const DEFAULT_CODEX_MODEL = 'gpt-6-astra'
+export const DEFAULT_CODEX_CHAT_SETTINGS = {
+    modelId: DEFAULT_CODEX_MODEL,
+    reasoningEffort: 'medium' as CodexReasoningEffort,
+}
+export const DEFAULT_CODEX_SCENE_SETTINGS = {
+    modelId: 'gpt-5.6-sol',
+    reasoningEffort: 'high' as CodexReasoningEffort,
+}
 export const DEFAULT_CODEX_CONTEXT_WINDOW = 300_000
 
 export const CODEX_NATIVE_PROVIDER_MODELS: CodexProviderModel[] = [
     {
+        id: 'gpt-6-astra',
+        displayName: 'GPT-6 Astra',
+        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
+        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'medium',
+        supportsParallelToolCalls: true,
+        inputModalities: ['text', 'image'],
+    },
+    {
         id: 'gpt-5.6-sol',
-        displayName: 'GPT-5.6-Sol',
+        displayName: 'GPT-5.6 Sol',
         contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
         supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
         defaultReasoningEffort: 'low',
@@ -82,7 +107,7 @@ export const CODEX_NATIVE_PROVIDER_MODELS: CodexProviderModel[] = [
     },
     {
         id: 'gpt-5.6-terra',
-        displayName: 'GPT-5.6-Terra',
+        displayName: 'GPT-5.6 Terra',
         contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
         supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
         defaultReasoningEffort: 'medium',
@@ -91,7 +116,7 @@ export const CODEX_NATIVE_PROVIDER_MODELS: CodexProviderModel[] = [
     },
     {
         id: 'gpt-5.6-luna',
-        displayName: 'GPT-5.6-Luna',
+        displayName: 'GPT-5.6 Luna',
         contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
         supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         defaultReasoningEffort: 'medium',
@@ -108,31 +133,13 @@ export const CODEX_NATIVE_PROVIDER_MODELS: CodexProviderModel[] = [
         inputModalities: ['text', 'image'],
     },
     {
-        id: 'gpt-5.4',
-        displayName: 'GPT-5.4',
-        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
+        id: 'gpt-5.3-codex-spark',
+        displayName: 'GPT-5.3 Codex Spark',
+        contextWindow: 128_000,
         supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
-        defaultReasoningEffort: 'medium',
+        defaultReasoningEffort: 'high',
         supportsParallelToolCalls: true,
-        inputModalities: ['text', 'image'],
-    },
-    {
-        id: 'gpt-5.4-mini',
-        displayName: 'GPT-5.4-Mini',
-        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
-        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
-        defaultReasoningEffort: 'medium',
-        supportsParallelToolCalls: true,
-        inputModalities: ['text', 'image'],
-    },
-    {
-        id: 'gpt-5.2',
-        displayName: 'GPT-5.2',
-        contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
-        supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
-        defaultReasoningEffort: 'medium',
-        supportsParallelToolCalls: true,
-        inputModalities: ['text', 'image'],
+        inputModalities: ['text'],
     },
 ]
 
@@ -140,7 +147,7 @@ const DEFAULT_SHARED_CONFIG_LINES = [
     `model = "${DEFAULT_CODEX_MODEL}"`,
     'model_context_window = 300000',
     'model_auto_compact_token_limit = 285000',
-    'model_reasoning_effort = "high"',
+    `model_reasoning_effort = "${DEFAULT_CODEX_CHAT_SETTINGS.reasoningEffort}"`,
     'disable_response_storage = true',
 ]
 
@@ -157,9 +164,8 @@ export function getDefaultCodexConfig(_providerType: CodexConnectionProviderType
 export function createDefaultCodexProviderModel(modelId = DEFAULT_CODEX_MODEL): CodexProviderModel {
     const nativeModel = getNativeCodexProviderModel(modelId)
     if (nativeModel) return nativeModel
-    // Apply known third-party defaults (e.g. DeepSeek V4) at creation time so
-    // the settings form does not flash generic 300k defaults before save.
-    return applyDeepSeekV4ModelDefaults({
+    // Seed known model capabilities when adding a model.
+    return applyDeepSeekModelDefaults({
         id: modelId,
         displayName: modelId,
         contextWindow: DEFAULT_CODEX_CONTEXT_WINDOW,
@@ -170,9 +176,24 @@ export function createDefaultCodexProviderModel(modelId = DEFAULT_CODEX_MODEL): 
     })
 }
 
-export function isNativeCodexModelId(modelId: string) {
-    const normalized = modelId.trim().toLowerCase()
-    return CODEX_NATIVE_PROVIDER_MODELS.some((model) => model.id === normalized)
+export function isGptCodexModelId(modelId: string) {
+    return modelId.trim().toLowerCase().startsWith('gpt-')
+}
+
+export function isAstraCodexModelId(modelId: string) {
+    const name = modelId.trim().split('/').at(-1) ?? ''
+    return /^gpt-6-astra(?:$|[-:])/i.test(name)
+}
+
+export function getNewCodexSessionModelSettings(
+    connection: { providerType: string; defaultModelId: string | null } | null,
+    category: string = 'general'
+) {
+    const modelId = connection?.defaultModelId?.trim() || DEFAULT_CODEX_MODEL
+    if (!connection || connection.providerType === 'openai-official' || isGptCodexModelId(modelId)) {
+        return category === 'scene_operation' ? DEFAULT_CODEX_SCENE_SETTINGS : DEFAULT_CODEX_CHAT_SETTINGS
+    }
+    return { modelId, reasoningEffort: 'high' as CodexReasoningEffort }
 }
 
 export function getNativeCodexProviderModel(modelId: string) {
@@ -197,7 +218,7 @@ export function applyNativeCodexModelCapabilities(model: CodexProviderModel): Co
 }
 
 export function expandNativeCodexModels(models: CodexProviderModel[]) {
-    if (!models.some((model) => isNativeCodexModelId(model.id))) return models
+    if (!models.some((model) => isGptCodexModelId(model.id))) return models
     const expanded = models.map(applyNativeCodexModelCapabilities)
     const existing = new Set(expanded.map((model) => model.id.trim().toLowerCase()))
     for (const nativeModel of CODEX_NATIVE_PROVIDER_MODELS) {
@@ -228,7 +249,7 @@ export function parseCodexUpstreamFormat(value: unknown): CodexUpstreamFormat | 
 // call sites keep working while new adapters stay isolated per vendor.
 export {
     applyCodexUpstreamModelCapabilities,
-    applyDeepSeekV4ModelDefaults,
+    applyDeepSeekModelDefaults,
     isOfficialDeepSeekResponsesProvider,
 } from '@/lib/codex-deepseek'
 

@@ -56,6 +56,17 @@ const LLM_REPLY_SOURCE_SCHEMA = {
     additionalProperties: false,
 }
 
+const IMAGE_SOURCE_SCHEMA = {
+    type: 'object',
+    properties: {
+        path: { type: 'string', description: 'Absolute or artifact-relative local image path.' },
+        imageUrl: { type: 'string', maxLength: 20971520, description: 'HTTP(S) image URL or base64 data URL.' },
+        fileId: { type: 'string', description: 'File ID uploaded to the configured image provider.' },
+    },
+    oneOf: [{ required: ['path'] }, { required: ['imageUrl'] }, { required: ['fileId'] }],
+    additionalProperties: false,
+}
+
 const tools = [
     {
         name: 'update_novel_title',
@@ -450,27 +461,29 @@ const tools = [
                 images: {
                     type: 'array',
                     maxItems: 16,
-                    description: 'Artifact images used as edit targets or references. Any image makes the request use the edits endpoint.',
+                    description: 'Local artifact images, image URLs, or provider File IDs used as edit targets or references. Any image makes the request use the edits endpoint. Sources may be mixed.',
                     items: {
                         oneOf: [
                             { type: 'string' },
                             {
-                                type: 'object',
+                                ...IMAGE_SOURCE_SCHEMA,
                                 properties: {
-                                    path: { type: 'string', description: 'Absolute or artifact-relative image path.' },
+                                    ...IMAGE_SOURCE_SCHEMA.properties,
                                     role: { type: 'string', description: 'Role such as edit target, identity reference, style reference, or composition reference.' },
                                 },
-                                required: ['path'],
-                                additionalProperties: false,
                             },
                         ],
                     },
                 },
-                mask: { type: 'string', description: 'Optional absolute or artifact-relative mask path. Requires at least one input image.' },
+                mask: {
+                    oneOf: [{ type: 'string' }, IMAGE_SOURCE_SCHEMA],
+                    description: 'Mask path or source object with path, imageUrl, or fileId. Requires an input image; must match its format and dimensions and contain an alpha channel.',
+                },
                 size: { type: 'string', description: 'auto or a valid WxH size. Defaults to auto.' },
-                quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'], description: 'Defaults to high.' },
+                quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'], description: 'Defaults to auto. GPT Image 2.5 supports xhigh and max.' },
                 n: { type: 'integer', minimum: 1, maximum: 10, description: 'Number of variants. Defaults to 1.' },
-                background: { type: 'string', enum: ['auto', 'opaque'] },
+                background: { type: 'string', enum: ['auto', 'opaque', 'transparent'], description: 'Defaults to the provider auto setting. Transparent requires png or webp.' },
+                inputFidelity: { type: 'string', enum: ['high', 'low'], description: 'Input detail preservation for edits. Omit to use the provider default.' },
                 outputFormat: { type: 'string', enum: ['png', 'jpeg', 'webp'], description: 'Defaults to png.' },
                 outputCompression: { type: 'integer', minimum: 0, maximum: 100, description: 'Only valid for jpeg or webp.' },
                 moderation: { type: 'string', enum: ['auto', 'low'] },
@@ -2726,6 +2739,7 @@ async function generateImages(args) {
             mask: args.mask,
             size: args.size,
             quality: args.quality,
+            inputFidelity: args.inputFidelity,
             n: args.n,
             background: args.background,
             outputFormat: args.outputFormat,

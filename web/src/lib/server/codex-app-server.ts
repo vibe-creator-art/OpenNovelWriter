@@ -1,9 +1,10 @@
+import { getCodexWorkStatus, type CodexWorkMetadata } from '@/lib/codex-work-events'
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process'
 import fs from 'fs/promises'
 import path from 'path'
 import { getPrismaClient } from '@/lib/db'
 import { resolveManagedUploadPath, saveImageBuffer } from '@/lib/server/storage'
-import { DEFAULT_CODEX_MODEL } from '@/lib/codex-config'
+import { DEFAULT_CODEX_MODEL, isCodexFastModeAllowed } from '@/lib/codex-config'
 import {
     prependCodexResponseAnnotations,
     type CodexResponseAnnotation,
@@ -11,7 +12,20 @@ import {
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
 import { parseCodexAssistantNotification } from '@/lib/server/codex-assistant-notification'
 import { mergeCompletedAssistantText } from '@/lib/server/codex-assistant-text'
+import { CodexReasoningStream, type CodexReasoningDelta } from '@/lib/server/codex-reasoning-stream'
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
+import { prepareCodexQuestionPolicy } from '@/lib/server/codex-question-policy'
+import type { CodexUserInputRequest } from '@/lib/codex-user-input'
+import {
+    CodexUserInputCancelledError,
+    clearCodexUserInputRequest,
+    clearCodexUserInputRequests,
+    createCodexUserInputRequest,
+    createAsyncCodexUserInputRequest,
+    formatCodexUserInputAnswer,
+    registerAsyncCodexUserInput,
+    waitForCodexUserInput,
+} from '@/lib/server/codex-user-input-bridge'
 import { syncCodexConnectionMcp } from '@/lib/server/codex-mcp-sync'
 import {
     getCodexRuntimeSandbox,
@@ -46,6 +60,7 @@ import {
     normalizeCodexThreadGoal,
     type CodexComposerMode,
     type CodexReviewLevel,
+    type CodexServiceTier,
     type CodexThreadGoal,
 } from '@/lib/server/codex-session'
 
@@ -203,6 +218,7 @@ function waitForInterruptCleanup(client: CodexAppServerClient, threadId: string,
 function stopActiveCodexRun(handle: CodexRunReservation) {
     if (handle.stopped) return
     handle.stopped = true
+    clearCodexUserInputRequests(handle.sessionId)
 
     const client = handle.client
     if (client && handle.threadId && handle.turnId) {
@@ -229,7 +245,7 @@ export async function steerActiveCodexRun(input: {
     }
 
     const content = input.message.trim()
-    if (!content) {
+    if (!content && !input.responseAnnotations?.length) {
         throw new Error('Steer message is required.')
     }
 
@@ -264,6 +280,30 @@ export async function interruptAndWaitForActiveCodexRun(sessionId: string) {
     stopActiveCodexRun(activeRun)
     await activeRun.completion
     return true
+}
+
+export async function updateActiveCodexServiceTier(input: {
+    sessionId: string
+    modelId: string
+    serviceTier: CodexServiceTier
+}) {
+    const activeRun = getActiveCodexRun(input.sessionId)
+    if (!activeRun || activeRun.stopped || !activeRun.client || !activeRun.threadId) return
+
+    const serviceTier = input.serviceTier === 'fast'
+        ? await readFastServiceTierId(activeRun.client, input.modelId)
+        : null
+    await activeRun.client.request('thread/settings/update', {
+        threadId: activeRun.threadId,
+        serviceTier,
+    })
+    if (activeRun.turnId) {
+        await activeRun.client.request('turn/settings/update', {
+            threadId: activeRun.threadId,
+            turnId: activeRun.turnId,
+            serviceTier,
+        })
+    }
 }
 
 export async function updateNovelCodexGoal(input: {
@@ -335,6 +375,15 @@ export async function updateNovelCodexGoal(input: {
     }
 }
 
+export async function initializeCodexConnectionState(codexHome: string) {
+    const client = await CodexAppServerClient.create(codexHome)
+    try {
+        await client.request('thread/list', { limit: 1 })
+    } finally {
+        await client.closeAndWait()
+    }
+}
+
 class CodexAppServerClient {
     private process: ChildProcessWithoutNullStreams
     private nextId = 1
@@ -390,9 +439,11 @@ class CodexAppServerClient {
 
     static async create(
         codexHome: string,
-        onCreated?: (client: CodexAppServerClient) => void
+        onCreated?: (client: CodexAppServerClient) => void,
+        configOverrides: Record<string, unknown> = {}
     ) {
-        const child = spawn('codex', ['app-server'], {
+        const args = Object.entries(configOverrides).flatMap(([key, value]) => ['-c', `${key}=${JSON.stringify(value)}`])
+        const child = spawn('codex', [...args, 'app-server'], {
             env: {
                 ...globalThis.process.env,
                 CODEX_HOME: codexHome,
@@ -475,6 +526,14 @@ class CodexAppServerClient {
         this.process.kill('SIGTERM')
     }
 
+    async closeAndWait() {
+        const exited = this.process.exitCode !== null || this.process.signalCode !== null
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => { this.process.once('exit', () => resolve()) })
+        this.close()
+        await exited
+    }
+
     private flushBuffer() {
         let newlineIndex = this.buffer.indexOf('\n')
         while (newlineIndex >= 0) {
@@ -528,7 +587,8 @@ class CodexAppServerClient {
                 : getDefaultServerRequestResponse(message.method ?? '')
             this.respond(message.id!, response)
             this.notificationHandler?.(message)
-        } catch {
+        } catch (error) {
+            if (error instanceof CodexUserInputCancelledError) return
             const fallback = getDeclinedServerRequestResponse(message.method ?? '')
             this.respond(message.id!, fallback)
             this.notificationHandler?.(message)
@@ -536,7 +596,7 @@ class CodexAppServerClient {
     }
 }
 
-type CodexRunEvent = {
+type CodexRunEvent = CodexWorkMetadata & {
     id: string
     kind: string
     title: string
@@ -569,10 +629,13 @@ type CodexRunStreamHandlers = {
     onTurnStarted?: (turnId: string) => void
     onTurnCompleted?: (turn: { turnId: string; status: 'completed' | 'failed' | 'interrupted' }) => void
     onAssistantDelta?: (delta: string) => void
+    onReasoningDelta?: (event: CodexReasoningDelta) => void
     onAssistantNotification?: (notification: { id: string; content: string; createdAt: string }) => void
     onPlanDelta?: (event: { id: string; delta: string; createdAt: string }) => void
     onEvent?: (event: CodexRunEvent) => void
     onApprovalRequest?: (request: CodexApprovalRequest) => void
+    onUserInputRequest?: (request: CodexUserInputRequest) => void
+    onUserInputResolved?: (id: string) => void
     onContextWindow?: (contextWindow: CodexContextWindow) => void
     onRateLimits?: (rateLimits: CodexRateLimits, connectionId: string) => void
     onGoalUpdated?: (goal: CodexThreadGoal) => void
@@ -615,7 +678,7 @@ function getDefaultServerRequestResponse(method: string) {
         return { contentItems: [{ type: 'text', text: 'Tool call is not available in OpenNovelWriter yet.' }], success: false }
     }
     if (method === 'item/tool/requestUserInput') {
-        return { answers: [] }
+        return { answers: {} }
     }
     if (method === 'mcpServer/elicitation/request') {
         return { action: 'decline' }
@@ -720,6 +783,7 @@ function getMessageTextFromThreadItem(item: unknown) {
     if (!item || typeof item !== 'object') return ''
     const record = item as Record<string, unknown>
     if (record.type !== 'agentMessage') return ''
+    if (record.delivery === 'async' && Array.isArray(record.questions) && record.questions.length > 0) return ''
     return typeof record.text === 'string' ? record.text : ''
 }
 
@@ -759,7 +823,7 @@ function getWebSearchEventContent(action: Record<string, unknown>, fallbackQuery
     }
 }
 
-function getEventFromThreadItem(item: unknown): CodexRunEvent | null {
+function getEventFromThreadItem(item: unknown, phase: 'started' | 'completed'): CodexRunEvent | null {
     if (!item || typeof item !== 'object') return null
     const record = item as Record<string, unknown>
     const type = typeof record.type === 'string' ? record.type : ''
@@ -770,6 +834,7 @@ function getEventFromThreadItem(item: unknown): CodexRunEvent | null {
         return {
             id,
             kind: 'command',
+            workStatus: getCodexWorkStatus(record, phase),
             title: typeof record.command === 'string' ? record.command : 'Command',
             content: typeof record.aggregatedOutput === 'string' ? record.aggregatedOutput : '',
             createdAt: now,
@@ -782,7 +847,9 @@ function getEventFromThreadItem(item: unknown): CodexRunEvent | null {
         return {
             id,
             kind: 'tool',
+            workStatus: getCodexWorkStatus(record, phase),
             title: `${server}.${tool}`,
+            toolInput: JSON.stringify(record.arguments ?? null, null, 2),
             content: JSON.stringify(record.result ?? record.error ?? record.arguments ?? null, null, 2),
             createdAt: now,
         }
@@ -792,6 +859,7 @@ function getEventFromThreadItem(item: unknown): CodexRunEvent | null {
         return {
             id,
             kind: 'file',
+            workStatus: getCodexWorkStatus(record, phase),
             title: 'File change',
             content: JSON.stringify(record.changes ?? [], null, 2),
             createdAt: now,
@@ -807,6 +875,7 @@ function getEventFromThreadItem(item: unknown): CodexRunEvent | null {
         return {
             id,
             kind: 'web_search',
+            workStatus: getCodexWorkStatus(record, phase),
             title: eventContent.title,
             content: eventContent.content,
             createdAt: now,
@@ -839,6 +908,7 @@ function getEventFromThreadItem(item: unknown): CodexRunEvent | null {
         return {
             id,
             kind: 'image_view',
+            workStatus: getCodexWorkStatus(record, phase),
             title: 'Viewed image',
             content: typeof record.path === 'string' ? record.path : '',
             createdAt: now,
@@ -1137,7 +1207,7 @@ export async function runNovelCodexTurn(input: {
     let client: CodexAppServerClient | null = null
 
     try {
-    const [sessionWorkspacePath, connection] = await Promise.all([
+    const [sessionWorkspacePath, connection, novel] = await Promise.all([
         ensureCodexSessionWorkspace({
             ownerId: input.ownerId,
             novelId: input.novelId,
@@ -1151,6 +1221,10 @@ export async function runNovelCodexTurn(input: {
                 where: { ownerId: input.ownerId, isActive: true },
                 orderBy: { createdAt: 'asc' },
             }),
+        prisma.novel.findFirstOrThrow({
+            where: { id: input.novelId, ownerId: input.ownerId },
+            select: { codexUserInputEnabled: true, codexCustomFastModeEnabled: true },
+        }),
     ])
     throwIfCodexRunStopped(activeRunHandle)
 
@@ -1161,6 +1235,9 @@ export async function runNovelCodexTurn(input: {
     const codexHome = connection.providerType === 'custom'
         ? await syncCodexConnectionRuntimeFiles(connection)
         : await ensureCodexConnectionHome(input.ownerId, connection.id)
+    const modelId = typeof input.modelId === 'string' && input.modelId.trim()
+        ? input.modelId.trim()
+        : connection.defaultModelId?.trim() || DEFAULT_CODEX_MODEL
     const reviewLevel = normalizeCodexReviewLevel(input.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL
     const reviewOptions = getCodexRuntimeReviewOptions(reviewLevel)
     const novelWorkspacePath = getNovelWorkspacePath(input.ownerId, input.novelId)
@@ -1189,18 +1266,34 @@ export async function runNovelCodexTurn(input: {
         client = createdClient
         activeRunHandle.client = createdClient
     })
-    const runClient = client
     throwIfCodexRunStopped(activeRunHandle)
+    const { config: connectionConfig } = await client.request<{ config: Record<string, unknown> }>('config/read', { includeLayers: false })
+    if (connection.providerType !== 'custom') {
+        await client.request('model/list', { includeHidden: true })
+    }
+    const questionPolicy = await prepareCodexQuestionPolicy({
+        enabled: novel.codexUserInputEnabled,
+        modelId,
+        codexHome,
+        workspace: sessionWorkspacePath,
+        config: connectionConfig,
+    })
+    if (!novel.codexUserInputEnabled) {
+        await client.closeAndWait()
+        throwIfCodexRunStopped(activeRunHandle)
+        client = await CodexAppServerClient.create(codexHome, (createdClient) => {
+            client = createdClient
+            activeRunHandle.client = createdClient
+        }, questionPolicy.config)
+    }
+    const runClient = client
     await mountCodexCoreSkills(client)
     throwIfCodexRunStopped(activeRunHandle)
-    const modelId = typeof input.modelId === 'string' && input.modelId.trim()
-        ? input.modelId.trim()
-        : connection.defaultModelId?.trim() || DEFAULT_CODEX_MODEL
     const reasoningEffort =
         normalizeCodexReasoningEffort(input.reasoningEffort) ?? DEFAULT_CODEX_REASONING_EFFORT
     const requestedServiceTier = normalizeCodexServiceTier(input.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
     const serviceTier =
-        requestedServiceTier === 'fast'
+        requestedServiceTier === 'fast' && isCodexFastModeAllowed(connection, novel.codexCustomFastModeEnabled)
             ? await readFastServiceTierId(client, modelId)
             : null
     const collaborationMode = getCodexCollaborationMode({
@@ -1217,6 +1310,31 @@ export async function runNovelCodexTurn(input: {
     const commandTitlesById = new Map<string, string>()
     const commandOutputsById = new Map<string, string>()
     const eventCreatedAtById = new Map<string, string>()
+    const asyncQuestionItems = new Set<string>()
+
+    const captureAsyncQuestion = async (item: Record<string, unknown>, questionTurnId: string) => {
+        const request = createAsyncCodexUserInputRequest(input.sessionId, activeRunHandle.threadId!, questionTurnId, item)
+        if (!request || asyncQuestionItems.has(request.itemId)) return
+        asyncQuestionItems.add(request.itemId)
+        const current = await prisma.novel.findFirstOrThrow({
+            where: { id: input.novelId, ownerId: input.ownerId }, select: { codexUserInputEnabled: true },
+        })
+        if (!current.codexUserInputEnabled || activeRunHandle.stopped || activeRunHandle.turnId !== questionTurnId) return
+        registerAsyncCodexUserInput(request, input.novelId, async (response) => {
+            const content = formatCodexUserInputAnswer(request, response)
+            const expectedTurnId = activeRunHandle.turnId
+            if (!expectedTurnId || activeRunHandle.stopped) throw new Error('Question is no longer pending.')
+            await runClient.request('turn/steer', {
+                threadId: request.threadId, expectedTurnId,
+                input: [{ type: 'text', text: content, text_elements: [] }],
+            })
+            input.stream?.onEvent?.({
+                id: `codex_answer_${request.id}`, kind: 'steer', title: 'Answered question',
+                content, createdAt: new Date().toISOString(),
+            })
+        }, (id) => input.stream?.onUserInputResolved?.(id))
+        input.stream?.onUserInputRequest?.(request)
+    }
 
     const emitEvent = (event: CodexRunEvent) => {
         if (activeRunHandle.stopped) return
@@ -1273,6 +1391,7 @@ export async function runNovelCodexTurn(input: {
 
         const threadResponse = input.codexThreadId
             ? await client.request<{ thread: { id: string } }>('thread/resume', {
+                ...questionPolicy,
                 threadId: input.codexThreadId,
                 model: modelId,
                 serviceTier,
@@ -1284,6 +1403,7 @@ export async function runNovelCodexTurn(input: {
                 excludeTurns: true,
             })
             : await client.request<{ thread: { id: string } }>('thread/start', {
+                ...questionPolicy,
                 model: modelId,
                 serviceTier,
                 cwd: sessionWorkspacePath,
@@ -1306,6 +1426,18 @@ export async function runNovelCodexTurn(input: {
             const params = message.params && typeof message.params === 'object'
                 ? message.params as Record<string, unknown>
                 : {}
+            if (method === 'item/tool/requestUserInput' && message.id !== undefined) {
+                const current = await prisma.novel.findFirstOrThrow({
+                    where: { id: input.novelId, ownerId: input.ownerId },
+                    select: { codexUserInputEnabled: true },
+                })
+                throwIfCodexRunStopped(activeRunHandle)
+                if (!current.codexUserInputEnabled) return { answers: {} }
+                const request = createCodexUserInputRequest(input.sessionId, params)
+                const response = waitForCodexUserInput(request, String(message.id), input.novelId, (id) => input.stream?.onUserInputResolved?.(id))
+                input.stream?.onUserInputRequest?.(request)
+                return response
+            }
             if (!isApprovalServerRequest(method) || message.id === undefined) {
                 return getDefaultServerRequestResponse(method)
             }
@@ -1395,8 +1527,9 @@ export async function runNovelCodexTurn(input: {
             if (!goal) throw new Error('Codex returned an invalid goal while resuming.')
             input.stream?.onGoalUpdated?.(goal)
         } else {
-            const prompt = input.prompt?.trim()
-            if (!prompt) throw new Error('Codex prompt is required.')
+            const prompt = input.prompt?.trim() ?? ''
+            const imageInputItems = resolveCodexImageInputItems(input.imageUrls)
+            if (!prompt && imageInputItems.length === 0) throw new Error('Codex prompt or image is required.')
             const turnResponse = await client.request<{ turn: { id: string } }>('turn/start', {
                 threadId,
                 cwd: sessionWorkspacePath,
@@ -1409,8 +1542,8 @@ export async function runNovelCodexTurn(input: {
                 approvalPolicy: reviewOptions.approvalPolicy,
                 approvalsReviewer: reviewOptions.approvalsReviewer,
                 input: [
-                    { type: 'text', text: prompt, text_elements: [] },
-                    ...resolveCodexImageInputItems(input.imageUrls),
+                    ...(prompt ? [{ type: 'text', text: prompt, text_elements: [] }] : []),
+                    ...imageInputItems,
                     ...skillInputItems,
                 ],
             })
@@ -1429,6 +1562,7 @@ export async function runNovelCodexTurn(input: {
         }
         throwIfCodexRunStopped(activeRunHandle)
 
+        const reasoningStream = new CodexReasoningStream()
         let interrupted = false
         let goalWasCleared = false
         try {
@@ -1454,6 +1588,11 @@ export async function runNovelCodexTurn(input: {
                 if (usage.contextWindow) contextWindow = usage.contextWindow
                 if (usage.consumed) return
                 if (params.threadId !== threadId) return
+
+                if (message.method === 'serverRequest/resolved') {
+                    clearCodexUserInputRequest(input.sessionId, String(params.requestId))
+                    return
+                }
 
                 if (message.method === 'thread/goal/updated') {
                     const nextGoal = normalizeCodexThreadGoal(params.goal)
@@ -1483,6 +1622,15 @@ export async function runNovelCodexTurn(input: {
                     turnInProgress = true
                     input.stream?.onTurnStarted?.(turnId)
                     return
+                }
+
+                if (message.method && params.turnId === turnId) {
+                    const reasoning = reasoningStream.consume(message.method, params)
+                    if (reasoning) {
+                        if (reasoning.type === 'delta') input.stream?.onReasoningDelta?.(reasoning.value)
+                        else emitEvent(reasoning.value)
+                        return
+                    }
                 }
 
                 if (message.method === 'item/agentMessage/delta' && params.turnId === turnId) {
@@ -1531,7 +1679,7 @@ export async function runNovelCodexTurn(input: {
                         return
                     }
                     rememberThreadItem(item)
-                    const event = getEventFromThreadItem(item)
+                    const event = getEventFromThreadItem(item, 'started')
                     if (event) {
                         eventCreatedAtById.set(event.id, event.createdAt)
                         if (event.kind === 'command') {
@@ -1553,6 +1701,7 @@ export async function runNovelCodexTurn(input: {
                     emitEvent({
                         id: itemId,
                         kind: 'command',
+                        workStatus: 'running',
                         title: commandTitlesById.get(itemId) ?? 'Command',
                         content,
                         createdAt: eventCreatedAtById.get(itemId) ?? new Date().toISOString(),
@@ -1560,7 +1709,12 @@ export async function runNovelCodexTurn(input: {
                     return
                 }
 
-                if (message.method === 'item/completed' && params.turnId === turnId) {
+                if (message.method === 'item/completed' && turnId && params.turnId === turnId) {
+                    if (params.item && typeof params.item === 'object') {
+                        void captureAsyncQuestion(params.item as Record<string, unknown>, turnId).catch((error) => {
+                            console.error('Failed to receive Codex question:', error)
+                        })
+                    }
                     const item = params.item
                     const compactionId = getContextCompactionItemId(item)
                     if (compactionId) {
@@ -1572,7 +1726,7 @@ export async function runNovelCodexTurn(input: {
                     rememberThreadItem(item)
                     void tagSceneEditsWithSession(item, input.sessionId)
                     importGeneratedImage(item)
-                    const event = getEventFromThreadItem(item)
+                    const event = getEventFromThreadItem(item, 'completed')
                     if (event) {
                         if (event.kind === 'command') {
                             commandTitlesById.set(event.id, event.title)
@@ -1599,6 +1753,7 @@ export async function runNovelCodexTurn(input: {
                     const turn = params.turn as Record<string, unknown> | undefined
                     if (!turn || typeof turn.id !== 'string' || turn.id !== turnId) return
                     const completedTurnId = turn.id
+                    clearCodexUserInputRequests(input.sessionId, completedTurnId)
                     const status = turn.status
                     turnInProgress = false
                     activeRunHandle.turnId = null
@@ -1664,6 +1819,7 @@ export async function runNovelCodexTurn(input: {
         throw error
     } finally {
         activeRunHandle.rejectRun = null
+        clearCodexUserInputRequests(input.sessionId)
         if (activeRunHandle.interruptCleanup) {
             await activeRunHandle.interruptCleanup
         }
@@ -1708,7 +1864,7 @@ export async function runNovelCodexCompaction(input: {
     let client: CodexAppServerClient | null = null
 
     try {
-    const [sessionWorkspacePath, connection] = await Promise.all([
+    const [sessionWorkspacePath, connection, novel] = await Promise.all([
         ensureCodexSessionWorkspace({
             ownerId: input.ownerId,
             novelId: input.novelId,
@@ -1722,6 +1878,10 @@ export async function runNovelCodexCompaction(input: {
                 where: { ownerId: input.ownerId, isActive: true },
                 orderBy: { createdAt: 'asc' },
             }),
+        prisma.novel.findFirstOrThrow({
+            where: { id: input.novelId, ownerId: input.ownerId },
+            select: { codexCustomFastModeEnabled: true },
+        }),
     ])
     throwIfCodexRunStopped(activeRunHandle)
 
@@ -1751,7 +1911,7 @@ export async function runNovelCodexCompaction(input: {
         : DEFAULT_CODEX_MODEL
     const requestedServiceTier = normalizeCodexServiceTier(input.serviceTier) ?? DEFAULT_CODEX_SERVICE_TIER
     const serviceTier =
-        requestedServiceTier === 'fast'
+        requestedServiceTier === 'fast' && isCodexFastModeAllowed(connection, novel.codexCustomFastModeEnabled)
             ? await readFastServiceTierId(client, modelId)
             : null
 
@@ -1861,8 +2021,16 @@ export async function runNovelCodexCompaction(input: {
                 if (message.method === 'turn/completed') {
                     const turn = params.turn as Record<string, unknown> | undefined
                     if (turnId && turn?.id !== turnId) return
-                    if (turn?.status === 'interrupted') reject(new CodexRunInterruptedError())
-                    else finish()
+                    if (turn?.status === 'failed') {
+                        const error = turn.error as Record<string, unknown> | undefined
+                        reject(new Error(typeof error?.message === 'string' ? error.message : 'Codex compaction failed.'))
+                    } else if (turn?.status === 'interrupted') {
+                        reject(new CodexRunInterruptedError())
+                    } else if (turn?.status === 'completed') {
+                        finish()
+                    } else {
+                        reject(new Error(`Codex compaction completed with an unexpected status: ${String(turn?.status)}.`))
+                    }
                 }
             })
 

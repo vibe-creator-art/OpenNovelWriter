@@ -269,6 +269,9 @@ export function NovelSettingsDialog({
         DEFAULT_CODEX_SESSION_RETENTION_LIMIT.toString()
     )
     const [codexPetEnabled, setCodexPetEnabled] = useState(false)
+    const [codexUserInputEnabled, setCodexUserInputEnabled] = useState(true)
+    const [codexShowReasoning, setCodexShowReasoning] = useState(false)
+    const [codexCustomFastModeEnabled, setCodexCustomFastModeEnabled] = useState(false)
     const [codexPetId, setCodexPetId] = useState<string>(DEFAULT_PET_ID)
     const [draftLabels, setDraftLabels] = useState<NovelLabel[]>([])
     const draftLabelsRef = useRef<NovelLabel[]>([])
@@ -299,6 +302,9 @@ export function NovelSettingsDialog({
             setCodexSessionAutoCleanup(novel.codexSessionAutoCleanup)
             setCodexSessionRetentionLimit(novel.codexSessionRetentionLimit.toString())
             setCodexPetEnabled(novel.codexPetEnabled)
+            setCodexUserInputEnabled(novel.codexUserInputEnabled)
+            setCodexShowReasoning(novel.codexShowReasoning)
+            setCodexCustomFastModeEnabled(novel.codexCustomFastModeEnabled)
             setCodexPetId(novel.codexPetId)
         }
     }, [defaultNovelLanguage, novel])
@@ -527,6 +533,9 @@ export function NovelSettingsDialog({
                 codexSessionAutoCleanup,
                 codexSessionRetentionLimit: normalizedRetentionLimit,
                 codexPetEnabled,
+                codexUserInputEnabled,
+                codexShowReasoning,
+                codexCustomFastModeEnabled,
                 codexPetId,
             })
             onUpdate(updated)
@@ -587,16 +596,16 @@ export function NovelSettingsDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-6xl">
-                <DialogHeader>
+            <DialogContent className="flex max-h-[85dvh] flex-col gap-4 overflow-hidden p-4 sm:max-w-2xl sm:p-5">
+                <DialogHeader className="sr-only">
                     <DialogTitle className="sr-only">{t('title')}</DialogTitle>
                 </DialogHeader>
 
                 {/* Tab Navigation */}
-                <div className="flex gap-6 border-b pb-0 -mt-2">
+                <div className="flex shrink-0 gap-1 overflow-x-auto border-b pr-6 sm:gap-2">
                     <button
                         onClick={() => setActiveTab('metadata')}
-                        className={`flex items-center gap-2 pb-3 px-1 border-b-2 transition-colors ${activeTab === 'metadata'
+                        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2 pb-2 text-sm transition-colors ${activeTab === 'metadata'
                             ? 'border-primary text-primary font-medium'
                             : 'border-transparent text-muted-foreground hover:text-foreground'
                             }`}
@@ -606,7 +615,7 @@ export function NovelSettingsDialog({
                     </button>
                     <button
                         onClick={() => setActiveTab('writing')}
-                        className={`flex items-center gap-2 pb-3 px-1 border-b-2 transition-colors ${activeTab === 'writing'
+                        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2 pb-2 text-sm transition-colors ${activeTab === 'writing'
                             ? 'border-primary text-primary font-medium'
                             : 'border-transparent text-muted-foreground hover:text-foreground'
                             }`}
@@ -616,7 +625,7 @@ export function NovelSettingsDialog({
                     </button>
                     <button
                         onClick={() => setActiveTab('memory')}
-                        className={`flex items-center gap-2 pb-3 px-1 border-b-2 transition-colors ${activeTab === 'memory'
+                        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2 pb-2 text-sm transition-colors ${activeTab === 'memory'
                             ? 'border-primary text-primary font-medium'
                             : 'border-transparent text-muted-foreground hover:text-foreground'
                             }`}
@@ -626,7 +635,7 @@ export function NovelSettingsDialog({
                     </button>
                     <button
                         onClick={() => setActiveTab('codex')}
-                        className={`flex items-center gap-2 pb-3 px-1 border-b-2 transition-colors ${activeTab === 'codex'
+                        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2 pb-2 text-sm transition-colors ${activeTab === 'codex'
                             ? 'border-primary text-primary font-medium'
                             : 'border-transparent text-muted-foreground hover:text-foreground'
                             }`}
@@ -636,7 +645,7 @@ export function NovelSettingsDialog({
                     </button>
                     <button
                         onClick={() => setActiveTab('export')}
-                        className={`flex items-center gap-2 pb-3 px-1 border-b-2 transition-colors ${activeTab === 'export'
+                        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2 pb-2 text-sm transition-colors ${activeTab === 'export'
                             ? 'border-primary text-primary font-medium'
                             : 'border-transparent text-muted-foreground hover:text-foreground'
                             }`}
@@ -647,14 +656,13 @@ export function NovelSettingsDialog({
                 </div>
 
                 {/* Tab Content */}
-                <div className="mt-6">
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
                     {activeTab === 'metadata' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            {/* Left Column - Metadata */}
-                            <div className="space-y-6">
+                        <div className="space-y-4">
+                            <div className="space-y-3">
                                 <h3 className="text-sm font-semibold">{t('metadata.title')}</h3>
 
-                                <div className="space-y-4">
+                                <div className="space-y-3">
                                     <div>
                                         <Label htmlFor="title">{t('metadata.novelTitle')}</Label>
                                         <Input
@@ -677,7 +685,7 @@ export function NovelSettingsDialog({
                                         />
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-3">
                                         <div>
                                             <Label htmlFor="series">{t('metadata.series')}</Label>
                                             <Input
@@ -714,11 +722,10 @@ export function NovelSettingsDialog({
                                 </div>
                             </div>
 
-                            {/* Right Column - Cover */}
-                            <div className="space-y-4">
+                            <div className="space-y-3 border-t pt-4">
                                 <h3 className="text-sm font-semibold">{t('cover.title')}</h3>
 
-                                <div className="flex flex-col items-center gap-4">
+                                <div className="flex flex-col items-start gap-2">
                                     <label className="cursor-pointer">
                                         <input
                                             type="file"
@@ -738,12 +745,12 @@ export function NovelSettingsDialog({
                                     </span>
 
                                     {coverImage && (
-                                        <div className="relative w-full max-w-[200px] aspect-[2/3] rounded-lg overflow-hidden border">
+                                        <div className="relative aspect-[2/3] w-32 overflow-hidden rounded-lg border">
                                             <Image
                                                 src={coverImage}
                                                 alt="Cover"
                                                 fill
-                                                sizes="200px"
+                                                sizes="128px"
                                                 unoptimized
                                                 className="object-cover"
                                             />
@@ -763,22 +770,21 @@ export function NovelSettingsDialog({
                     )}
 
                     {activeTab === 'writing' && (
-                        <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-8">
-                            {/* Left Column - Labels/Markers */}
-                            <div className="space-y-6">
+                        <div className="space-y-4">
+                            <div className="space-y-3">
                                 <div>
                                     <h3 className="text-sm font-semibold mb-1 flex items-center gap-1">
                                         {t('writing.labelsTitle')}
                                         <Info className="h-3 w-3 text-muted-foreground" />
                                     </h3>
-                                    <p className="text-xs text-muted-foreground mb-4">
+                                    <p className="text-xs text-muted-foreground">
                                         {t('writing.labelsDescription')}
                                     </p>
                                 </div>
 
-                                <div className="border rounded-lg p-4 bg-muted/20">
+                                <div className="rounded-lg border bg-muted/20 p-3">
                                     {draftLabels.length === 0 ? (
-                                        <p className="text-sm text-muted-foreground text-center py-6">
+                                        <p className="py-3 text-center text-sm text-muted-foreground">
                                             {t('writing.labelsEmpty')}
                                         </p>
                                     ) : (
@@ -810,7 +816,7 @@ export function NovelSettingsDialog({
                                         </DndContext>
                                     )}
 
-                                    <div className="pt-4 flex gap-2">
+                                    <div className="flex flex-wrap gap-2 pt-3">
                                         <Button
                                             type="button"
                                             variant="outline"
@@ -837,13 +843,12 @@ export function NovelSettingsDialog({
                                 </div>
                             </div>
 
-                            {/* Right Column - Prose Settings */}
-                            <div className="space-y-6">
+                            <div className="space-y-3 border-t pt-4">
                                 <div>
-                                    <h3 className="text-sm font-semibold mb-4">{t('writing.proseTitle')}</h3>
+                                    <h3 className="text-sm font-semibold">{t('writing.proseTitle')}</h3>
                                 </div>
 
-                                <div className="space-y-6">
+                                <div className="space-y-3">
                                     {/* Language */}
                                     <div>
                                         <Label className="text-sm font-medium">{t('writing.language')}</Label>
@@ -870,13 +875,13 @@ export function NovelSettingsDialog({
                     )}
 
                     {activeTab === 'memory' && (
-                        <div className="max-w-2xl space-y-6">
+                        <div className="space-y-4">
                             <div>
-                                <div className="mb-4">
+                                <div className="mb-3">
                                     <h3 className="text-sm font-semibold">{t('memory.outlineTitle')}</h3>
                                     <p className="text-xs text-muted-foreground mt-1">{t('memory.outlineDescription')}</p>
                                 </div>
-                                <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+                                <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
                                     <div className="space-y-1">
                                         <Label className="text-sm font-medium">{t('memory.collapseChaptersLabel')}</Label>
                                         <p className="text-xs text-muted-foreground">{t('memory.collapseChaptersDescription')}</p>
@@ -896,12 +901,12 @@ export function NovelSettingsDialog({
                             </div>
 
                             <div>
-                                <div className="mb-4">
+                                <div className="mb-3">
                                     <h3 className="text-sm font-semibold">{t('memory.termsTitle')}</h3>
                                     <p className="text-xs text-muted-foreground mt-1">{t('memory.termsDescription')}</p>
                                 </div>
                                 <div className="divide-y rounded-lg border">
-                                    <div className="flex items-start justify-between gap-4 p-4">
+                                    <div className="flex items-start justify-between gap-4 p-3">
                                         <div className="space-y-1">
                                             <Label htmlFor="term-context-relations" className="text-sm font-medium">
                                                 {t('memory.termsRelationsLabel')}
@@ -914,7 +919,7 @@ export function NovelSettingsDialog({
                                             onCheckedChange={setTermContextIncludesRelations}
                                         />
                                     </div>
-                                    <div className="flex items-start justify-between gap-4 p-4">
+                                    <div className="flex items-start justify-between gap-4 p-3">
                                         <div className="space-y-1">
                                             <Label htmlFor="term-context-experiences" className="text-sm font-medium">
                                                 {t('memory.termsExperiencesLabel')}
@@ -931,12 +936,12 @@ export function NovelSettingsDialog({
                             </div>
 
                             <div>
-                                <div className="mb-4">
+                                <div className="mb-3">
                                     <h3 className="text-sm font-semibold">{t('memory.retrievalTitle')}</h3>
                                     <p className="text-xs text-muted-foreground mt-1">{t('memory.retrievalDescription')}</p>
                                 </div>
 
-                                <div className="space-y-4 rounded-lg border p-4">
+                                <div className="space-y-3 rounded-lg border p-3">
                                     <div className="flex items-start gap-3 rounded-md bg-muted/30 p-3">
                                         <Search className="mt-0.5 h-4 w-4 shrink-0" />
                                         <div>
@@ -945,7 +950,7 @@ export function NovelSettingsDialog({
                                         </div>
                                     </div>
 
-                                    <div className="space-y-3 border-t pt-4">
+                                    <div className="space-y-3 border-t pt-3">
                                         <div className="flex items-start justify-between gap-4">
                                             <div className="space-y-1">
                                                 <Label htmlFor="retrieval-embedding-enabled" className="text-sm font-medium">
@@ -1037,7 +1042,7 @@ export function NovelSettingsDialog({
                                         )}
                                     </div>
 
-                                    <div className="space-y-3 border-t pt-4">
+                                    <div className="space-y-3 border-t pt-3">
                                         <div className="flex items-start justify-between gap-4">
                                             <div className="space-y-1">
                                                 <Label htmlFor="retrieval-reranker-enabled" className="text-sm font-medium">
@@ -1084,7 +1089,7 @@ export function NovelSettingsDialog({
                                         )}
                                     </div>
 
-                                    <div className="border-t pt-4">
+                                    <div className="border-t pt-3">
                                         <Label htmlFor="retrieval-top-k" className="text-sm font-medium">
                                             {t('memory.topKLabel')}
                                         </Label>
@@ -1110,9 +1115,36 @@ export function NovelSettingsDialog({
                     )}
 
                     {activeTab === 'codex' && (
-                        <div className="max-w-2xl space-y-4">
+                        <div className="space-y-4">
                             <h3 className="text-sm font-semibold">{t('codex.title')}</h3>
-                            <div className="space-y-4 rounded-lg border p-4">
+                            <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                                <div className="space-y-1">
+                                    <Label htmlFor="codex-show-reasoning" className="text-sm font-medium">
+                                        {t('codex.showReasoningLabel')}
+                                    </Label>
+                                    <p className="text-xs leading-5 text-muted-foreground">{t('codex.showReasoningDescription')}</p>
+                                </div>
+                                <Switch id="codex-show-reasoning" checked={codexShowReasoning} onCheckedChange={setCodexShowReasoning} />
+                            </div>
+                            <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                                <div className="space-y-1">
+                                    <Label htmlFor="codex-custom-fast-mode" className="text-sm font-medium">
+                                        {t('codex.customFastModeLabel')}
+                                    </Label>
+                                    <p className="text-xs leading-5 text-muted-foreground">{t('codex.customFastModeDescription')}</p>
+                                </div>
+                                <Switch id="codex-custom-fast-mode" checked={codexCustomFastModeEnabled} onCheckedChange={setCodexCustomFastModeEnabled} />
+                            </div>
+                            <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                                <div className="space-y-1">
+                                    <Label htmlFor="codex-user-input" className="text-sm font-medium">
+                                        {t('codex.userInputLabel')}
+                                    </Label>
+                                    <p className="text-xs leading-5 text-muted-foreground">{t('codex.userInputDescription')}</p>
+                                </div>
+                                <Switch id="codex-user-input" checked={codexUserInputEnabled} onCheckedChange={setCodexUserInputEnabled} />
+                            </div>
+                            <div className="space-y-3 rounded-lg border p-3">
                                 <div className="flex items-start justify-between gap-4">
                                     <div className="space-y-1">
                                         <Label htmlFor="codex-session-auto-cleanup" className="text-sm font-medium">
@@ -1176,7 +1208,7 @@ export function NovelSettingsDialog({
                 </div>
 
                 {activeTab !== 'export' && (
-                    <div className="flex justify-end mt-6 pt-4 border-t">
+                    <div className="flex shrink-0 justify-end border-t pt-3">
                         <Button onClick={handleSave} disabled={saving}>
                             {saving ? t('saving') : t('saveChanges')}
                         </Button>

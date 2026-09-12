@@ -185,7 +185,7 @@ export function NovelExportTab({ novel, active }: NovelExportTabProps) {
     }
 
     return (
-        <div className="space-y-6 max-w-2xl">
+        <div className="space-y-4">
             <div>
                 <h3 className="text-sm font-semibold">{t('title')}</h3>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('description')}</p>
@@ -196,7 +196,7 @@ export function NovelExportTab({ novel, active }: NovelExportTabProps) {
                     {allSelected ? t('toggleNone') : t('toggleAll')}
                 </Button>
 
-                <ScrollArea className="h-72 rounded-lg border">
+                <ScrollArea className="h-56 rounded-lg border">
                     <div className="space-y-3 p-3">
                         {loading && (
                             <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
@@ -284,7 +284,7 @@ export function NovelExportTab({ novel, active }: NovelExportTabProps) {
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 
-            <div className="flex justify-end mt-6 pt-4 border-t">
+            <div className="flex justify-end border-t pt-3">
                 <Button
                     type="button"
                     onClick={() => void handleExport()}

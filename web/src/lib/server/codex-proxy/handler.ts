@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { expandNativeCodexModels, parseCodexProviderModelsJson, parseCodexUpstreamFormat } from '@/lib/codex-config'
+import { isOfficialDeepSeekAnthropicProvider } from '@/lib/codex-deepseek'
 import { getPrismaClient } from '@/lib/db'
 import { decryptApiKey } from '@/lib/server/ai-credentials'
 import { isValidCodexProxyToken } from '@/lib/server/codex-internal-auth'
 import { createAnthropicToResponsesStream, readAnthropicSseAsResponses, responsesSseFromAnthropicMessage } from '@/lib/server/codex-proxy/anthropic-stream'
 import { anthropicResponseToResponses, responsesToAnthropicRequest } from '@/lib/server/codex-proxy/anthropic-transform'
 import { codexBridgeHistory } from '@/lib/server/codex-proxy/history'
-import { sanitizeThirdPartyResponsesRequest } from '@/lib/server/codex-proxy/responses-sanitize'
+import { prepareCodexResponsesRequest } from '@/lib/server/codex-proxy/responses-request'
 import { createResponsesToolStream } from '@/lib/server/codex-proxy/responses-stream'
 import { createChatToResponsesStream } from '@/lib/server/codex-proxy/stream'
 import {
     CodexToolContext,
     isObject,
-    normalizeCodexResponsesTools,
     rewriteCompatibleResponsesResponse,
 } from '@/lib/server/codex-proxy/tool-context'
 import { chatCompletionToResponse, responsesToChatRequest } from '@/lib/server/codex-proxy/transform'
@@ -52,13 +52,9 @@ export async function handleCodexUpstreamRequest(input: {
     }
 
     let body: JsonObject
-    let toolContext: CodexToolContext
     try {
         const parsed = JSON.parse(await input.request.text()) as unknown
         if (!isObject(parsed)) throw new Error('Expected a JSON object.')
-        // Build the tool map from the original Codex request (with namespaces)
-        // before we flatten for third-party gateways.
-        toolContext = CodexToolContext.fromRequest(parsed)
         body = parsed
     } catch (error) {
         return NextResponse.json({
@@ -77,18 +73,16 @@ export async function handleCodexUpstreamRequest(input: {
     try {
         const apiKey = decryptApiKey(encryptedApiKey)
         if (upstreamFormat === 'responses') {
-            // Bridge Codex tool search and namespaces to ordinary Responses
-            // function calling, then scrub unsupported private fields.
-            const prepared = sanitizeThirdPartyResponsesRequest(normalizeCodexResponsesTools(body))
+            const prepared = prepareCodexResponsesRequest(body)
             return proxyResponsesRequest({
                 request: input.request,
                 baseUrl,
                 apiKey,
                 endpoint,
-                body: prepared,
-                context: toolContext,
+                ...prepared,
             })
         }
+        const toolContext = CodexToolContext.fromRequest(body)
         if (upstreamFormat === 'chat-completions') {
             return proxyChatRequest({ request: input.request, baseUrl, apiKey, body, model, context: toolContext })
         }
@@ -110,7 +104,7 @@ async function proxyResponsesRequest(input: {
     apiKey: string
     endpoint: string
     body: JsonObject
-    context: CodexToolContext
+    context: CodexToolContext | null
 }) {
     const upstream = await fetch(buildUrl(input.baseUrl, input.endpoint, input.request.nextUrl.search), {
         method: 'POST',
@@ -120,6 +114,7 @@ async function proxyResponsesRequest(input: {
         cache: 'no-store',
     })
     if (!upstream.ok || !upstream.body) return forwardUpstreamResponse(upstream)
+    if (!input.context) return forwardUpstreamResponse(upstream)
 
     // Restore native Codex tool-search and namespace items on the way back.
     if (upstream.headers.get('content-type')?.includes('text/event-stream')) {
@@ -189,25 +184,39 @@ async function proxyAnthropicRequest(input: {
     context: CodexToolContext
 }) {
     const enriched = codexBridgeHistory.enrich(input.body)
-    const anthropicBody = responsesToAnthropicRequest(enriched, input.context)
-    const upstream = await fetch(buildAnthropicUrl(input.baseUrl, input.request.nextUrl.search), {
+    const webSearch = isOfficialDeepSeekAnthropicProvider('anthropic-messages', input.baseUrl)
+    const anthropicBody = responsesToAnthropicRequest(enriched, input.context, { webSearch })
+    const requestedStream = anthropicBody.stream === true
+    if (webSearch) anthropicBody.stream = true
+    const send = (body: JsonObject) => fetch(buildAnthropicUrl(input.baseUrl, input.request.nextUrl.search), {
         method: 'POST',
         headers: anthropicHeaders(input.request, input.apiKey),
-        body: JSON.stringify(anthropicBody),
+        body: JSON.stringify(body),
         signal: input.request.signal,
         cache: 'no-store',
     })
+    const upstream = await send(anthropicBody)
 
     if (!upstream.ok) return forwardUpstreamResponse(upstream)
     if (!upstream.body) throw new Error('Anthropic upstream returned an empty response body.')
 
+    const messages = [...anthropicBody.messages as JsonObject[]]
+    const continueMessage = webSearch ? async (message: JsonObject) => {
+        messages.push(message)
+        const next = await send({ ...anthropicBody, messages, tool_choice: { type: 'auto' } })
+        if (!next.ok) throw new Error(`Anthropic search continuation failed (${next.status}): ${(await next.text()).slice(0, 500)}`)
+        if (!next.body) throw new Error('Anthropic search continuation returned an empty response body.')
+        return next.body
+    } : undefined
+
     const contentType = upstream.headers.get('content-type') || ''
     const upstreamIsStream = contentType.includes('text/event-stream')
         || (anthropicBody.stream === true && !contentType.includes('application/json'))
-    if (upstreamIsStream && anthropicBody.stream === true) {
+    if (upstreamIsStream && requestedStream) {
         return new Response(createAnthropicToResponsesStream({
             upstream: upstream.body,
             context: input.context,
+            continueMessage,
             onComplete: (response) => codexBridgeHistory.record(response),
         }), {
             status: upstream.status,
@@ -215,7 +224,7 @@ async function proxyAnthropicRequest(input: {
         })
     }
     if (upstreamIsStream) {
-        const response = await readAnthropicSseAsResponses({ upstream: upstream.body, context: input.context })
+        const response = await readAnthropicSseAsResponses({ upstream: upstream.body, context: input.context, continueMessage })
         codexBridgeHistory.record(response)
         return NextResponse.json(response, { status: upstream.status })
     }
@@ -224,7 +233,7 @@ async function proxyAnthropicRequest(input: {
     if (!isObject(parsed)) throw new Error('Anthropic upstream returned invalid JSON.')
     const response = anthropicResponseToResponses(parsed, input.context)
     codexBridgeHistory.record(response)
-    if (anthropicBody.stream === true) {
+    if (requestedStream) {
         return new Response(responsesSseFromAnthropicMessage(parsed, input.context).join(''), {
             status: upstream.status,
             headers: sseHeaders(),

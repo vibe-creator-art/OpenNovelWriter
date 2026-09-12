@@ -1,3 +1,6 @@
+import type { CodexRunEvent } from '@/lib/api'
+import { registerLiveCodexMessages } from '@/lib/server/codex-live-messages'
+import { projectCodexRunEvent } from '@/lib/server/codex-message-projection'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { getPrismaClient } from '@/lib/db'
@@ -32,13 +35,6 @@ function encodeSse(event: string, data: unknown) {
     return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 }
 
-type CodexRouteRunEvent = {
-    id: string
-    kind: string
-    title: string
-    content: string
-    createdAt: string
-}
 
 // Manually compact the session's Codex thread (the `/compact` slash command). Compaction streams
 // the same `turn/*`/`item/*` notifications as a normal turn, so the route mirrors the message
@@ -119,13 +115,17 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 }
             }
             const streamedMessages = [...currentMessages]
+            const releaseLiveMessages = registerLiveCodexMessages(id, streamedMessages)
             let contextWindow: CodexContextWindow | null = null
 
-            const upsertEventMessage = (event: CodexRouteRunEvent) => {
+            const upsertEventMessage = (event: CodexRunEvent) => {
                 const message: CodexSessionMessage = {
                     id: event.id,
                     role: 'event',
                     kind: event.kind,
+                    workStatus: event.workStatus,
+                    toolInput: event.toolInput,
+                    attachments: event.attachments,
                     content: [event.title, event.content].filter(Boolean).join('\n\n'),
                     createdAt: event.createdAt,
                 }
@@ -140,7 +140,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                     stream: {
                         onEvent: (event) => {
                             upsertEventMessage(event)
-                            send('event', event)
+                            send('event', projectCodexRunEvent(event))
                         },
                         onContextWindow: (nextContextWindow) => {
                             contextWindow = nextContextWindow
@@ -206,6 +206,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
                 send('error', { session: serializeCodexSession(session), detail: message })
             } finally {
+                releaseLiveMessages()
                 finishActiveCodexRun(activeRun)
                 close()
             }

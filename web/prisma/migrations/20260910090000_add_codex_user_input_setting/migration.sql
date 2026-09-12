@@ -1,0 +1,1 @@
+ALTER TABLE "Novel" ADD COLUMN "codexUserInputEnabled" BOOLEAN NOT NULL DEFAULT true;

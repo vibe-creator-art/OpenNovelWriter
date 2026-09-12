@@ -1,7 +1,26 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { collectWebReferences, markdownToHtml } from './simple-markdown'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { collectWebReferences, markdownToHtml, renderSimpleMarkdown } from './simple-markdown'
+
+test('renders annotation directives in prose while preserving code examples', () => {
+    const indices: number[] = []
+    const content = 'First. :codex-annotation{index="1"}\n\n**Second :codex-annotation{index="2"}**\n\n`:codex-annotation{index="3"}`\n\n```text\n:codex-annotation{index="4"}\n```'
+    const nodes = renderSimpleMarkdown(content, {
+        renderAnnotationRef: (index, key) => {
+            indices.push(index)
+            return createElement('button', { key, 'data-annotation': index }, index)
+        },
+    })
+    const html = renderToStaticMarkup(createElement('div', null, nodes))
+    assert.deepEqual(indices, [1, 2])
+    assert.match(html, /data-annotation="1"/)
+    assert.match(html, /data-annotation="2"/)
+    assert.match(html, /<code>:codex-annotation\{index=&quot;3&quot;\}<\/code>/)
+    assert.match(html, /index=&quot;4&quot;/)
+})
 
 test('renders a titled web link as text plus a citation mark', () => {
     const html = markdownToHtml('见[任天堂官网](https://www.nintendo.com/hk/news)')

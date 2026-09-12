@@ -45,6 +45,7 @@ type ViewFilter = 'everything' | 'act' | 'chapter'
 interface MiddlePanelWriteProps {
     novelId?: string
     focusMode: boolean
+    stackInfoPanels: boolean
     viewFilter: ViewFilter
     selectedActNumber: number | null
     selectedChapterId: string | null
@@ -97,6 +98,7 @@ interface MiddlePanelWriteProps {
 export function MiddlePanelWrite({
     novelId,
     focusMode,
+    stackInfoPanels,
     viewFilter,
     selectedActNumber,
     selectedChapterId,
@@ -284,7 +286,7 @@ export function MiddlePanelWrite({
                     <div className="text-base text-muted-foreground">
                         {t('chapter.label')} {getGlobalChapterIndex(chapter.id)}
                     </div>
-                    <div className="md:hidden">
+                    <div className={stackInfoPanels ? undefined : 'md:hidden'}>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <button className="flex min-h-11 items-center gap-1 text-xs text-muted-foreground px-2 py-1 rounded focus:outline-none data-[state=open]:bg-black data-[state=open]:text-white">
@@ -322,7 +324,7 @@ export function MiddlePanelWrite({
                     </div>
                 </div>
                 {/* Right: Actions button - aligned with scene info panel */}
-                <div className="w-56 shrink-0 max-md:hidden">
+                <div className={`w-56 shrink-0 max-md:hidden ${stackInfoPanels ? 'md:hidden' : ''}`}>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <button className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded focus:outline-none data-[state=open]:bg-black data-[state=open]:text-white">
@@ -402,6 +404,7 @@ export function MiddlePanelWrite({
 
                     {/* Scene Editor - handles multiple scenes with dividers */}
                     <ChapterSceneEditor
+                        stackInfoPanels={stackInfoPanels}
                         novelId={novelId}
                         chapterId={chapter.id}
                         scenes={chapter.scenes || []}
@@ -430,7 +433,7 @@ export function MiddlePanelWrite({
         const canDeleteDirectly = canDeleteActDirectly(actChapters)
 
         return (
-        <div className="flex gap-6 mb-6 pb-4 border-b border-dashed pr-2 max-md:flex-col max-md:gap-3">
+        <div className={`flex gap-6 mb-6 pb-4 border-b border-dashed pr-2 max-md:flex-col max-md:gap-3 ${stackInfoPanels ? 'md:flex-col md:gap-3' : ''}`}>
             {/* Left: Act info - centered content */}
             <div className="flex-1 min-w-0 flex flex-col items-center">
                 {/* Act number label */}
@@ -473,7 +476,7 @@ export function MiddlePanelWrite({
                 />
             </div>
             {/* Right: Act info panel - with group hover effect */}
-            <div className="w-56 shrink-0 text-xs space-y-2 pt-1 group text-muted-foreground/60 hover:text-muted-foreground transition-colors max-md:w-full max-md:text-muted-foreground">
+            <div className={`w-56 shrink-0 text-xs space-y-2 pt-1 group text-muted-foreground/60 hover:text-muted-foreground transition-colors max-md:w-full max-md:text-muted-foreground ${stackInfoPanels ? 'md:w-full md:text-muted-foreground' : ''}`}>
                 {/* Act stats */}
                 <div className="font-medium group-hover:text-foreground transition-colors">
                     {t('act.label')} {getActDisplayIndex(actNum)}{actTitles[actNum] ? `: ${actTitles[actNum]}` : ''}

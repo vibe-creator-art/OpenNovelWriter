@@ -50,3 +50,16 @@ describe('Codex goal messages', () => {
         assert.equal(messages[0]?.sentAsGoal, true)
     })
 })
+
+test('session history retains annotation comments and source ranges on messages and steering events', () => {
+    const responseAnnotations = [{
+        text: 'selected reply',
+        annotation: 'Explain this choice',
+        source: { messageId: 'reply-1', startOffset: 24, endOffset: 38 },
+    }]
+    const messages = parseCodexSessionMessages(JSON.stringify([
+        { id: 'user-1', role: 'user', content: 'Review.', responseAnnotations },
+        { id: 'steer-1', role: 'event', kind: 'steer', content: 'Also this.', responseAnnotations },
+    ]))
+    assert.deepEqual(messages.map((message) => message.responseAnnotations), [responseAnnotations, responseAnnotations])
+})

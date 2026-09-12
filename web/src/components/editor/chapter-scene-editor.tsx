@@ -59,6 +59,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 
 interface ChapterSceneEditorProps {
+    stackInfoPanels: boolean
     novelId?: string
     chapterId: string
     scenes: Scene[]
@@ -95,6 +96,7 @@ function SceneDivider() {
 }
 
 export function ChapterSceneEditor({
+    stackInfoPanels,
     novelId,
     chapterId,
     scenes,
@@ -698,11 +700,12 @@ export function ChapterSceneEditor({
                     <div
                         className={cn(
                             'flex gap-4 pr-1 max-md:flex-col max-md:gap-3',
+                            stackInfoPanels && 'md:flex-col md:gap-3',
                             scenesWithPendingEdits.has(scene.id) && 'rounded-lg border-l-2 border-emerald-500/60 pl-1'
                         )}
                     >
                         {/* Left: Scene editor */}
-                        <div className="flex-1 min-w-0 pl-1 max-md:order-2 max-md:pl-0">
+                        <div className={cn('flex-1 min-w-0 pl-1 max-md:order-2 max-md:pl-0', stackInfoPanels && 'md:order-2 md:pl-0')}>
                             {novelId && <SceneReviewPanel novelId={novelId} sceneId={scene.id} />}
                             <SceneContinuationContextProvider
                                 value={{
@@ -789,9 +792,9 @@ export function ChapterSceneEditor({
                         </div>
 
                         {/* Right: Scene info panel - with group hover effect */}
-                        <div className="w-60 shrink-0 text-xs space-y-2 pt-1 group text-muted-foreground/60 hover:text-muted-foreground transition-colors max-md:order-1 max-md:w-full max-md:pt-0 max-md:text-muted-foreground">
+                        <div className={cn('w-60 shrink-0 text-xs space-y-2 pt-1 group text-muted-foreground/60 hover:text-muted-foreground transition-colors max-md:order-1 max-md:w-full max-md:pt-0 max-md:text-muted-foreground', stackInfoPanels && 'md:order-1 md:w-full md:pt-0 md:text-muted-foreground')}>
                             {/* Scene title and word count. Hidden for scene 1 on phone — chapter title already sits above. */}
-                            <div className={cn('font-medium group-hover:text-foreground transition-colors', index === 0 && 'max-md:hidden')}>
+                            <div className={cn('font-medium group-hover:text-foreground transition-colors', index === 0 && 'max-md:hidden', index === 0 && stackInfoPanels && 'md:hidden')}>
                                 {getChapterTitleDisplay()} - {sceneLabel} {index + 1}
                                 <span className="font-normal ml-2">
                                     – {scene.wordCount} {scene.wordCount === 1 ? tCommon('word') : tCommon('words')}

@@ -1,3 +1,5 @@
+import type { CodexWorkMetadata } from '@/lib/codex-work-events'
+import type { CodexUserInputRequest, CodexUserInputResponse } from '@/lib/codex-user-input'
 import { useAuthStore } from './store'
 import type { ModelAssignment, ModelGroup, ModelSet, ModelSetMember } from '@/lib/ai-store'
 import { DEFAULT_PROMPT_SELECTION_CATEGORIES, type DefaultPromptSelectionCategory } from './prompt-default-categories'
@@ -117,6 +119,9 @@ export interface Novel {
     retrievalTopK: number
     codexSessionAutoCleanup: boolean
     codexSessionRetentionLimit: number
+    codexUserInputEnabled: boolean
+    codexShowReasoning: boolean
+    codexCustomFastModeEnabled: boolean
     codexPetEnabled: boolean
     codexPetId: string
     ownerId: string
@@ -1453,7 +1458,7 @@ export type CodexThreadGoal = {
     updatedAt: number
 }
 
-export type CodexSessionMessage = {
+export type CodexSessionMessage = CodexWorkMetadata & {
     id: string
     role: 'user' | 'assistant' | 'event'
     content: string
@@ -1483,7 +1488,7 @@ export type CodexContextWindow = {
     totalTokenUsage: CodexTokenUsage | null
 }
 
-export type CodexRunEvent = {
+export type CodexRunEvent = CodexWorkMetadata & {
     id: string
     kind: string
     title: string
@@ -1495,9 +1500,12 @@ export type CodexRunEvent = {
 
 export type CodexSessionStreamEvent =
     | { type: 'assistant_delta'; delta: string; id?: string; createdAt?: string }
+    | { type: 'reasoning_delta'; id: string; delta: string; createdAt: string }
     | { type: 'plan_delta'; id: string; delta: string; createdAt: string }
     | { type: 'event'; event: CodexRunEvent }
     | { type: 'approval_request'; approval: CodexApprovalRequest }
+    | { type: 'user_input_request'; request: CodexUserInputRequest }
+    | { type: 'user_input_resolved'; id: string }
     | { type: 'context_window'; contextWindow: CodexContextWindow }
     | { type: 'rate_limits'; rateLimits: CodexRateLimits; connectionId?: string }
     | { type: 'goal_updated'; goal: CodexThreadGoal }
@@ -1548,7 +1556,13 @@ export type CodexSession = {
     createdAt: string
     updatedAt: string
     messages: CodexSessionMessage[]
+    historyLoaded: boolean
+    messageCount: number
+    previewTitle: string
+    previewText: string
 }
+
+export type CodexSessionSummary = Omit<CodexSession, 'messages' | 'historyLoaded'>
 
 export type CodexDraftArtifact = {
     fileName: string
@@ -1571,7 +1585,12 @@ async function readSseStream(
     const dispatch = () => {
         if (dataLines.length === 0) return
         const data = JSON.parse(dataLines.join('\n')) as unknown
-        if (eventName === 'assistant_delta' && data && typeof data === 'object') {
+        if (eventName === 'reasoning_delta' && data && typeof data === 'object') {
+            const record = data as Record<string, unknown>
+            if (typeof record.id === 'string' && typeof record.delta === 'string' && typeof record.createdAt === 'string') {
+                onEvent({ type: 'reasoning_delta', id: record.id, delta: record.delta, createdAt: record.createdAt })
+            }
+        } else if (eventName === 'assistant_delta' && data && typeof data === 'object') {
             const record = data as Record<string, unknown>
             if (typeof record.delta === 'string') {
                 onEvent({
@@ -1598,6 +1617,10 @@ async function readSseStream(
         } else if (eventName === 'context_window' && data && typeof data === 'object') {
             const record = data as Record<string, unknown>
             onEvent({ type: 'context_window', contextWindow: record.contextWindow as CodexContextWindow })
+        } else if (eventName === 'user_input_request' && data && typeof data === 'object') {
+            onEvent({ type: 'user_input_request', request: (data as { request: CodexUserInputRequest }).request })
+        } else if (eventName === 'user_input_resolved' && data && typeof data === 'object') {
+            onEvent({ type: 'user_input_resolved', id: (data as { id: string }).id })
         } else if (eventName === 'rate_limits' && data && typeof data === 'object') {
             const record = data as Record<string, unknown>
             onEvent({
@@ -1649,7 +1672,13 @@ async function readSseStream(
 
 export const codexSessionApi = {
     list: (novelId: string) =>
-        fetchApi<{ sessions: CodexSession[] }>(`/novels/${encodeURIComponent(novelId)}/codex/sessions`),
+        fetchApi<{ sessions: CodexSessionSummary[] }>(`/novels/${encodeURIComponent(novelId)}/codex/sessions`),
+
+    get: (id: string) =>
+        fetchApi<{ session: CodexSession }>(`/codex/sessions/${encodeURIComponent(id)}`),
+
+    getMessage: (sessionId: string, messageId: string) =>
+        fetchApi<{ message: CodexSessionMessage }>(`/codex/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`),
 
     create: (
         novelId: string,
@@ -1744,6 +1773,15 @@ export const codexSessionApi = {
             }
         ),
 
+    listUserInputRequests: (sessionId: string) =>
+        fetchApi<{ requests: CodexUserInputRequest[] }>(`/codex/sessions/${encodeURIComponent(sessionId)}/questions`),
+
+    answerUserInput: (sessionId: string, requestId: string, response: CodexUserInputResponse) =>
+        fetchApi<{ ok: true }>(`/codex/sessions/${encodeURIComponent(sessionId)}/questions`, {
+            method: 'POST',
+            body: JSON.stringify({ requestId, ...response }),
+        }),
+
     steerMessage: (
         id: string,
         content: string,
@@ -1773,6 +1811,7 @@ export const codexSessionApi = {
         id: string,
         content: string,
         options: {
+            messageId: string
             signal?: AbortSignal
             skillIds?: string[]
             promptArtifact?: CodexPromptArtifact
@@ -1793,6 +1832,7 @@ export const codexSessionApi = {
                 Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify({
+                messageId: options.messageId,
                 content,
                 skillIds: options.skillIds,
                 promptArtifact: options.promptArtifact,

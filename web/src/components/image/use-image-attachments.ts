@@ -18,6 +18,8 @@ export const ATTACHMENT_MAX_COUNT = 6
 
 export type ImageAttachmentError = 'type' | 'size' | 'count' | 'disabled' | 'upload'
 
+export type ImagePointComment = { id: string; x: number; y: number; text: string }
+
 export type PendingImageAttachment = {
     id: string
     status: 'uploading' | 'ready'
@@ -25,6 +27,7 @@ export type PendingImageAttachment = {
     url: string | null
     /** Object URL for instant local preview. */
     previewUrl: string
+    comments?: ImagePointComment[]
 }
 
 function createAttachmentId() {

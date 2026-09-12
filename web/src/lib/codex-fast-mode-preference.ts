@@ -1,4 +1,5 @@
-import type { CodexModelCatalogEntry, CodexServiceTier } from '@/lib/api'
+import type { CodexConnectionSummary, CodexModelCatalogEntry, CodexServiceTier } from '@/lib/api'
+import { isCodexFastModeAllowed } from '@/lib/codex-config'
 
 const CODEX_FAST_MODE_STORAGE_KEY = 'codex.fastMode'
 
@@ -22,10 +23,13 @@ export function modelSupportsCodexFastMode(models: CodexModelCatalogEntry[], mod
 
 export function resolvePreferredCodexServiceTier(input: {
     enabled: boolean
+    connection: Pick<CodexConnectionSummary, 'providerType' | 'authStatus' | 'authType'> | null
+    customFastModeEnabled: boolean
     models: CodexModelCatalogEntry[]
     modelId: string
 }): CodexServiceTier {
     return input.enabled
+        && isCodexFastModeAllowed(input.connection, input.customFastModeEnabled)
         && modelSupportsCodexFastMode(input.models, input.modelId)
         ? 'fast'
         : 'standard'

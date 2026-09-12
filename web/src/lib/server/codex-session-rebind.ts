@@ -4,6 +4,9 @@ import {
     parseCodexProviderModelsJson,
 } from '@/lib/codex-config'
 import { getPrismaClient } from '@/lib/db'
+import { finishActiveCodexRun, initializeCodexConnectionState, reserveActiveCodexRun } from '@/lib/server/codex-app-server'
+import { deleteCodexConnectionHome, ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
+import { transferCodexConnectionThreads } from '@/lib/server/codex-connection-transfer'
 import {
     DEFAULT_CODEX_REASONING_EFFORT,
     DEFAULT_CODEX_SERVICE_TIER,
@@ -19,6 +22,56 @@ type RebindConnection = {
     providerType: string
     defaultModelId: string | null
     modelsJson: string
+}
+
+export async function deleteCodexConnectionPreservingSessions(connection: RebindConnection) {
+    const sessions = await prisma.codexSession.findMany({
+        where: { ownerId: connection.ownerId, codexConnectionId: connection.id },
+        select: { id: true, codexThreadId: true },
+    })
+    const target = sessions.length > 0 ? await prisma.codexConnection.findFirst({
+        where: { ownerId: connection.ownerId, isActive: true, NOT: { id: connection.id } },
+    }) : null
+    if (sessions.length > 0 && !target) {
+        throw new Error('Activate another Codex connection before deleting a connection used by conversations.')
+    }
+
+    const reservations = []
+    try {
+        for (const session of sessions) {
+            const reservation = reserveActiveCodexRun(session.id)
+            if (!reservation) throw new Error('Stop the running conversations before deleting their Codex connection.')
+            reservations.push(reservation)
+        }
+        if (target) {
+            const threadIds = sessions.flatMap((session) => session.codexThreadId ? [session.codexThreadId] : [])
+            if (threadIds.length > 0) {
+                const sourceHome = await ensureCodexConnectionHome(connection.ownerId, connection.id)
+                const targetHome = await ensureCodexConnectionHome(target.ownerId, target.id)
+                await Promise.all([initializeCodexConnectionState(sourceHome), initializeCodexConnectionState(targetHome)])
+                await transferCodexConnectionThreads(sourceHome, targetHome, threadIds)
+            }
+            const modelId = resolveConnectionDefaultModelId(target)
+            await prisma.$transaction(async (tx) => {
+                await tx.codexSession.updateMany({
+                    where: { ownerId: connection.ownerId, codexConnectionId: connection.id },
+                    data: {
+                        codexConnectionId: target.id,
+                        modelId,
+                        reasoningEffort: resolveConnectionDefaultReasoningEffort(target, modelId),
+                        serviceTier: DEFAULT_CODEX_SERVICE_TIER,
+                        updatedAt: new Date(),
+                    },
+                })
+                await tx.codexConnection.delete({ where: { id: connection.id } })
+            })
+        } else {
+            await prisma.codexConnection.delete({ where: { id: connection.id } })
+        }
+        await deleteCodexConnectionHome(connection.ownerId, connection.id)
+    } finally {
+        reservations.forEach(finishActiveCodexRun)
+    }
 }
 
 /**

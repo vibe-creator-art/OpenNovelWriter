@@ -11,8 +11,8 @@ import {
 import {
     chatUsageToResponses,
     extractReasoning,
-    stripLeadingThink,
 } from '@/lib/server/codex-proxy/transform'
+import { ThinkTagStream } from '@/lib/server/codex-proxy/think-tag-stream'
 import { isDoneSseBlock, sse, sseData, takeSseBlocks } from '@/lib/server/codex-proxy/sse'
 
 type JsonObject = Record<string, unknown>
@@ -113,6 +113,7 @@ async function pumpChatStream(input: {
 }
 
 class ChatStreamState {
+    private readonly thinkTags = new ThinkTagStream()
     private started = false
     private completed = false
     private responseId = `resp_${crypto.randomUUID()}`
@@ -160,10 +161,12 @@ class ChatStreamState {
         const choice = Array.isArray(chunk.choices) && isObject(chunk.choices[0]) ? chunk.choices[0] : null
         const delta = choice && isObject(choice.delta) ? choice.delta : null
         if (delta) {
-            const reasoning = extractReasoning(delta)
+            const reasoning = extractReasoning({ ...delta, content: undefined })
             if (reasoning) events.push(...this.pushReasoning(reasoning))
             if (typeof delta.content === 'string' && delta.content) {
-                events.push(...this.pushText(stripLeadingThink(delta.content)))
+                for (const part of this.thinkTags.push(delta.content)) {
+                    events.push(...(part.kind === 'reasoning' ? this.pushReasoning(part.text) : this.pushText(part.text)))
+                }
             }
             if (Array.isArray(delta.tool_calls)) {
                 for (const toolCall of delta.tool_calls) {
@@ -178,6 +181,9 @@ class ChatStreamState {
     finalize() {
         if (this.completed) return { events: [], response: this.baseResponse('failed') }
         const events = this.ensureStarted()
+        for (const part of this.thinkTags.finish()) {
+            events.push(...(part.kind === 'reasoning' ? this.pushReasoning(part.text) : this.pushText(part.text)))
+        }
         if (this.reasoningIndex !== null) events.push(...this.finishReasoning())
         if (this.textIndex !== null) events.push(...this.finishText())
         events.push(...this.finishTools())
