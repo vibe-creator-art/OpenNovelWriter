@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
         typeof body?.temperature === 'number' && Number.isFinite(body.temperature) ? body.temperature : undefined
     const maxTokens =
         typeof body?.maxTokens === 'number' && Number.isFinite(body.maxTokens) ? body.maxTokens : undefined
+    const sessionId =
+        typeof body?.sessionId === 'string' && body.sessionId.trim() ? body.sessionId.trim() : undefined
 
     if (!ownerId) return NextResponse.json({ detail: 'ownerId is required.' }, { status: 400 })
     if (!groupId) return NextResponse.json({ detail: 'groupId is required.' }, { status: 400 })
@@ -70,6 +72,7 @@ export async function POST(request: NextRequest) {
                 temperature,
                 maxTokens,
                 messages: messages as ModelMessage[],
+                sessionId,
             },
         })
 

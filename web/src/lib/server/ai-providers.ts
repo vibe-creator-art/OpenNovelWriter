@@ -94,12 +94,18 @@ export function createLanguageModel(options: {
     apiKey: string
     baseUrl?: string | null
     modelId: string
+    headers?: Record<string, string>
 }): LanguageModel {
-    const { providerType, apiKey, modelId } = options
+    const { providerType, apiKey, modelId, headers } = options
     const baseURL = resolveBaseUrl(providerType, options.baseUrl)
 
     if (providerType === 'openai-chat') {
-        return createOpenAICompatible({ apiKey, baseURL, name: 'openaiChat' }).chatModel(
+        return createOpenAICompatible({
+            apiKey,
+            baseURL,
+            name: 'openaiChat',
+            ...(headers ? { headers } : {}),
+        }).chatModel(
             modelId
         ) as unknown as LanguageModel
     }
@@ -112,7 +118,11 @@ export function createLanguageModel(options: {
             modelId.startsWith('models/') || modelId.startsWith('tunedModels/')
                 ? modelId
                 : `models/${modelId}`
-        return createGoogleGenerativeAI({ apiKey, baseURL })(modelPath) as unknown as LanguageModel
+        return createGoogleGenerativeAI({
+            apiKey,
+            baseURL,
+            ...(headers ? { headers } : {}),
+        })(modelPath) as unknown as LanguageModel
     }
 
     throw new Error('This connection format does not serve chat models.')

@@ -17,6 +17,7 @@ import {
     rewriteCompatibleResponsesResponse,
 } from '@/lib/server/codex-proxy/tool-context'
 import { chatCompletionToResponse, responsesToChatRequest } from '@/lib/server/codex-proxy/transform'
+import { OPENCODE_SESSION_HEADER, OPENCODE_SESSION_PATH_SEGMENT } from '@/lib/server/opencode-session'
 
 const prisma = getPrismaClient({ ensureModel: 'codexConnection' })
 
@@ -31,7 +32,8 @@ export async function handleCodexUpstreamRequest(input: {
         return NextResponse.json({ error: { message: 'Unauthorized', type: 'authentication_error' } }, { status: 401 })
     }
 
-    const endpoint = normalizeEndpoint(input.path)
+    const { sessionKey, endpointParts } = extractSessionMarker(input.path)
+    const endpoint = normalizeEndpoint(endpointParts)
     if (endpoint !== 'responses' && endpoint !== 'responses/compact') {
         return NextResponse.json({ error: { message: 'Unsupported Codex proxy endpoint.' } }, { status: 404 })
     }
@@ -72,6 +74,10 @@ export async function handleCodexUpstreamRequest(input: {
 
     try {
         const apiKey = decryptApiKey(encryptedApiKey)
+        // Per-session marker carried as a path segment in the Codex runtime config
+        // base_url (`.../upstream/<connectionId>/os/<key>/v1/responses`). Stripped
+        // before forwarding; the identifier is sent upstream as the
+        // `x-opencode-session` header instead.
         if (upstreamFormat === 'responses') {
             const prepared = prepareCodexResponsesRequest(body)
             return proxyResponsesRequest({
@@ -80,13 +86,29 @@ export async function handleCodexUpstreamRequest(input: {
                 apiKey,
                 endpoint,
                 ...prepared,
+                sessionKey,
             })
         }
         const toolContext = CodexToolContext.fromRequest(body)
         if (upstreamFormat === 'chat-completions') {
-            return proxyChatRequest({ request: input.request, baseUrl, apiKey, body, model, context: toolContext })
+            return proxyChatRequest({
+                request: input.request,
+                baseUrl,
+                apiKey,
+                body,
+                model,
+                context: toolContext,
+                sessionKey,
+            })
         }
-        return proxyAnthropicRequest({ request: input.request, baseUrl, apiKey, body, context: toolContext })
+        return proxyAnthropicRequest({
+            request: input.request,
+            baseUrl,
+            apiKey,
+            body,
+            context: toolContext,
+            sessionKey,
+        })
     } catch (error) {
         console.error('Codex upstream proxy error:', error)
         return NextResponse.json({
@@ -105,10 +127,11 @@ async function proxyResponsesRequest(input: {
     endpoint: string
     body: JsonObject
     context: CodexToolContext | null
+    sessionKey?: string
 }) {
     const upstream = await fetch(buildUrl(input.baseUrl, input.endpoint, input.request.nextUrl.search), {
         method: 'POST',
-        headers: upstreamHeaders(input.request, input.apiKey),
+        headers: upstreamHeaders(input.request, input.apiKey, input.sessionKey),
         body: JSON.stringify(input.body),
         signal: input.request.signal,
         cache: 'no-store',
@@ -138,12 +161,13 @@ async function proxyChatRequest(input: {
     body: JsonObject
     model: ReturnType<typeof parseCodexProviderModelsJson>[number]
     context: CodexToolContext
+    sessionKey?: string
 }) {
     const enriched = codexBridgeHistory.enrich(input.body)
     const chatBody = responsesToChatRequest(enriched, input.model, input.context)
     const upstream = await fetch(buildUrl(input.baseUrl, 'chat/completions', input.request.nextUrl.search), {
         method: 'POST',
-        headers: upstreamHeaders(input.request, input.apiKey),
+        headers: upstreamHeaders(input.request, input.apiKey, input.sessionKey),
         body: JSON.stringify(chatBody),
         signal: input.request.signal,
         cache: 'no-store',
@@ -182,6 +206,7 @@ async function proxyAnthropicRequest(input: {
     apiKey: string
     body: JsonObject
     context: CodexToolContext
+    sessionKey?: string
 }) {
     const enriched = codexBridgeHistory.enrich(input.body)
     const webSearch = isOfficialDeepSeekAnthropicProvider('anthropic-messages', input.baseUrl)
@@ -190,7 +215,7 @@ async function proxyAnthropicRequest(input: {
     if (webSearch) anthropicBody.stream = true
     const send = (body: JsonObject) => fetch(buildAnthropicUrl(input.baseUrl, input.request.nextUrl.search), {
         method: 'POST',
-        headers: anthropicHeaders(input.request, input.apiKey),
+        headers: anthropicHeaders(input.request, input.apiKey, input.sessionKey),
         body: JSON.stringify(body),
         signal: input.request.signal,
         cache: 'no-store',
@@ -254,6 +279,15 @@ function normalizeEndpoint(pathParts: string[]) {
     return path.startsWith('v1/') ? path.slice(3) : path
 }
 
+/** Read the private per-session marker embedded in the Codex runtime config base_url path. */
+function extractSessionMarker(pathParts: string[]): { sessionKey?: string; endpointParts: string[] } {
+    const first = pathParts[0]
+    if (first === OPENCODE_SESSION_PATH_SEGMENT && typeof pathParts[1] === 'string' && pathParts[1].trim()) {
+        return { sessionKey: pathParts[1].trim(), endpointParts: pathParts.slice(2) }
+    }
+    return { sessionKey: undefined, endpointParts: pathParts }
+}
+
 function buildUrl(baseUrl: string, endpoint: string, search: string) {
     const normalizedEndpoint = endpoint.replace(/^\/+/, '')
     return `${baseUrl}/${normalizedEndpoint}${search}`
@@ -265,7 +299,7 @@ function buildAnthropicUrl(baseUrl: string, search: string) {
     return `${baseUrl}/v1/messages${search}`
 }
 
-function upstreamHeaders(request: NextRequest, apiKey: string) {
+function upstreamHeaders(request: NextRequest, apiKey: string, sessionKey?: string) {
     const headers = new Headers({
         authorization: `Bearer ${apiKey}`,
         'content-type': 'application/json',
@@ -273,10 +307,11 @@ function upstreamHeaders(request: NextRequest, apiKey: string) {
     })
     const userAgent = request.headers.get('user-agent')
     if (userAgent) headers.set('user-agent', userAgent)
+    if (sessionKey) headers.set(OPENCODE_SESSION_HEADER, sessionKey)
     return headers
 }
 
-function anthropicHeaders(request: NextRequest, apiKey: string) {
+function anthropicHeaders(request: NextRequest, apiKey: string, sessionKey?: string) {
     const headers = new Headers({
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
@@ -285,6 +320,7 @@ function anthropicHeaders(request: NextRequest, apiKey: string) {
     })
     const userAgent = request.headers.get('user-agent')
     if (userAgent) headers.set('user-agent', userAgent)
+    if (sessionKey) headers.set(OPENCODE_SESSION_HEADER, sessionKey)
     return headers
 }
 

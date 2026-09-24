@@ -844,6 +844,7 @@ export function SceneContinuationPanel({
                     temperature: selectedGroup.settings.temperature ?? undefined,
                     maxTokens: selectedGroup.settings.maxTokens ?? undefined,
                     messages: renderedMessages,
+                    sessionId: sceneId,
                 },
                 signal: controller.signal,
                 onTextDelta: (delta) => {

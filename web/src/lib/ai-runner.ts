@@ -18,6 +18,8 @@ type RunModelInput = {
     maxTokens?: number
     messages?: RunChatMessage[]
     prompt?: string
+    /** Stable conversation/session id; the server derives the per-session `x-opencode-session` header. */
+    sessionId?: string
 }
 
 export type ModelTokenUsage = {
@@ -62,6 +64,7 @@ async function runModelGroupStream(
         maxTokens?: number
         messages?: RunChatMessage[]
         prompt?: string
+        sessionId?: string
     },
     options?: {
         signal?: AbortSignal
@@ -245,6 +248,7 @@ export async function runModelGroupWithFallback(options: {
                 maxTokens: options.input.maxTokens,
                 messages: options.input.messages,
                 prompt: options.input.prompt,
+                sessionId: options.input.sessionId,
             },
             {
                 signal: options.signal,

@@ -14,6 +14,7 @@ import {
 import { isAbortError } from '@/lib/server/abort-error'
 import { decryptApiKey } from '@/lib/server/ai-credentials'
 import { createLanguageModel, parseProviderType } from '@/lib/server/ai-providers'
+import { OPENCODE_SESSION_HEADER, deriveOpencodeSessionKey } from '@/lib/server/opencode-session'
 
 export class ModelGroupRunnerError extends Error {
     code: string
@@ -40,6 +41,9 @@ type RunModelInput = {
     maxTokens?: number
     messages?: RunModelMessage[]
     prompt?: string
+    /** Stable identifier of the originating conversation/session; derives the
+     *  per-session `x-opencode-session` header (8-char) sent to the gateway. */
+    sessionId?: string
 }
 
 async function readAttachmentBuffers(images: string[]) {
@@ -237,6 +241,12 @@ export async function runModelGroupWithFallbackOnServer(options: {
                   })
             : null
     let lastError: unknown = null
+    const opencodeSessionKey = options.input.sessionId
+        ? deriveOpencodeSessionKey(options.input.sessionId)
+        : undefined
+    const opencodeHeaders = opencodeSessionKey
+        ? { [OPENCODE_SESSION_HEADER]: opencodeSessionKey }
+        : undefined
 
     for (const [index, assignment] of attemptOrder.entries()) {
         if (options.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -255,6 +265,7 @@ export async function runModelGroupWithFallbackOnServer(options: {
                 apiKey,
                 baseUrl: assignment.connection.baseUrl,
                 modelId: assignment.modelId,
+                ...(opencodeHeaders ? { headers: opencodeHeaders } : {}),
             })
             const stream = options.input.stream === true
             const requestPayload = {

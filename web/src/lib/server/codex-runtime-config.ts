@@ -12,6 +12,7 @@ import { writeFileAtomicallyIfChanged } from '@/lib/server/atomic-file-write'
 import { getCodexInternalBaseUrl, getCodexProxyToken } from '@/lib/server/codex-internal-auth'
 import { CODEX_MODEL_CATALOG_FILE, writeCodexModelCatalog } from '@/lib/server/codex-model-catalog'
 import { ensureCodexConnectionHome } from '@/lib/server/codex-connection-storage'
+import { OPENCODE_SESSION_PATH_SEGMENT } from '@/lib/server/opencode-session'
 
 type RuntimeConnection = {
     id: string
@@ -23,7 +24,10 @@ type RuntimeConnection = {
     modelsJson: string
 }
 
-export async function syncCodexConnectionRuntimeFiles(connection: RuntimeConnection) {
+export async function syncCodexConnectionRuntimeFiles(
+    connection: RuntimeConnection,
+    options?: { opencodeSessionKey?: string }
+) {
     if ((connection.providerType as CodexConnectionProviderType) !== 'custom') {
         return ensureCodexConnectionHome(connection.ownerId, connection.id)
     }
@@ -41,6 +45,10 @@ export async function syncCodexConnectionRuntimeFiles(connection: RuntimeConnect
     await writeCodexModelCatalog({ codexHome, upstreamFormat, baseUrl: connection.baseUrl, models })
 
     const proxyBaseUrl = `${getCodexInternalBaseUrl()}/api/internal/codex/upstream/${connection.id}`
+    const sessionKey = options?.opencodeSessionKey?.trim()
+    const proxyBaseUrlWithSession = sessionKey
+        ? `${proxyBaseUrl}/${OPENCODE_SESSION_PATH_SEGMENT}/${encodeURIComponent(sessionKey)}`
+        : proxyBaseUrl
     const authJson = `${JSON.stringify({ OPENAI_API_KEY: getCodexProxyToken(connection.id) }, null, 2)}\n`
     const configToml = [
         'model_provider = "opennovelwriter"',
@@ -56,7 +64,7 @@ export async function syncCodexConnectionRuntimeFiles(connection: RuntimeConnect
         '',
         '[model_providers.opennovelwriter]',
         'name = "OpenNovelWriter Proxy"',
-        `base_url = ${tomlString(proxyBaseUrl)}`,
+        `base_url = ${tomlString(proxyBaseUrlWithSession)}`,
         'wire_api = "responses"',
         'requires_openai_auth = true',
         '',

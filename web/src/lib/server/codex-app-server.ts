@@ -15,6 +15,7 @@ import { parseCodexAssistantNotification } from '@/lib/server/codex-assistant-no
 import { mergeCompletedAssistantText } from '@/lib/server/codex-assistant-text'
 import { CodexReasoningStream, type CodexReasoningDelta } from '@/lib/server/codex-reasoning-stream'
 import { syncCodexConnectionRuntimeFiles } from '@/lib/server/codex-runtime-config'
+import { deriveOpencodeSessionKey } from '@/lib/server/opencode-session'
 import { prepareCodexQuestionPolicy } from '@/lib/server/codex-question-policy'
 import type { CodexUserInputRequest } from '@/lib/codex-user-input'
 import {
@@ -351,7 +352,9 @@ export async function updateNovelCodexGoal(input: {
         })
     if (!connection) throw new Error('No Codex connection is available.')
     const codexHome = connection.providerType === 'custom'
-        ? await syncCodexConnectionRuntimeFiles(connection)
+        ? await syncCodexConnectionRuntimeFiles(connection, {
+            opencodeSessionKey: deriveOpencodeSessionKey(input.sessionId),
+        })
         : await ensureCodexConnectionHome(input.ownerId, connection.id)
     const client = await CodexAppServerClient.create(codexHome)
     try {
@@ -1237,7 +1240,9 @@ export async function runNovelCodexTurn(input: {
     }
 
     const codexHome = connection.providerType === 'custom'
-        ? await syncCodexConnectionRuntimeFiles(connection)
+        ? await syncCodexConnectionRuntimeFiles(connection, {
+            opencodeSessionKey: deriveOpencodeSessionKey(input.sessionId),
+        })
         : await ensureCodexConnectionHome(input.ownerId, connection.id)
     const modelId = typeof input.modelId === 'string' && input.modelId.trim()
         ? input.modelId.trim()
@@ -1894,7 +1899,9 @@ export async function runNovelCodexCompaction(input: {
     }
 
     const codexHome = connection.providerType === 'custom'
-        ? await syncCodexConnectionRuntimeFiles(connection)
+        ? await syncCodexConnectionRuntimeFiles(connection, {
+            opencodeSessionKey: deriveOpencodeSessionKey(input.sessionId),
+        })
         : await ensureCodexConnectionHome(input.ownerId, connection.id)
     const reviewLevel = normalizeCodexReviewLevel(input.reviewLevel) ?? DEFAULT_CODEX_REVIEW_LEVEL
     const reviewOptions = getCodexRuntimeReviewOptions(reviewLevel)

@@ -905,6 +905,7 @@ export function RightPanelChat({ novelId, tweakOpen, onTweakOpenChange }: RightP
                         temperature: selectedGroup.settings.temperature ?? undefined,
                         maxTokens: selectedGroup.settings.maxTokens ?? undefined,
                         messages: requestMessages,
+                        sessionId: selectedConversation.id,
                     },
                     signal: controller.signal,
                     onTextDelta: (delta) => {
@@ -1054,6 +1055,7 @@ export function RightPanelChat({ novelId, tweakOpen, onTweakOpenChange }: RightP
                     temperature: selectedGroup.settings.temperature ?? undefined,
                     maxTokens: selectedGroup.settings.maxTokens ?? undefined,
                     messages: requestMessages,
+                    sessionId: conversationId ?? undefined,
                 },
                 signal: controller.signal,
                 onTextDelta: (delta) => {

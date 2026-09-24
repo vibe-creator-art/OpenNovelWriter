@@ -23,6 +23,9 @@ export async function POST(request: NextRequest) {
         typeof body?.preferredAssignmentId === 'string' ? body.preferredAssignmentId.trim() : undefined
     const messages = (body?.messages ?? null) as RunModelMessage[] | null
     const prompt = typeof body?.prompt === 'string' ? body.prompt : null
+    const sessionId = typeof body?.sessionId === 'string' && body.sessionId.trim()
+        ? body.sessionId.trim()
+        : undefined
 
     if (!groupId) {
         return NextResponse.json({ detail: 'groupId is required.' }, { status: 400 })
@@ -66,6 +69,7 @@ export async function POST(request: NextRequest) {
                         signal: request.signal,
                         input: {
                             stream: true,
+                            sessionId,
                             temperature:
                                 typeof body?.temperature === 'number' && Number.isFinite(body.temperature)
                                     ? body.temperature
