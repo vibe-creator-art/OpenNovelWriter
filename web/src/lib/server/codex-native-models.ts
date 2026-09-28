@@ -48,14 +48,15 @@ export function findCodexNativeModel(models: CodexNativeModel[], modelId: string
         .sort((left, right) => right.slug.length - left.slug.length)[0]
 }
 
-export function resolveCodexProviderModels(models: CodexProviderModel[], nativeModels: CodexNativeModel[]) {
+export function resolveCodexProviderModels(models: CodexProviderModel[], nativeModels: CodexNativeModel[], baseUrl?: string | null) {
     const resolved = models.map((model) => {
         if (!isGptCodexModelId(model.id)) return model
         const native = findCodexNativeModel(nativeModels, model.id)
         if (!native) throw new Error(`The installed Codex model catalog does not include ${model.id}. Refresh or update Codex to use this model.`)
         return { ...nativeProviderModel(native), id: model.id }
     })
-    if (!models.some((model) => isGptCodexModelId(model.id))) return resolved
+    const isOpenCode = /^https:\/\/opencode\.ai\/zen\/(?:go\/)?v1\/*$/.test(baseUrl?.trim() ?? '')
+    if (isOpenCode || !models.some((model) => isGptCodexModelId(model.id))) return resolved
     const ids = new Set(resolved.map((model) => model.id.toLowerCase()))
     for (const native of nativeModels) {
         if (!isGptCodexModelId(native.slug) || native.visibility !== 'list' || ids.has(native.slug.toLowerCase())) continue

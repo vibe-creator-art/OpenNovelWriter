@@ -47,6 +47,29 @@ test('GPT models inherit the complete native catalog, including future models an
     }
 })
 
+test('OpenCode catalogs include only configured GPT models with their complete native capabilities', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'opennovelwriter-opencode-catalog-'))
+    try {
+        const native = {
+            slug: 'gpt-future', display_name: 'Future GPT', visibility: 'list', context_window: 750_000,
+            supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }], default_reasoning_level: 'low',
+            input_modalities: ['text', 'image'], tool_mode: 'future_mode', future_capability: { enabled: true },
+        }
+        const newer = { ...native, slug: 'gpt-newer' }
+        await fs.writeFile(path.join(directory, 'models_cache.json'), JSON.stringify({ models: [native, newer] }))
+        for (const baseUrl of ['https://opencode.ai/zen/go/v1', 'https://opencode.ai/zen/v1']) {
+            await writeCodexModelCatalog({
+                codexHome: directory, upstreamFormat: 'responses', baseUrl,
+                models: [createDefaultCodexProviderModel(native.slug)],
+            })
+            const catalog = JSON.parse(await fs.readFile(path.join(directory, CODEX_MODEL_CATALOG_FILE), 'utf8'))
+            assert.deepEqual(catalog.models, [native])
+        }
+    } finally {
+        await fs.rm(directory, { recursive: true, force: true })
+    }
+})
+
 test('uses the official DeepSeek tool surface only on the official native Responses host', async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'opennovelwriter-catalog-'))
     try {

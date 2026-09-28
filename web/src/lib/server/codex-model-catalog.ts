@@ -41,7 +41,7 @@ export async function writeCodexModelCatalog(input: {
 }) {
     const gptIds = input.models.filter((model) => isGptCodexModelId(model.id)).map((model) => model.id)
     const nativeModels = gptIds.length > 0 ? await readCodexNativeModels(input.codexHome, gptIds) : []
-    const models = resolveCodexProviderModels(input.models, nativeModels)
+    const models = resolveCodexProviderModels(input.models, nativeModels, input.baseUrl)
     const catalog = {
         models: models.map((model, index) =>
             buildCatalogEntry(nativeModels, model, index, input.upstreamFormat, input.baseUrl)

@@ -53,7 +53,7 @@ export async function handleCodexUpstreamRequest(input: {
     const configuredModels = parseCodexProviderModelsJson(connection.modelsJson)
     const gptIds = configuredModels.filter((model) => isGptCodexModelId(model.id)).map((model) => model.id)
     const models = resolveCodexProviderModels(configuredModels, gptIds.length > 0
-        ? await readCodexNativeModels(getCodexConnectionHome(connection.ownerId, connection.id), gptIds) : [])
+        ? await readCodexNativeModels(getCodexConnectionHome(connection.ownerId, connection.id), gptIds) : [], baseUrl)
     if (!upstreamFormat || !baseUrl || !encryptedApiKey || models.length === 0) {
         return NextResponse.json({ error: { message: 'Codex connection is incomplete.' } }, { status: 500 })
     }
