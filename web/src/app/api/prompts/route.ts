@@ -79,8 +79,6 @@ export async function POST(request: NextRequest) {
         const isNsfw = body?.isNsfw === true
         const modelGroupIds = normalizeStringIdList(body?.modelGroupIds)
         const modelSetIds = normalizeStringIdList(body?.modelSetIds)
-        const allowLlmCall = category === 'component' ? false : body?.allowLlmCall === true
-        const allowAgentCall = category === 'component' ? false : body?.allowAgentCall === true
         const agentCallMode = normalizePromptAgentCallMode(body?.agentCallMode)
 
         if (!name) {
@@ -119,8 +117,6 @@ export async function POST(request: NextRequest) {
                 inputsJson: JSON.stringify(inputs),
                 modelGroupIdsJson: JSON.stringify(modelGroupIds ?? []),
                 modelSetIdsJson: JSON.stringify(modelSetIds ?? []),
-                allowLlmCall,
-                allowAgentCall,
                 agentCallMode,
                 description,
                 isNsfw,

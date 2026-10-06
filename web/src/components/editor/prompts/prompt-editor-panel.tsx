@@ -91,8 +91,6 @@ export function PromptEditorPanel({
     onUpdateDraftDescription,
     onUpdateDraftCategory,
     onUpdateDraftNsfw,
-    onUpdateDraftAllowLlmCall,
-    onUpdateDraftAllowAgentCall,
     onUpdateDraftInputs,
     onAttachModelGroup,
     onAttachModelSet,
@@ -158,8 +156,6 @@ export function PromptEditorPanel({
     onUpdateDraftDescription: (value: string) => void
     onUpdateDraftCategory: (category: PromptCategory) => void
     onUpdateDraftNsfw: (isNsfw: boolean) => void
-    onUpdateDraftAllowLlmCall: (allowLlmCall: boolean) => void
-    onUpdateDraftAllowAgentCall: (allowAgentCall: boolean) => void
     onUpdateDraftAgentCallMode: (agentCallMode: Prompt['agentCallMode']) => void
     onUpdateDraftInputs: (inputs: Prompt['inputs']) => void
     onAttachModelGroup: (groupId: string) => void
@@ -643,39 +639,6 @@ export function PromptEditorPanel({
                                         </Select>
                                     </div>
                                 </div>
-
-                                {!isComponent && (
-                                    <div className="space-y-3">
-                                        <div className="text-xs text-muted-foreground">{t('general.settings.usage')}</div>
-                                        <div className="grid gap-3 md:grid-cols-2">
-                                            <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm transition-colors hover:bg-muted/40">
-                                                <input
-                                                    type="checkbox"
-                                                    className="h-4 w-4 accent-primary"
-                                                    checked={draft.allowLlmCall === true}
-                                                    onChange={(event) => onUpdateDraftAllowLlmCall(event.target.checked)}
-                                                />
-                                                <span className="min-w-0">
-                                                    <span className="block font-medium">{t('general.settings.llmCall')}</span>
-                                                    <span className="block text-xs text-muted-foreground">{t('general.settings.llmCallHint')}</span>
-                                                </span>
-                                            </label>
-
-                                            <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm transition-colors hover:bg-muted/40">
-                                                <input
-                                                    type="checkbox"
-                                                    className="h-4 w-4 accent-primary"
-                                                    checked={draft.allowAgentCall === true}
-                                                    onChange={(event) => onUpdateDraftAllowAgentCall(event.target.checked)}
-                                                />
-                                                <span className="min-w-0">
-                                                    <span className="block font-medium">{t('general.settings.agentCall')}</span>
-                                                    <span className="block text-xs text-muted-foreground">{t('general.settings.agentCallHint')}</span>
-                                                </span>
-                                            </label>
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         </div>
                     )}

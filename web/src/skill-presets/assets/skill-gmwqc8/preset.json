@@ -5,7 +5,7 @@
     "presetId": "skill-gmwqc8",
     "name": "预设-使用提示词进行场景续写",
     "description": "在普通 Codex 聊天中，使用已有续写提示词生成场景正文。适用于续写较长段落，或将细纲中的剧情展开成正文。",
-    "revision": 1.7,
+    "revision": 1.8,
     "enabled": true,
     "exportedAt": "2026-08-13T12:49:37.147Z"
   },

@@ -1707,7 +1707,7 @@
         },
         "defaults": {
             "title": "Default Prompts",
-            "hint": "Each category can only use prompts with direct LLM calls enabled.",
+            "hint": "Choose any prompt from the matching category.",
             "type": "Category",
             "prompt": "Prompt",
             "reset": "Reset",
@@ -1875,11 +1875,6 @@
                 "moderation": "Moderation",
                 "sfw": "SFW (Safe For Work)",
                 "nsfw": "NSFW (Not Safe For Work)",
-                "usage": "Usage",
-                "llmCall": "Direct LLM call",
-                "llmCallHint": "Allow this prompt to run as a single LLM call.",
-                "agentCall": "Codex call",
-                "agentCallHint": "Allow this prompt to be referenced and called by a Codex skill (as its associated prompt).",
                 "generateThenAgent": "Hand off to Codex after generation",
                 "agentThenGenerate": "Codex call generates"
             }

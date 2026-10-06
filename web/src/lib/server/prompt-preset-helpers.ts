@@ -35,8 +35,6 @@ function toPromptBundlePrompt(record: PromptRecord): PromptBundlePromptV1 | null
         messages: dto.messages ?? [],
         inputs: dto.inputs ?? [],
         isNsfw: dto.isNsfw === true,
-        allowLlmCall: dto.allowLlmCall === true,
-        allowAgentCall: dto.allowAgentCall === true,
         agentCallMode: dto.agentCallMode ?? 'generate_then_agent',
     }
 }
@@ -150,8 +148,6 @@ export async function importPromptBundleForOwner(params: {
         messages: unknown
         inputs: unknown
         isNsfw: boolean
-        allowLlmCall: boolean
-        allowAgentCall: boolean
         agentCallMode: ReturnType<typeof normalizePromptAgentCallMode>
     }> = []
 
@@ -169,8 +165,6 @@ export async function importPromptBundleForOwner(params: {
             messages: prompt.messages,
             inputs: prompt.inputs ?? [],
             isNsfw: prompt.isNsfw === true,
-            allowLlmCall: category === 'component' ? false : prompt.allowLlmCall === true,
-            allowAgentCall: category === 'component' ? false : prompt.allowAgentCall === true,
             agentCallMode: normalizePromptAgentCallMode(prompt.agentCallMode),
         })
     }
@@ -222,8 +216,6 @@ export async function importPromptBundleForOwner(params: {
         messagesJson: string
         inputsJson: string
         isNsfw: boolean
-        allowLlmCall: boolean
-        allowAgentCall: boolean
         agentCallMode: ReturnType<typeof normalizePromptAgentCallMode>
     }> = []
 
@@ -242,8 +234,6 @@ export async function importPromptBundleForOwner(params: {
             messagesJson: JSON.stringify(normalized.messages),
             inputsJson: JSON.stringify(inputs),
             isNsfw: prompt.isNsfw,
-            allowLlmCall: prompt.allowLlmCall,
-            allowAgentCall: prompt.allowAgentCall,
             agentCallMode: prompt.agentCallMode,
         })
     }
@@ -261,8 +251,6 @@ export async function importPromptBundleForOwner(params: {
                     description: prompt.description,
                     messagesJson: prompt.messagesJson,
                     inputsJson: prompt.inputsJson,
-                    allowLlmCall: prompt.allowLlmCall,
-                    allowAgentCall: prompt.allowAgentCall,
                     agentCallMode: prompt.agentCallMode,
                     isNsfw: prompt.isNsfw,
                     sourcePresetId: params.sourcePresetId ?? null,
@@ -277,8 +265,6 @@ export async function importPromptBundleForOwner(params: {
                     description: prompt.description,
                     messagesJson: prompt.messagesJson,
                     inputsJson: prompt.inputsJson,
-                    allowLlmCall: prompt.allowLlmCall,
-                    allowAgentCall: prompt.allowAgentCall,
                     agentCallMode: prompt.agentCallMode,
                     isNsfw: prompt.isNsfw,
                     sourcePresetId: params.sourcePresetId ?? null,

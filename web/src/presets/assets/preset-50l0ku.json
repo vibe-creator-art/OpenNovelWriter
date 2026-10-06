@@ -5,7 +5,7 @@
     "presetId": "preset-50l0ku",
     "name": "预设-通用续写",
     "description": "场景续写，通过总结提取前文的信息，可在额外信息里插入额外的章节或者片段内容",
-    "revision": 1.9,
+    "revision": 2.0,
     "exportedAt": "2026-09-24T21:56:59.309Z"
   },
   "bundle": {
@@ -155,8 +155,6 @@
           }
         ],
         "isNsfw": false,
-        "allowLlmCall": true,
-        "allowAgentCall": true,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -172,8 +170,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -189,8 +185,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -206,8 +200,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -223,8 +215,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -240,8 +230,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -257,8 +245,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -274,8 +260,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -291,8 +275,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       }
     ]

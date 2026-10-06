@@ -32,8 +32,7 @@ async function loadAgentPromptByName(ownerId: string, promptName: string) {
     const records = await prisma.prompt.findMany({ where: { ownerId } })
     const dtos = records.map(toPromptDto)
     const prompt = dtos.find((item) => normalizeKey(item.name) === wanted) ?? null
-    // Only prompts that opted into Codex call (allowAgentCall) in the scene-continuation category can be composed.
-    if (!prompt || prompt.category !== 'scene_continuation' || prompt.allowAgentCall !== true) return { dtos, prompt: null }
+    if (!prompt || prompt.category !== 'scene_continuation') return { dtos, prompt: null }
     return { dtos, prompt }
 }
 
@@ -92,7 +91,7 @@ export async function composeSceneContinuation(params: {
     if (!loaded || !loaded.prompt) {
         return {
             ok: false,
-            detail: `No Codex-callable prompt named "${params.promptName}" was found. The prompt must exist and have "允许 Agent 调用" enabled.`,
+            detail: `No scene-continuation prompt named "${params.promptName}" was found.`,
         }
     }
     const { dtos, prompt } = loaded

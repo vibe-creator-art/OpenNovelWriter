@@ -5,7 +5,7 @@
     "presetId": "preset-1wn6l8l",
     "name": "预设-通用场景总结",
     "description": "简单的进行场景总结",
-    "revision": 1.5,
+    "revision": 1.6,
     "exportedAt": "2026-09-24T21:56:59.309Z"
   },
   "bundle": {
@@ -129,8 +129,6 @@
           }
         ],
         "isNsfw": false,
-        "allowLlmCall": true,
-        "allowAgentCall": true,
         "agentCallMode": "generate_then_agent"
       }
     ]

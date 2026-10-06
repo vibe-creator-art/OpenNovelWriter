@@ -929,7 +929,7 @@ const tools = [
         inputSchema: {
             type: 'object',
             properties: {
-                promptName: { type: 'string', description: 'Exact name of a Codex-callable scene-continuation prompt.' },
+                promptName: { type: 'string', description: 'Exact name of a scene-continuation prompt.' },
                 novelId: { type: 'string', description: 'The novel id from outline.md.' },
                 sceneId: { type: 'string', description: 'The scene id the continuation is for (from a `<!-- scene_id: ... -->` comment).' },
                 mdPath: { type: 'string', description: 'Absolute output path ending in `.md` under this Codex session artifacts directory. The assembled conversation is written here (overwriting any existing file).' },

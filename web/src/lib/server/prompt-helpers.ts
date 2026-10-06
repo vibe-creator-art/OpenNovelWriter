@@ -153,8 +153,6 @@ type PromptRecord = {
     inputsJson?: string | null
     modelGroupIdsJson?: string | null
     modelSetIdsJson?: string | null
-    allowLlmCall?: boolean | null
-    allowAgentCall?: boolean | null
     agentCallMode?: string | null
     historyJson?: string | null
     isNsfw?: boolean | null
@@ -180,7 +178,6 @@ export function toPromptDto(record: PromptRecord) {
     const history = safeParseRevisionHistoryJson(record.historyJson)
     const modelGroupIds = safeParseStringArrayJson(record.modelGroupIdsJson ?? null)
     const modelSetIds = safeParseStringArrayJson(record.modelSetIdsJson ?? null)
-    const isComponent = dtoCategory === 'component'
 
     return {
         id: record.id,
@@ -191,8 +188,6 @@ export function toPromptDto(record: PromptRecord) {
         inputs,
         modelGroupIds,
         modelSetIds,
-        allowLlmCall: isComponent ? false : Boolean(record.allowLlmCall),
-        allowAgentCall: isComponent ? false : Boolean(record.allowAgentCall),
         agentCallMode: normalizePromptAgentCallMode(record.agentCallMode),
         history,
         isNsfw: Boolean(record.isNsfw),

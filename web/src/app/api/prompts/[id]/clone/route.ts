@@ -42,8 +42,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 inputsJson: (source as { inputsJson?: string | null }).inputsJson ?? '[]',
                 modelGroupIdsJson: (source as { modelGroupIdsJson?: string | null }).modelGroupIdsJson ?? '[]',
                 modelSetIdsJson: (source as { modelSetIdsJson?: string | null }).modelSetIdsJson ?? '[]',
-                allowLlmCall: source.category === 'component' ? false : Boolean(source.allowLlmCall),
-                allowAgentCall: source.category === 'component' ? false : Boolean(source.allowAgentCall),
                 agentCallMode: source.agentCallMode,
                 description: source.description,
                 isNsfw: Boolean(source.isNsfw),

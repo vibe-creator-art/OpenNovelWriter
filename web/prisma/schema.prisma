@@ -511,8 +511,6 @@ model Prompt {
   inputsJson String @default("[]")
   modelGroupIdsJson String @default("[]")
   modelSetIdsJson String @default("[]")
-  allowLlmCall Boolean @default(false)
-  allowAgentCall Boolean @default(false)
   agentCallMode String @default("generate_then_agent")
   description String?
   historyJson String  @default("[]")

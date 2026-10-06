@@ -65,8 +65,6 @@ export function usePromptDraftManager(params: {
         inputsJson: string
         modelGroupIdsJson: string
         modelSetIdsJson: string
-        allowLlmCall: boolean
-        allowAgentCall: boolean
         agentCallMode: Prompt['agentCallMode']
         isNsfw: boolean
     } | null>(null)
@@ -165,8 +163,6 @@ export function usePromptDraftManager(params: {
                 inputs: prompt.inputs ?? [],
                 modelGroupIds: Array.isArray(prompt.modelGroupIds) ? prompt.modelGroupIds : [],
                 modelSetIds: Array.isArray(prompt.modelSetIds) ? prompt.modelSetIds : [],
-                allowLlmCall: prompt.allowLlmCall === true,
-                allowAgentCall: prompt.allowAgentCall === true,
                 agentCallMode: prompt.agentCallMode ?? 'generate_then_agent',
                 history: prompt.history ?? [],
                 isNsfw: prompt.isNsfw === true,
@@ -183,8 +179,6 @@ export function usePromptDraftManager(params: {
             inputsJson: JSON.stringify(prompt.inputs ?? []),
             modelGroupIdsJson: JSON.stringify(prompt.modelGroupIds ?? []),
             modelSetIdsJson: JSON.stringify(prompt.modelSetIds ?? []),
-            allowLlmCall: prompt.allowLlmCall === true,
-            allowAgentCall: prompt.allowAgentCall === true,
             agentCallMode: prompt.agentCallMode ?? 'generate_then_agent',
             isNsfw: prompt.isNsfw === true,
         }
@@ -219,8 +213,6 @@ export function usePromptDraftManager(params: {
             inputsJson !== lastSaved.inputsJson ||
             modelGroupIdsJson !== lastSaved.modelGroupIdsJson ||
             modelSetIdsJson !== lastSaved.modelSetIdsJson ||
-            (draft.allowLlmCall === true) !== lastSaved.allowLlmCall ||
-            (draft.allowAgentCall === true) !== lastSaved.allowAgentCall ||
             (draft.agentCallMode ?? 'generate_then_agent') !== lastSaved.agentCallMode ||
             (draft.isNsfw === true) !== lastSaved.isNsfw
 
@@ -253,8 +245,6 @@ export function usePromptDraftManager(params: {
             modelGroupIdsJson,
             modelSetIds: draft.modelSetIds ?? [],
             modelSetIdsJson,
-            allowLlmCall: draft.allowLlmCall === true,
-            allowAgentCall: draft.allowAgentCall === true,
             agentCallMode: draft.agentCallMode ?? 'generate_then_agent',
             isNsfw: draft.isNsfw === true,
         }
@@ -272,8 +262,6 @@ export function usePromptDraftManager(params: {
                     isNsfw: snapshot.isNsfw,
                     modelGroupIds: snapshot.modelGroupIds,
                     modelSetIds: snapshot.modelSetIds,
-                    allowLlmCall: snapshot.allowLlmCall,
-                    allowAgentCall: snapshot.allowAgentCall,
                     agentCallMode: snapshot.agentCallMode,
                 })
 
@@ -291,8 +279,6 @@ export function usePromptDraftManager(params: {
                     currentInputsJson === snapshot.inputsJson &&
                     currentModelGroupIdsJson === snapshot.modelGroupIdsJson &&
                     currentModelSetIdsJson === snapshot.modelSetIdsJson &&
-                    (current.allowLlmCall === true) === snapshot.allowLlmCall &&
-                    (current.allowAgentCall === true) === snapshot.allowAgentCall &&
                     (current.agentCallMode ?? 'generate_then_agent') === snapshot.agentCallMode &&
                     (current.isNsfw === true) === snapshot.isNsfw
 
@@ -314,8 +300,6 @@ export function usePromptDraftManager(params: {
                             inputs: prompt.inputs ?? [],
                             modelGroupIds: Array.isArray(prompt.modelGroupIds) ? prompt.modelGroupIds : [],
                             modelSetIds: Array.isArray(prompt.modelSetIds) ? prompt.modelSetIds : [],
-                            allowLlmCall: prompt.allowLlmCall === true,
-                            allowAgentCall: prompt.allowAgentCall === true,
                             agentCallMode: prompt.agentCallMode ?? 'generate_then_agent',
                             history: prompt.history ?? [],
                             isNsfw: prompt.isNsfw === true,
@@ -331,8 +315,6 @@ export function usePromptDraftManager(params: {
                     inputsJson: JSON.stringify(prompt.inputs ?? []),
                     modelGroupIdsJson: JSON.stringify(prompt.modelGroupIds ?? []),
                     modelSetIdsJson: JSON.stringify(prompt.modelSetIds ?? []),
-                    allowLlmCall: prompt.allowLlmCall === true,
-                    allowAgentCall: prompt.allowAgentCall === true,
                     agentCallMode: prompt.agentCallMode ?? 'generate_then_agent',
                     isNsfw: prompt.isNsfw === true,
                 }
@@ -358,8 +340,6 @@ export function usePromptDraftManager(params: {
                     currentInputsJson === snapshot.inputsJson &&
                     currentModelGroupIdsJson === snapshot.modelGroupIdsJson &&
                     currentModelSetIdsJson === snapshot.modelSetIdsJson &&
-                    (current.allowLlmCall === true) === snapshot.allowLlmCall &&
-                    (current.allowAgentCall === true) === snapshot.allowAgentCall &&
                     (current.agentCallMode ?? 'generate_then_agent') === snapshot.agentCallMode &&
                     (current.isNsfw === true) === snapshot.isNsfw
 
@@ -462,16 +442,6 @@ export function usePromptDraftManager(params: {
     const handleUpdateDraftNsfw = useCallback((isNsfw: boolean) => {
         setDraft((prev) => (prev ? { ...prev, isNsfw } : prev))
         setPrompts((prev) => prev.map((prompt) => (prompt.id === selectedPromptId ? { ...prompt, isNsfw } : prompt)))
-    }, [selectedPromptId, setPrompts])
-
-    const handleUpdateDraftAllowLlmCall = useCallback((allowLlmCall: boolean) => {
-        setDraft((prev) => (prev ? { ...prev, allowLlmCall } : prev))
-        setPrompts((prev) => prev.map((prompt) => (prompt.id === selectedPromptId ? { ...prompt, allowLlmCall } : prompt)))
-    }, [selectedPromptId, setPrompts])
-
-    const handleUpdateDraftAllowAgentCall = useCallback((allowAgentCall: boolean) => {
-        setDraft((prev) => (prev ? { ...prev, allowAgentCall } : prev))
-        setPrompts((prev) => prev.map((prompt) => (prompt.id === selectedPromptId ? { ...prompt, allowAgentCall } : prompt)))
     }, [selectedPromptId, setPrompts])
 
     const handleUpdateDraftAgentCallMode = useCallback((agentCallMode: Prompt['agentCallMode']) => {
@@ -759,8 +729,6 @@ export function usePromptDraftManager(params: {
         handleUpdateDraftDescription,
         handleUpdateDraftCategory,
         handleUpdateDraftNsfw,
-        handleUpdateDraftAllowLlmCall,
-        handleUpdateDraftAllowAgentCall,
         handleUpdateDraftAgentCallMode,
         handleUpdateDraftInputs,
         handleAttachModelGroup,

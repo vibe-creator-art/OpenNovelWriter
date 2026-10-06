@@ -15,8 +15,6 @@ type ImportPromptPayload = {
     messages: unknown
     inputs: unknown
     isNsfw: boolean
-    allowLlmCall: boolean
-    allowAgentCall: boolean
     agentCallMode: PromptAgentCallMode
 }
 
@@ -49,8 +47,6 @@ export async function POST(request: NextRequest) {
             const description = obj.description === null ? null : typeof obj.description === 'string' ? obj.description : null
             const inputsRaw = obj.inputs
             const isNsfw = obj.isNsfw === true
-            const allowLlmCall = category === 'component' ? false : obj.allowLlmCall === true
-            const allowAgentCall = category === 'component' ? false : obj.allowAgentCall === true
             const agentCallMode = normalizePromptAgentCallMode(obj.agentCallMode)
 
             if (!name) return NextResponse.json({ detail: 'Name is required' }, { status: 400 })
@@ -66,8 +62,6 @@ export async function POST(request: NextRequest) {
                 messages: obj.messages,
                 inputs: inputsRaw ?? [],
                 isNsfw,
-                allowLlmCall,
-                allowAgentCall,
                 agentCallMode,
             })
         }
@@ -118,8 +112,6 @@ export async function POST(request: NextRequest) {
             messagesJson: string
             inputsJson: string
             isNsfw: boolean
-            allowLlmCall: boolean
-            allowAgentCall: boolean
             agentCallMode: PromptAgentCallMode
         }> = []
 
@@ -140,8 +132,6 @@ export async function POST(request: NextRequest) {
                 messagesJson: JSON.stringify(normalized.messages),
                 inputsJson: JSON.stringify(inputs),
                 isNsfw: prompt.isNsfw,
-                allowLlmCall: prompt.allowLlmCall,
-                allowAgentCall: prompt.allowAgentCall,
                 agentCallMode: prompt.agentCallMode,
             })
         }
@@ -172,8 +162,6 @@ export async function POST(request: NextRequest) {
                             description: prompt.description,
                             messagesJson: prompt.messagesJson,
                             inputsJson: prompt.inputsJson,
-                            allowLlmCall: prompt.allowLlmCall,
-                            allowAgentCall: prompt.allowAgentCall,
                             agentCallMode: prompt.agentCallMode,
                             isNsfw: prompt.isNsfw,
                         },
@@ -186,8 +174,6 @@ export async function POST(request: NextRequest) {
                             description: prompt.description,
                             messagesJson: prompt.messagesJson,
                             inputsJson: prompt.inputsJson,
-                            allowLlmCall: prompt.allowLlmCall,
-                            allowAgentCall: prompt.allowAgentCall,
                             agentCallMode: prompt.agentCallMode,
                             isNsfw: prompt.isNsfw,
                             ownerId: user.userId,

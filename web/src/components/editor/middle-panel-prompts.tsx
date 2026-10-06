@@ -262,8 +262,6 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
         handleUpdateDraftDescription,
         handleUpdateDraftCategory,
         handleUpdateDraftNsfw,
-        handleUpdateDraftAllowLlmCall,
-        handleUpdateDraftAllowAgentCall,
         handleUpdateDraftAgentCallMode,
         handleUpdateDraftInputs,
         handleAttachModelGroup,
@@ -354,7 +352,7 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
     const normalizedQuery = searchQuery.trim().toLowerCase()
     const filteredPrompts = useMemo(() => filterPromptsByQuery(prompts, normalizedQuery), [normalizedQuery, prompts])
     const promptsByCategory = useMemo(() => buildPromptsByCategory(filteredPrompts), [filteredPrompts])
-    const llmCallablePromptsByCategory = useMemo(() => {
+    const defaultPromptsByCategory = useMemo(() => {
         const result: Record<DefaultPromptSelectionCategory, Prompt[]> = {
             scene_continuation: [],
             scene_action: [],
@@ -362,7 +360,6 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
         }
 
         for (const prompt of prompts) {
-            if (prompt.allowLlmCall !== true) continue
             const category = prompt.category as DefaultPromptSelectionCategory
             if (!DEFAULT_PROMPT_SELECTION_CATEGORIES.includes(category)) continue
             result[category].push(prompt)
@@ -787,7 +784,7 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
                             <div className="divide-y">
                                 {defaultSelectionRows.map((row) => {
                                     const selection = defaultSelections[row.id] ?? null
-                                    const options = llmCallablePromptsByCategory[row.id] ?? []
+                                    const options = defaultPromptsByCategory[row.id] ?? []
                                     const selectedPromptId = typeof selection?.promptId === 'string' ? selection.promptId : null
                                     const selectedPrompt = options.find((prompt) => prompt.id === selectedPromptId) ?? null
                                     const isSaving = defaultSelectionsSaving === row.id
@@ -913,8 +910,6 @@ export function MiddlePanelPrompts({ novelId }: MiddlePanelPromptsProps) {
                             handleUpdateDraftCategory(category)
                         }}
                         onUpdateDraftNsfw={handleUpdateDraftNsfw}
-                        onUpdateDraftAllowLlmCall={handleUpdateDraftAllowLlmCall}
-                        onUpdateDraftAllowAgentCall={handleUpdateDraftAllowAgentCall}
                         onUpdateDraftAgentCallMode={handleUpdateDraftAgentCallMode}
                         onUpdateDraftInputs={handleUpdateDraftInputs}
                         onAttachModelGroup={handleAttachModelGroup}

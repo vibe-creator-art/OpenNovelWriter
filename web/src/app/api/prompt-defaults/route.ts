@@ -9,12 +9,7 @@ type PromptDefaultSelectionDto = { promptId: string }
 
 async function listDefaults(ownerId: string): Promise<Record<string, PromptDefaultSelectionDto>> {
     const records = await prisma.promptDefault.findMany({
-        where: {
-            ownerId,
-            prompt: {
-                allowLlmCall: true,
-            },
-        },
+        where: { ownerId },
         select: {
             category: true,
             promptId: true,
@@ -72,7 +67,6 @@ export async function PUT(request: NextRequest) {
             where: {
                 id: promptId,
                 ownerId: user.userId,
-                allowLlmCall: true,
             },
             select: { id: true, category: true },
         })

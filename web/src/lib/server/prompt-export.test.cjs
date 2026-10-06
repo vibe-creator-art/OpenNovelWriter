@@ -25,7 +25,7 @@ function record(id, name, category, content) {
         id, name, category, ownerId: 'owner', description: `${name} description`,
         messagesJson: JSON.stringify([{ id: `${id}-message`, role: category === 'component' ? 'assistant' : 'user', content }]),
         inputsJson: '[]', modelGroupIdsJson: '["private-model"]', historyJson: '[]',
-        allowLlmCall: true, allowAgentCall: false, agentCallMode: 'generate_then_agent', isNsfw: false,
+        agentCallMode: 'generate_then_agent', isNsfw: false,
         sortOrder: 0, sourcePresetId: null, sourcePresetRevision: null,
         createdAt: new Date('2026-09-25T00:00:00Z'), updatedAt: new Date('2026-09-25T01:00:00Z'),
     }
@@ -105,7 +105,7 @@ test('named export follows nested includes once and reports reverse usages outsi
     assert.equal(f.builtinReads(), 0)
 })
 
-test('components can be exported directly by case-insensitive exact name without enabling Agent calls', async () => {
+test('components can be exported directly by case-insensitive exact name', async () => {
     const { data } = await fixture().export({ name: ' stYLE ' })
     assert.deepEqual(data.prompts.map((prompt) => prompt.id), ['style', 'shared'])
     assert.deepEqual(data.manifest.entry, { name: 'Style', fileName: 'prompts/style.json' })
@@ -243,7 +243,6 @@ test('exported component inputs round-trip through MCP composition with option I
     checkbox.checkbox.displayName = 'Make a plan.'
     const selection = createPromptContentSelectionInput(); selection.name = 'References'
     const f = fixture()
-    f.records[0].allowAgentCall = true
     f.records[0].messagesJson = JSON.stringify([{ id: 'message', role: 'user', content: '{% include "Style" %}' }])
     f.records[1].inputsJson = JSON.stringify([custom, checkbox, selection])
     f.records[1].messagesJson = JSON.stringify([{ id: 'component-message', role: 'assistant', content: '{{ inputs["Tone"].value }}\n{{ inputs["Planning"].value }}\n{{ inputs["References"].value }}' }])

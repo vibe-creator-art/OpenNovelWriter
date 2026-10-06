@@ -1707,7 +1707,7 @@
         },
         "defaults": {
             "title": "默认提示词",
-            "hint": "每个类别只能选择已勾选“LLM直接调用”的提示词。",
+            "hint": "每个类别可以选择该类别中的任意提示词。",
             "type": "类别",
             "prompt": "提示词",
             "reset": "重置",
@@ -1875,11 +1875,6 @@
                 "moderation": "内容分级",
                 "sfw": "SFW（安全）",
                 "nsfw": "NSFW（不宜工作场合）",
-                "usage": "用途",
-                "llmCall": "LLM直接调用",
-                "llmCallHint": "允许该提示词作为单次 LLM 调用入口。",
-                "agentCall": "Codex调用",
-                "agentCallHint": "允许该提示词被 Codex 技能引用调用（作为关联提示词）。",
                 "generateThenAgent": "生成后交给 Codex",
                 "agentThenGenerate": "Codex调用生成"
             }

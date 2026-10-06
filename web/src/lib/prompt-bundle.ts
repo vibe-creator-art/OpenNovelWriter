@@ -13,8 +13,6 @@ export type PromptBundlePromptV1 = {
     isNsfw?: boolean
     modelGroupIds?: string[]
     modelSetIds?: string[]
-    allowLlmCall?: boolean
-    allowAgentCall?: boolean
     agentCallMode?: PromptAgentCallMode
 }
 

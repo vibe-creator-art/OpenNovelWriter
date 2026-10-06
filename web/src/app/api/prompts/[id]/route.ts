@@ -100,8 +100,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         const isNsfw = body?.isNsfw
         const modelGroupIds = normalizeStringIdList(body?.modelGroupIds)
         const modelSetIds = normalizeStringIdList(body?.modelSetIds)
-        const allowLlmCall = body?.allowLlmCall
-        const allowAgentCall = body?.allowAgentCall
         const hasAgentCallMode = body?.agentCallMode !== undefined
         const agentCallMode = normalizePromptAgentCallMode(body?.agentCallMode)
 
@@ -122,12 +120,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         }
         if (modelSetIds === null) {
             return NextResponse.json({ detail: 'Invalid modelSetIds' }, { status: 400 })
-        }
-        if (allowLlmCall !== undefined && typeof allowLlmCall !== 'boolean') {
-            return NextResponse.json({ detail: 'Invalid allowLlmCall' }, { status: 400 })
-        }
-        if (allowAgentCall !== undefined && typeof allowAgentCall !== 'boolean') {
-            return NextResponse.json({ detail: 'Invalid allowAgentCall' }, { status: 400 })
         }
 
         const existingCategory = normalizePromptCategory(existing.category)
@@ -166,12 +158,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         }
 
         if (nextCategory === 'component') {
-            if (Boolean(existing.allowLlmCall)) updateData.allowLlmCall = false
-            if (Boolean(existing.allowAgentCall)) updateData.allowAgentCall = false
             if (existing.agentCallMode !== 'generate_then_agent') updateData.agentCallMode = 'generate_then_agent'
         } else {
-            if (allowLlmCall !== undefined) updateData.allowLlmCall = allowLlmCall
-            if (allowAgentCall !== undefined) updateData.allowAgentCall = allowAgentCall
             if (hasAgentCallMode) updateData.agentCallMode = agentCallMode
         }
 

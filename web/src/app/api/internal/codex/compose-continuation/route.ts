@@ -9,12 +9,7 @@ export const dynamic = 'force-dynamic'
 
 const INTERNAL_TOKEN_HEADER = 'x-onw-internal-token'
 
-/**
- * Internal callback for the Codex MCP `compose_scene_continuation` tool. Renders a Codex-callable
- * prompt against a concrete scene + instruction + inputs into a `## system` / `## user` conversation
- * markdown (the same artifact the scene-continuation panel would produce) and returns it; the MCP
- * subprocess writes it into the session artifacts directory. Auth is the shared internal token.
- */
+/** Renders a scene-continuation prompt for the Codex MCP tool using the shared internal token. */
 export async function POST(request: NextRequest) {
     if (!isValidCodexInternalToken(request.headers.get(INTERNAL_TOKEN_HEADER))) {
         return NextResponse.json({ detail: 'Forbidden' }, { status: 403 })

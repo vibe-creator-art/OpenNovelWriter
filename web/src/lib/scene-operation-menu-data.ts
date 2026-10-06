@@ -37,7 +37,7 @@ export async function loadSceneOperationMenuData(): Promise<SceneOperationMenuDa
         aiApi.listGroups(),
     ])
         .then(([promptResult, defaultsResult, groupsResult]) => ({
-            prompts: (promptResult.prompts ?? []).filter((prompt) => prompt.allowLlmCall === true),
+            prompts: promptResult.prompts ?? [],
             defaults: defaultsResult.defaults ?? {},
             groups: getLlmBindableModelGroups(groupsResult.groups ?? []),
         }))

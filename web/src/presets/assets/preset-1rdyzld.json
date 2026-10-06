@@ -5,7 +5,7 @@
     "presetId": "preset-1rdyzld",
     "name": "预设-通用聊天",
     "description": "通用聊天，可以在额外信息里插入额外的内容。注入的信息会和已注入的知识进行去重，保证不破坏缓存以及减少重复注入。为了不破坏缓存，选取聊天系统提示词后无法切换",
-    "revision": 1.9,
+    "revision": 2.0,
     "exportedAt": "2026-09-24T21:56:59.309Z"
   },
   "bundle": {
@@ -95,8 +95,6 @@
           }
         ],
         "isNsfw": false,
-        "allowLlmCall": true,
-        "allowAgentCall": true,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -112,8 +110,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -129,8 +125,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -146,8 +140,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -163,8 +155,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       },
       {
@@ -180,8 +170,6 @@
         ],
         "inputs": [],
         "isNsfw": false,
-        "allowLlmCall": false,
-        "allowAgentCall": false,
         "agentCallMode": "generate_then_agent"
       }
     ]

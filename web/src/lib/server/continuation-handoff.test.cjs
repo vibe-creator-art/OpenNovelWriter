@@ -35,7 +35,7 @@ function fixture() {
         chapters: [{ id: 'chapter', title: 'CHAPTER', actNumber: 1, order: 0, scenes: [scene] }],
     }
     const template = `{% set selected = inputs["资料"].term | union(inputs["资料"].termTag) | union(termsfrom(scene.chapterOutline, inputs["资料"].snippet)) %}{{ selected.value }}\n{{ inputs["资料"].fullNovel.value }}\n{{ inputs["资料"].act.value }}\n{{ inputs["资料"].chapter.value }}\n{{ inputs["资料"].scene.value }}\n{{ inputs["资料"].actOutline.value }}\n{{ inputs["资料"].chapterOutline.value }}\n{{ inputs["资料"].snippet.value }}\n{{ scene.chapterOutline }}\n{{ scene.actOutline }}\n{{ scene.continue.previousText }}|{{ scene.continue.followText }}\n{{ inputs["字数"].value }}`
-    const prompt = { id: 'p', name: 'Writer', category: 'scene_continuation', inputs: [input, custom], messages: [{ role: 'user', content: template }], allowAgentCall: true, modelGroupIds: ['g2', 'g1'] }
+    const prompt = { id: 'p', name: 'Writer', category: 'scene_continuation', inputs: [input, custom], messages: [{ role: 'user', content: template }], modelGroupIds: ['g2', 'g1'] }
     const queries = []
     const db = {
         prompt: { findMany: async () => [prompt] },

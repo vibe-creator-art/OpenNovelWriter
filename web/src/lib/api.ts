@@ -648,8 +648,6 @@ export interface Prompt {
     inputs: PromptInputDefinition[]
     modelGroupIds: string[]
     modelSetIds: string[]
-    allowLlmCall: boolean
-    allowAgentCall: boolean
     agentCallMode: PromptAgentCallMode
     history?: RevisionHistoryItem[]
     isNsfw: boolean
@@ -740,8 +738,6 @@ export const promptApi = {
         isNsfw?: boolean
         modelGroupIds?: string[]
         modelSetIds?: string[]
-        allowLlmCall?: boolean
-        allowAgentCall?: boolean
         agentCallMode?: PromptAgentCallMode
     }) =>
         fetchApi<{ prompt: Prompt }>('/prompts', {
@@ -755,8 +751,6 @@ export const promptApi = {
                 isNsfw: data.isNsfw,
                 modelGroupIds: data.modelGroupIds,
                 modelSetIds: data.modelSetIds,
-                allowLlmCall: data.allowLlmCall,
-                allowAgentCall: data.allowAgentCall,
                 agentCallMode: data.agentCallMode,
             }),
         }),
@@ -773,8 +767,6 @@ export const promptApi = {
             isNsfw: boolean
             modelGroupIds: string[]
             modelSetIds: string[]
-            allowLlmCall: boolean
-            allowAgentCall: boolean
             agentCallMode: PromptAgentCallMode
         }>
     ) =>
@@ -804,8 +796,6 @@ export const promptApi = {
             messages: PromptMessage[]
             inputs: PromptInputDefinition[]
             isNsfw?: boolean
-            allowLlmCall?: boolean
-            allowAgentCall?: boolean
             agentCallMode?: PromptAgentCallMode
         }>
         overwriteExisting?: boolean

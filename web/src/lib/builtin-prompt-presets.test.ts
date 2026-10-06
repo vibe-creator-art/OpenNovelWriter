@@ -79,7 +79,7 @@ for (const asset of [continuationAsset, chatAsset]) {
     const entry = preset.bundle.prompts[0]
 
     test(`${entry.name}: the cloneable bundle includes AdditionalInfo and preserves the chat input contract`, () => {
-        assert.equal(preset.metadata.revision, 1.9)
+        assert.equal(preset.metadata.revision, 2.0)
         assert.ok(preset.bundle.prompts.some((prompt) => prompt.name === 'AdditionalInfo' && prompt.category === 'component'))
         const input = entry.inputs.find((input) => input.type === 'content_selection')
         assert.ok(input?.type === 'content_selection' && input.contentSelection.options.label.enabled)
@@ -225,7 +225,7 @@ for (const asset of [continuationAsset, chatAsset]) {
 test('scene summary preset separates its source block without changing manuscript whitespace', () => {
     const parsed = parsePromptPresetAsset(summaryAsset)
     assert.ok(parsed.ok, parsed.ok ? undefined : parsed.detail)
-    assert.equal(parsed.preset.metadata.revision, 1.5)
+    assert.equal(parsed.preset.metadata.revision, 1.6)
     const entry = parsed.preset.bundle.prompts[0]
     for (const sceneText of ['', '第一段。\n\n\n    第二段。\n\n```text\n  示例\n\n\n```']) {
         const rendered = renderPromptTemplateMessages({

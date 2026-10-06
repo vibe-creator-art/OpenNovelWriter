@@ -19,8 +19,6 @@ export type PromptDraft = Pick<
     | 'inputs'
     | 'modelGroupIds'
     | 'modelSetIds'
-    | 'allowLlmCall'
-    | 'allowAgentCall'
     | 'agentCallMode'
     | 'history'
     | 'isNsfw'
@@ -40,8 +38,6 @@ export type BundlePromptSource = {
     messages: PromptMessage[]
     inputs: Prompt['inputs']
     isNsfw?: boolean
-    allowLlmCall?: boolean
-    allowAgentCall?: boolean
     agentCallMode?: Prompt['agentCallMode']
 }
 
@@ -205,8 +201,6 @@ export function toPromptBundlePrompt(source: BundlePromptSource): PromptBundlePr
         messages: source.messages ?? [],
         inputs: source.inputs ?? [],
         isNsfw: source.isNsfw === true,
-        allowLlmCall: source.allowLlmCall === true,
-        allowAgentCall: source.allowAgentCall === true,
         agentCallMode: source.agentCallMode ?? 'generate_then_agent',
     }
 }

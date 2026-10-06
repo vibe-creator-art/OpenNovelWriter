@@ -42,8 +42,6 @@ const WRITABLE_FIELDS = new Set([
     'messages',
     'inputs',
     'isNsfw',
-    'allowLlmCall',
-    'allowAgentCall',
     'agentCallMode',
     'sortOrder',
 ])
@@ -55,8 +53,6 @@ type WritablePrompt = {
     messages: PromptMessage[]
     inputs: PromptInputDefinition[]
     isNsfw: boolean
-    allowLlmCall: boolean
-    allowAgentCall: boolean
     agentCallMode: PromptAgentCallMode
     sortOrder: number
 }
@@ -95,8 +91,6 @@ function promptRecordToWritable(record: PromptRecord): WritablePrompt {
         messages: dto.messages,
         inputs: dto.inputs,
         isNsfw: dto.isNsfw,
-        allowLlmCall: dto.allowLlmCall,
-        allowAgentCall: dto.allowAgentCall,
         agentCallMode: dto.agentCallMode,
         sortOrder: dto.sortOrder,
     }
@@ -259,10 +253,8 @@ function parseWritablePrompt(
         errors.push(`${label}.description must be a string or null.`)
     }
 
-    for (const key of ['isNsfw', 'allowLlmCall', 'allowAgentCall'] as const) {
-        if (object[key] !== undefined && typeof object[key] !== 'boolean') {
-            errors.push(`${label}.${key} must be a boolean.`)
-        }
+    if (object.isNsfw !== undefined && typeof object.isNsfw !== 'boolean') {
+        errors.push(`${label}.isNsfw must be a boolean.`)
     }
     if (object.sortOrder !== undefined && (typeof object.sortOrder !== 'number' || !Number.isFinite(object.sortOrder))) {
         errors.push(`${label}.sortOrder must be a finite number.`)
@@ -276,8 +268,6 @@ function parseWritablePrompt(
         messages,
         inputs,
         isNsfw: typeof object.isNsfw === 'boolean' ? object.isNsfw : base?.isNsfw ?? false,
-        allowLlmCall: component ? false : typeof object.allowLlmCall === 'boolean' ? object.allowLlmCall : base?.allowLlmCall ?? false,
-        allowAgentCall: component ? false : typeof object.allowAgentCall === 'boolean' ? object.allowAgentCall : base?.allowAgentCall ?? false,
         agentCallMode: component
             ? 'generate_then_agent'
             : object.agentCallMode !== undefined
@@ -496,8 +486,6 @@ function writableToDbData(prompt: WritablePrompt) {
         messagesJson: JSON.stringify(prompt.messages),
         inputsJson: JSON.stringify(prompt.inputs),
         isNsfw: prompt.isNsfw,
-        allowLlmCall: prompt.allowLlmCall,
-        allowAgentCall: prompt.allowAgentCall,
         agentCallMode: prompt.agentCallMode,
         sortOrder: prompt.sortOrder,
     }
@@ -572,8 +560,6 @@ function toExportPrompt(record: PromptRecord) {
         messages: dto.messages,
         inputs: dto.inputs,
         isNsfw: dto.isNsfw,
-        allowLlmCall: dto.allowLlmCall,
-        allowAgentCall: dto.allowAgentCall,
         agentCallMode: dto.agentCallMode,
         sortOrder: dto.sortOrder,
         sourcePresetId: dto.sourcePresetId,
