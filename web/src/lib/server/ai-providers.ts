@@ -2,7 +2,12 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { LanguageModel } from 'ai'
 import { isImageGenerationModel } from '@/lib/cherrystudio-model-config'
-import { getOpenCodeGoHeaders } from '@/lib/server/opencode-go'
+import {
+    getOpenCodeGoFetch,
+    isOpenCodeGoBaseUrl,
+    OPENCODE_GO_MODELS_URL,
+    OPENCODE_GO_USER_AGENT,
+} from '@/lib/server/opencode-go'
 import {
     parseOpenAiModelList,
     requireProviderModels,
@@ -38,10 +43,12 @@ export function resolveBaseUrl(providerType: ProviderType, value?: string | null
 }
 
 async function fetchOpenAiModels(baseUrl: string, apiKey: string): Promise<AiModel[]> {
-    const response = await fetch(`${baseUrl}/models`, {
+    const isGo = isOpenCodeGoBaseUrl(baseUrl)
+    const response = await fetch(isGo ? OPENCODE_GO_MODELS_URL : `${baseUrl}/models`, {
         headers: {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
+            ...(isGo ? { 'User-Agent': OPENCODE_GO_USER_AGENT } : {}),
         },
     })
 
@@ -54,6 +61,11 @@ async function fetchOpenAiModels(baseUrl: string, apiKey: string): Promise<AiMod
 }
 
 async function fetchGeminiModels(baseUrl: string, apiKey: string): Promise<AiModel[]> {
+    if (isOpenCodeGoBaseUrl(baseUrl)) {
+        const models = await fetchOpenAiModels(baseUrl, apiKey)
+        return models.filter((model) => model.id.startsWith('gemini-'))
+    }
+
     const response = await fetch(`${baseUrl}/models`, {
         headers: { 'x-goog-api-key': apiKey },
     })
@@ -103,7 +115,7 @@ export function createLanguageModel(options: {
     if (providerType === 'openai-chat') {
         return createOpenAICompatible({
             apiKey, baseURL, name: 'openaiChat',
-            headers: getOpenCodeGoHeaders(baseURL, options.sessionId),
+            fetch: getOpenCodeGoFetch(baseURL, options.sessionId),
         }).chatModel(modelId) as unknown as LanguageModel
     }
 
@@ -115,7 +127,10 @@ export function createLanguageModel(options: {
             modelId.startsWith('models/') || modelId.startsWith('tunedModels/')
                 ? modelId
                 : `models/${modelId}`
-        return createGoogleGenerativeAI({ apiKey, baseURL })(modelPath) as unknown as LanguageModel
+        return createGoogleGenerativeAI({
+            apiKey, baseURL,
+            fetch: getOpenCodeGoFetch(baseURL, options.sessionId),
+        })(modelPath) as unknown as LanguageModel
     }
 
     throw new Error('This connection format does not serve chat models.')

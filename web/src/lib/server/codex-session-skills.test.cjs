@@ -181,7 +181,7 @@ for (const category of Object.keys(sessionCategories)) {
 }
 
 test('OpenCode Go sessions keep separate headers across new turns, resume and compaction', async (t) => {
-    const { runtime, spawns, requests } = runtimeFixture('general', false, 'https://opencode.ai/zen/go/v1')
+    const { runtime, spawns, requests } = runtimeFixture('general', false, 'https://opencode.ai/inference/go/openai/v1')
     for (const [sessionId, operation] of [['general', 'new'], ['scene_continuation', 'new'], ['general', 'resume'], ['general', 'compact']]) {
         const run = runtime.reserveActiveCodexRun(sessionId)
         t.after(() => runtime.finishActiveCodexRun(run))

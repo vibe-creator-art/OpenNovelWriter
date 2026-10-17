@@ -777,7 +777,6 @@
             "menuItems": {
                 "presetCategories": "Preset Categories",
                 "customCategories": "Custom Categories",
-                "customDescriptionTemplate": "Custom Description Template",
                 "archivedEntries": "Archived Entries",
                 "displaySettings": "Display Settings",
                 "comingSoon": "More options coming soon"
@@ -828,10 +827,6 @@
                     "talents": "Talents",
                     "realms": "Realms"
                 }
-            },
-            "customTemplates": {
-                "title": "Custom Description Template",
-                "placeholder": "Coming soon"
             },
             "iconPicker": {
                 "title": "Choose Icon",

@@ -1,5 +1,5 @@
 // Generated from CherryStudio provider-registry data.
-// Providers: 2707d81b155c6c98.
+// Providers: 1b44511badb438e6.
 
 export const REGISTRY_PROVIDER_BASE_URLS: ReadonlyArray<readonly [string, string]> = [
   ["https://dashscope.aliyuncs.com/compatible-mode/v1", "dashscope"],
@@ -35,7 +35,7 @@ export const REGISTRY_PROVIDER_BASE_URLS: ReadonlyArray<readonly [string, string
   ["https://api.z.ai/api/anthropic", "zai"],
   ["https://api.siliconflow.cn/v1", "silicon"],
   ["https://deepseek.alayanew.com", "alayanew"],
-  ["https://opencode.ai/zen/go/v1", "opencode"],
+  ["https://opencode.ai/inference/go", "opencode"],
   ["https://api.githubcopilot.com", "copilot"],
   ["https://www.dmxapi.cn/v1beta", "dmxapi"],
   ["https://openrouter.ai/api/v1", "openrouter"],
@@ -72,7 +72,9 @@ export const REGISTRY_PROVIDER_BASE_URLS: ReadonlyArray<readonly [string, string
   ["https://www.dmxapi.cn", "dmxapi"],
   ["http://localhost:3000", "new-api"],
   ["http://localhost:1234", "lmstudio"],
+  ["http://localhost:4000", "litellm"],
   ["http://localhost:8000", "omlx"],
+  ["http://localhost:8188", "comfyui"],
   ["https://aihubmix.com", "aihubmix"],
   ["https://api.x.ai/v1", "grok"],
   ["https://api.jina.ai", "jina"],

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 
 import { isGptCodexModelId, normalizeCodexProviderModels, type CodexProviderModel } from '@/lib/codex-config'
+import { isOpenCodeGoBaseUrl } from '@/lib/server/opencode-go'
 
 export type CodexNativeModel = Record<string, unknown> & { slug: string }
 
@@ -55,7 +56,7 @@ export function resolveCodexProviderModels(models: CodexProviderModel[], nativeM
         if (!native) throw new Error(`The installed Codex model catalog does not include ${model.id}. Refresh or update Codex to use this model.`)
         return { ...nativeProviderModel(native), id: model.id }
     })
-    const isOpenCode = /^https:\/\/opencode\.ai\/zen\/(?:go\/)?v1\/*$/.test(baseUrl?.trim() ?? '')
+    const isOpenCode = isOpenCodeGoBaseUrl(baseUrl) || /^https:\/\/opencode\.ai\/zen\/v1\/*$/.test(baseUrl?.trim() ?? '')
     if (isOpenCode || !models.some((model) => isGptCodexModelId(model.id))) return resolved
     const ids = new Set(resolved.map((model) => model.id.toLowerCase()))
     for (const native of nativeModels) {

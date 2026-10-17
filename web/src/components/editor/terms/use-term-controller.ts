@@ -157,7 +157,6 @@ export function useTermController({
 
     const [customCategoriesOpen, setCustomCategoriesOpen] = useState(false)
     const [presetCategoriesOpen, setPresetCategoriesOpen] = useState(false)
-    const [customTemplatesOpen, setCustomTemplatesOpen] = useState(false)
     const [customCategoryName, setCustomCategoryName] = useState('')
     const [customCategoryError, setCustomCategoryError] = useState<string | null>(null)
     const [newCustomCategoryIcon, setNewCustomCategoryIcon] = useState<CustomCategoryIcon>({
@@ -1074,8 +1073,6 @@ export function useTermController({
         setCustomCategoriesOpen,
         presetCategoriesOpen,
         setPresetCategoriesOpen,
-        customTemplatesOpen,
-        setCustomTemplatesOpen,
         customCategoryName,
         setCustomCategoryName,
         customCategoryError,

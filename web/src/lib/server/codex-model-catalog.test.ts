@@ -57,7 +57,7 @@ test('OpenCode catalogs include only configured GPT models with their complete n
         }
         const newer = { ...native, slug: 'gpt-newer' }
         await fs.writeFile(path.join(directory, 'models_cache.json'), JSON.stringify({ models: [native, newer] }))
-        for (const baseUrl of ['https://opencode.ai/zen/go/v1', 'https://opencode.ai/zen/v1']) {
+        for (const baseUrl of ['https://opencode.ai/inference/go/openai/v1', 'https://opencode.ai/zen/v1']) {
             await writeCodexModelCatalog({
                 codexHome: directory, upstreamFormat: 'responses', baseUrl,
                 models: [createDefaultCodexProviderModel(native.slug)],

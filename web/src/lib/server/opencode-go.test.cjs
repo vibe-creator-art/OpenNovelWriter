@@ -7,9 +7,14 @@ const { createJiti } = require('jiti')
 
 const src = path.resolve(__dirname, '../..')
 const jiti = createJiti(__filename, { alias: { '@': src } })
-const { createLanguageModel } = jiti('@/lib/server/ai-providers')
+const { createLanguageModel, fetchModelsForProvider } = jiti('@/lib/server/ai-providers')
 const { createDefaultCodexProviderModel } = jiti('@/lib/codex-config')
-const baseUrl = 'https://opencode.ai/zen/go/v1'
+const { getCodexOpenCodeGoConfig, isOpenCodeGoBaseUrl } = jiti('@/lib/server/opencode-go')
+const { generateText, streamText } = require('ai')
+const baseUrl = 'https://opencode.ai/inference/go/openai/v1'
+const geminiBaseUrl = 'https://opencode.ai/inference/go/google/v1beta'
+const anthropicBaseUrl = 'https://opencode.ai/inference/go/anthropic/v1'
+const modelsUrl = 'https://opencode.ai/inference/go/v1/models'
 const sessionHeader = 'x-opencode-session'
 
 function load(relative, mocks) {
@@ -37,15 +42,16 @@ test('AI chat sends stable conversation headers only to the official Go endpoint
         return chatResponse()
     })
     const targets = [baseUrl, `${baseUrl}/`, baseUrl,
-        'https://opencode.ai/zen/v1', 'https://opencode.ai.example/zen/go/v1',
-        'http://opencode.ai/zen/go/v1', 'https://proxy.example/v1']
+        'https://opencode.ai/zen/v1', 'https://opencode.ai.example/inference/go/openai/v1',
+        'http://opencode.ai/inference/go/openai/v1', 'https://proxy.example/v1',
+        'https://opencode.ai/zen/go/v1']
     for (const [index, target] of targets.entries()) {
         const model = createLanguageModel({ providerType: 'openai-chat', apiKey: 'test-key',
             baseUrl: target, modelId: 'go-test', sessionId: index < 2 ? 'conversation-a' : 'conversation-b' })
-        await model.doGenerate({ prompt: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }] })
+        assert.equal((await generateText({ model, prompt: 'Hello' })).text, 'OK')
     }
     assert.deepEqual(requests.map(({ headers }) => headers.get(sessionHeader)),
-        ['conversation-a', 'conversation-a', 'conversation-b', null, null, null, null])
+        ['conversation-a', 'conversation-a', 'conversation-b', null, null, null, null, null])
     for (const request of requests.slice(0, 3)) {
         assert.match(request.headers.get('user-agent'), /^OpenNovelWriter\/0\.1\.0(?: |$)/)
         assert.equal(request.headers.get('authorization'), 'Bearer test-key')
@@ -64,10 +70,11 @@ test('Codex forwards each session through Responses, Chat and Anthropic without 
         return Response.json({ id: 'response-test', object: 'response', status: 'completed', output: [] })
     })
     const formats = ['responses', 'chat-completions', 'anthropic-messages']
+    const baseUrls = { responses: baseUrl, 'chat-completions': baseUrl, 'anthropic-messages': anthropicBaseUrl }
     const { handleCodexUpstreamRequest } = load('lib/server/codex-proxy/handler.ts', {
         '@/lib/db': { getPrismaClient: () => ({ codexConnection: { findFirst: async ({ where }) => ({
             id: where.id, ownerId: 'owner', upstreamFormat: where.id.replace('other-', ''),
-            baseUrl: where.id.startsWith('other-') ? 'https://proxy.example/v1' : baseUrl,
+            baseUrl: where.id.startsWith('other-') ? 'https://proxy.example/v1' : baseUrls[where.id],
             encryptedApiKey: 'test-key', modelsJson: JSON.stringify([createDefaultCodexProviderModel('go-test')]),
         }) } }) },
         '@/lib/server/ai-credentials': { decryptApiKey: (value) => value },
@@ -84,13 +91,134 @@ test('Codex forwards each session through Responses, Chat and Anthropic without 
             assert.equal(response.status, 200)
         }))
     }
-    for (const suffix of ['/responses', '/chat/completions', '/messages']) {
-        const goRequests = requests.filter(({ url }) => url === `${baseUrl}${suffix}`)
+    for (const [format, suffix] of Object.entries({ responses: '/responses', 'chat-completions': '/chat/completions', 'anthropic-messages': '/messages' })) {
+        const goRequests = requests.filter(({ url }) => url === `${baseUrls[format]}${suffix}`)
         assert.deepEqual(goRequests.map(({ headers }) => headers.get(sessionHeader)), ['session-a', 'session-b', 'session-a'])
         assert.ok(goRequests.every(({ headers }) => headers.get('user-agent') === 'OpenNovelWriter/0.1.0'))
         const otherRequests = requests.filter(({ url }) => url === `https://proxy.example/v1${suffix}`)
         assert.equal(otherRequests.length, 3)
         assert.ok(otherRequests.every(({ headers }) => !headers.has(sessionHeader) && headers.get('user-agent') === 'codex-test'))
+    }
+})
+
+test('Go Gemini discovers only Gemini models from the shared catalog', async (t) => {
+    const requests = []
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+        requests.push({ url: String(url), headers: new Headers(init.headers) })
+        return Response.json({ object: 'list', data: [
+            { id: 'gemini-4-argon-contributor' }, { id: 'kimi-k3' }, { id: 'gpt-6-luna' },
+        ] })
+    })
+    const models = await fetchModelsForProvider({ providerType: 'gemini', baseUrl: geminiBaseUrl, apiKey: 'test-key' })
+    assert.deepEqual(models, [{ id: 'gemini-4-argon-contributor', name: 'gemini-4-argon-contributor' }])
+    assert.equal(requests[0].url, modelsUrl)
+    assert.equal(requests[0].headers.get('authorization'), 'Bearer test-key')
+    assert.equal(requests[0].headers.get('user-agent'), 'OpenNovelWriter/0.1.0')
+    assert.equal(requests[0].headers.get(sessionHeader), null)
+})
+
+test('Google model discovery keeps its native endpoint and authentication', async (t) => {
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+        assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/models')
+        const headers = new Headers(init.headers)
+        assert.equal(headers.get('x-goog-api-key'), 'google-key')
+        assert.equal(headers.get('authorization'), null)
+        return Response.json({ models: [{ name: 'models/gemini-test', displayName: 'Gemini Test' }] })
+    })
+    assert.deepEqual(await fetchModelsForProvider({ providerType: 'gemini', apiKey: 'google-key' }),
+        [{ id: 'gemini-test', name: 'Gemini Test' }])
+})
+
+test('Go Gemini rejects an empty catalog and propagates upstream errors', async (t) => {
+    const options = { providerType: 'gemini', baseUrl: geminiBaseUrl, apiKey: 'test-key' }
+    const mock = t.mock.method(globalThis, 'fetch', async () => Response.json({ data: [{ id: 'kimi-k3' }] }))
+    await assert.rejects(fetchModelsForProvider(options), /No models are available/)
+    mock.mock.mockImplementation(async () => Response.json({ error: { message: 'Invalid Go key' } }, { status: 401 }))
+    await assert.rejects(fetchModelsForProvider(options), /Invalid Go key/)
+})
+
+test('Codex Go model discovery uses the shared catalog for all three formats', async (t) => {
+    const requests = []
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+        requests.push({ url: String(url), headers: new Headers(init.headers) })
+        return Response.json({ data: [{ id: 'go-test' }] })
+    })
+    const { POST } = load('app/api/codex/models/route.ts', {
+        '@/lib/auth': { getCurrentUser: async () => ({ userId: 'owner' }) },
+        '@/lib/db': { getPrismaClient: () => ({}) },
+    })
+    for (const [upstreamFormat, target] of [
+        ['responses', baseUrl], ['chat-completions', baseUrl], ['anthropic-messages', anthropicBaseUrl],
+    ]) {
+        const response = await POST(new Request('http://localhost/models', {
+            method: 'POST', body: JSON.stringify({ upstreamFormat, baseUrl: target, apiKey: 'test-key' }),
+        }))
+        assert.equal(response.status, 200)
+        assert.deepEqual(await response.json(), { models: [{ id: 'go-test', name: 'go-test' }] })
+    }
+    assert.ok(requests.every(({ url, headers }) => url === modelsUrl && headers.get('authorization') === 'Bearer test-key'))
+})
+
+test('Gemini uses native generation and streaming with stable Go sessions', async (t) => {
+    const requests = []
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+        requests.push({ url: String(url), headers: new Headers(init.headers), body: JSON.parse(init.body) })
+        const response = {
+            candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'OK', thoughtSignature: 'text-signature' }] }, finishReason: 'STOP' }],
+            usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 1, totalTokenCount: 3 },
+        }
+        return String(url).includes(':streamGenerateContent')
+            ? new Response(`data: ${JSON.stringify(response)}\n\n`, { headers: { 'content-type': 'text/event-stream' } })
+            : Response.json(response)
+    })
+    for (const [sessionId, stream] of [['conversation-a', false], ['conversation-a', true], ['conversation-b', false]]) {
+        const model = createLanguageModel({ providerType: 'gemini', apiKey: 'test-key', baseUrl: geminiBaseUrl,
+            modelId: 'gemini-4-argon-contributor', sessionId })
+        const options = { model, system: 'Write a story.', prompt: 'Continue.', maxOutputTokens: 128 }
+        if (stream) {
+            const result = streamText(options)
+            let text = ''
+            for await (const part of result.textStream) text += part
+            assert.equal(text, 'OK')
+            assert.equal(await result.reasoningText, undefined)
+        } else {
+            const result = await generateText(options)
+            assert.equal(result.text, 'OK')
+            assert.equal(result.reasoningText, undefined)
+        }
+    }
+    assert.deepEqual(requests.map(({ headers }) => headers.get(sessionHeader)), ['conversation-a', 'conversation-a', 'conversation-b'])
+    assert.deepEqual(requests.map(({ url }) => url), [
+        `${geminiBaseUrl}/models/gemini-4-argon-contributor:generateContent`,
+        `${geminiBaseUrl}/models/gemini-4-argon-contributor:streamGenerateContent?alt=sse`,
+        `${geminiBaseUrl}/models/gemini-4-argon-contributor:generateContent`,
+    ])
+    for (const { headers, body } of requests) {
+        assert.equal(headers.get('x-goog-api-key'), 'test-key')
+        assert.match(headers.get('user-agent'), /^OpenNovelWriter\/0\.1\.0(?: |$)/)
+        assert.deepEqual(body.systemInstruction, { parts: [{ text: 'Write a story.' }] })
+        assert.equal(body.generationConfig.maxOutputTokens, 128)
+    }
+})
+
+test('Gemini sends Go headers only to the current official endpoints', async (t) => {
+    const requests = []
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+        requests.push(new Headers(init.headers))
+        return Response.json({ candidates: [{ content: { role: 'model', parts: [{ text: 'OK' }] }, finishReason: 'STOP' }] })
+    })
+    for (const target of [geminiBaseUrl, 'https://generativelanguage.googleapis.com/v1beta',
+        'https://opencode.ai.example/inference/go/google/v1beta', 'https://proxy.example/v1beta']) {
+        const model = createLanguageModel({ providerType: 'gemini', baseUrl: target, apiKey: 'test-key', modelId: 'gemini-test', sessionId: 'conversation-a' })
+        await generateText({ model, prompt: 'Hello' })
+    }
+    assert.deepEqual(requests.map((headers) => headers.get(sessionHeader)), ['conversation-a', null, null, null])
+    for (const headers of requests.slice(1)) assert.doesNotMatch(headers.get('user-agent'), /OpenNovelWriter/)
+    assert.throws(() => createLanguageModel({ providerType: 'gemini', baseUrl: geminiBaseUrl, apiKey: 'test-key', modelId: 'gemini-test' }), /conversation ID/)
+    for (const target of [baseUrl, anthropicBaseUrl, geminiBaseUrl]) {
+        assert.equal(isOpenCodeGoBaseUrl(` ${target}/ `), true)
+        assert.deepEqual(getCodexOpenCodeGoConfig({ providerType: 'custom', baseUrl: target }, 'conversation-a'),
+            { 'model_providers.opennovelwriter.http_headers': { [sessionHeader]: 'conversation-a' } })
     }
 })
 

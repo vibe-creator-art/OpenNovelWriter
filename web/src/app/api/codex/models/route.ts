@@ -4,6 +4,7 @@ import { parseCodexUpstreamFormat } from '@/lib/codex-config'
 import { getPrismaClient } from '@/lib/db'
 import { decryptApiKey } from '@/lib/server/ai-credentials'
 import { fetchModelsForProvider } from '@/lib/server/ai-providers'
+import { isOpenCodeGoBaseUrl } from '@/lib/server/opencode-go'
 
 const prisma = getPrismaClient({ ensureModel: 'codexConnection' })
 
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ detail: 'Missing API key.' }, { status: 400 })
         }
 
-        const models = upstreamFormat === 'anthropic-messages'
+        const models = upstreamFormat === 'anthropic-messages' && !isOpenCodeGoBaseUrl(baseUrl)
             ? await fetchAnthropicModels(baseUrl, apiKey)
             : await fetchModelsForProvider({ providerType: 'openai-chat', apiKey, baseUrl })
 

@@ -38,7 +38,7 @@ test('OpenCode keeps only configured models while inheriting native GPT capabili
     const custom = createDefaultCodexProviderModel('custom-model')
     const configured = [custom, createDefaultCodexProviderModel('openai/gpt-future')]
     const nativeModels = [native, { ...native, slug: 'gpt-newer' }]
-    for (const baseUrl of ['https://opencode.ai/zen/go/v1', ' https://opencode.ai/zen/go/v1/ ', 'https://opencode.ai/zen/v1']) {
+    for (const baseUrl of ['https://opencode.ai/inference/go/openai/v1', ' https://opencode.ai/inference/go/openai/v1/ ', 'https://opencode.ai/zen/v1']) {
         const models = resolveCodexProviderModels(configured, nativeModels, baseUrl)
         assert.deepEqual(models.map((model) => model.id), ['custom-model', 'openai/gpt-future'])
         assert.deepEqual(models[0], custom)

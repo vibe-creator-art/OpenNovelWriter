@@ -777,7 +777,6 @@
             "menuItems": {
                 "presetCategories": "预设分类",
                 "customCategories": "自定义分类",
-                "customDescriptionTemplate": "自定义描述模板",
                 "archivedEntries": "归档词条",
                 "displaySettings": "显示设置",
                 "comingSoon": "更多选项即将推出"
@@ -828,10 +827,6 @@
                     "talents": "天赋",
                     "realms": "境界"
                 }
-            },
-            "customTemplates": {
-                "title": "自定义描述模板",
-                "placeholder": "即将推出"
             },
             "iconPicker": {
                 "title": "选择图标",

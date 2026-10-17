@@ -33,7 +33,7 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { Archive, BookText, ChevronDown, ChevronRight, Filter, FoldVertical, ImagePlus, List, Monitor, Plus, Search, Settings, Shapes, Trash2, UnfoldVertical } from 'lucide-react'
+import { Archive, ChevronDown, ChevronRight, Filter, FoldVertical, ImagePlus, List, Monitor, Plus, Search, Settings, Shapes, Trash2, UnfoldVertical } from 'lucide-react'
 import { DynamicIcon } from 'lucide-react/dynamic.mjs'
 import { TermEntryFloatingPanel } from '@/components/editor/terms/term-entry-floating-panel'
 import { TermEntryItem } from '@/components/editor/terms/term-entry-item'
@@ -104,8 +104,6 @@ export function LeftPanelTerms({
         setCustomCategoriesOpen,
         presetCategoriesOpen,
         setPresetCategoriesOpen,
-        customTemplatesOpen,
-        setCustomTemplatesOpen,
         customCategoryName,
         setCustomCategoryName,
         customCategoryError,
@@ -381,10 +379,6 @@ export function LeftPanelTerms({
                             <DropdownMenuItem onSelect={() => setCustomCategoriesOpen(true)}>
                                 <Shapes className="h-4 w-4" />
                                 <span>{t('terms.menuItems.customCategories')}</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setCustomTemplatesOpen(true)}>
-                                <BookText className="h-4 w-4" />
-                                <span>{t('terms.menuItems.customDescriptionTemplate')}</span>
                             </DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => setArchivedDialogOpen(true)}>
                                 <Archive className="h-4 w-4" />
@@ -800,20 +794,6 @@ export function LeftPanelTerms({
                             )
                         })}
                     </div>
-                </DialogContent>
-            </Dialog>
-
-            <Dialog open={customTemplatesOpen} onOpenChange={setCustomTemplatesOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>{t('terms.customTemplates.title')}</DialogTitle>
-                    </DialogHeader>
-                    <div className="text-sm text-muted-foreground">{t('terms.customTemplates.placeholder')}</div>
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={() => setCustomTemplatesOpen(false)}>
-                            {tCommon('confirm')}
-                        </Button>
-                    </DialogFooter>
                 </DialogContent>
             </Dialog>
 
